@@ -21,6 +21,7 @@ from google.oauth2.service_account import Credentials
 
 import nflverse_loader as nv
 import odds_client as oc
+import projections as pj
 
 # ============================================================================
 # CONFIGURATION
@@ -37,6 +38,14 @@ QUOTA_FLOOR_THIS_SPORT = int(os.getenv(f"{SPORT_LABEL}_ODDS_CREDIT_FLOOR", "500"
 # request per event per market batch adds up fast.
 PROPS_WINDOW_DAYS = int(os.getenv("NFL_PROPS_WINDOW_DAYS", "8"))
 SKIP_PROPS = os.getenv("NFL_SKIP_PROPS", "").lower() in {"1", "true", "yes"}
+
+# FantasyPros publishes separate ranking sets per format. The 'best-*' pages are
+# best ball (ecr_type bo/bp) — distinct from 'redraft-*' and 'dynasty-*'.
+BEST_BALL_PAGES = ["best-overall"]
+
+# Underdog best ball is 0.5 PPR with 4-point passing TDs. Override with
+# NFL_SCORING=ppr|half|standard|underdog if drafting a different format.
+SCORING = os.getenv("NFL_SCORING", pj.DEFAULT_SCORING)
 
 eastern = pytz.timezone("US/Eastern")
 
@@ -537,6 +546,27 @@ def main():
     team_stats = nv.load_team_stats(seasons=[stats_season])
     print(f"   team stats: {len(team_stats)} rows")
 
+    # Roster year runs ahead of the stats year — that's the point here, since
+    # projections need who's on which team NOW, not last season.
+    rosters_now = nv.load_rosters(seasons=[schedule_season])
+    if rosters_now.empty:
+        print(f"   ⚠️  no {schedule_season} rosters — falling back to {stats_season}")
+        rosters_now = nv.load_rosters(seasons=[stats_season])
+    print(f"   rosters {schedule_season}: {len(rosters_now)} rows")
+
+    print("\n📈 Projections")
+    best_ball_ecr = nv.load_ff_rankings("draft", page_types=BEST_BALL_PAGES)
+    ff_ids = nv.load_ff_playerids()
+    print(f"   best-ball consensus: {len(best_ball_ecr)} ranked")
+    print(f"   scoring: {SCORING} ({pj.SCORING_FORMATS.get(SCORING, '?')} per reception)")
+    projections = pj.build_projections(stats, rosters_now, best_ball_ecr, ff_ids,
+                                       scoring=SCORING)
+    if not projections.empty:
+        # Stamp the format so the dashboard can label the board rather than
+        # assuming PPR — the point totals are meaningless without it.
+        projections["scoring_format"] = SCORING
+    print(f"   projections: {len(projections)} players")
+
     print("\n📡 Odds API")
     odds = pd.DataFrame()
     props = pd.DataFrame()
@@ -590,6 +620,7 @@ def main():
         "DK_Player_Props": build_dk_props_tab(board),
         "All_Books_Props": build_all_books_props_tab(props),
         "Injuries": build_injuries_tab(injuries),
+        "Projections": projections,
         # Kept for reference / direct inspection
         "Games": games_tab,
         "Teams": build_teams_tab(teams),

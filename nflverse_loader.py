@@ -41,6 +41,10 @@ _ASSETS = {
     "schedules":         ("schedules", "games.parquet"),
     "players":           ("players", "players.parquet"),
     "teams":             ("teams", "teams_colors_logos.parquet"),
+    # Asset names for these two are unverified, so the direct fallback may 404.
+    # nflreadpy is the working path; _load_direct degrades to empty if it isn't.
+    "ff_rankings":       ("ff_rankings", "ff_rankings_draft.parquet"),
+    "ff_playerids":      ("ff_playerids", "ff_playerids.parquet"),
     "ngs_receiving":     ("nextgen_stats", "ngs_receiving.parquet"),
     "ngs_passing":       ("nextgen_stats", "ngs_passing.parquet"),
     "ngs_rushing":       ("nextgen_stats", "ngs_rushing.parquet"),
@@ -234,6 +238,24 @@ def load_injuries(seasons=None) -> pd.DataFrame:
 
 def load_rosters(seasons=None) -> pd.DataFrame:
     return _load("rosters", seasons=seasons, fn_name="load_rosters")
+
+
+def load_ff_rankings(rank_type="draft", page_types=None) -> pd.DataFrame:
+    """FantasyPros consensus rankings.
+
+    `page_type` selects the format: 'best-*' pages are BEST BALL (ecr_type
+    bo/bp), 'redraft-*' is standard redraft, plus dynasty and superflex sets.
+    Carries ecr, sd, best, worst (tiers + uncertainty) and bye weeks.
+    """
+    df = _load("ff_rankings", fn_name="load_ff_rankings", type=rank_type)
+    if page_types and not df.empty and "page_type" in df.columns:
+        df = df[df["page_type"].isin(page_types)]
+    return df.reset_index(drop=True)
+
+
+def load_ff_playerids() -> pd.DataFrame:
+    """Fantasy-platform ID crosswalk — maps fantasypros_id to gsis_id."""
+    return _load("ff_playerids", fn_name="load_ff_playerids")
 
 
 def load_players() -> pd.DataFrame:

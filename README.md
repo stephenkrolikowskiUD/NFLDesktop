@@ -46,6 +46,7 @@ Baseline spreads, totals, and moneylines come from nflverse at zero Odds API cos
 | `Injuries` | Report and practice status by week |
 | `PlayerProps` | Every prop quote per book, with no-vig fair probabilities and hold |
 | `PropsBoard` | Best price per player/market/line across all five books |
+| `Projections` | Season-long projections with best-ball consensus alongside |
 
 Tabs are only written when they have rows — an empty frame is skipped so a thin run can't wipe a tab that still holds usable data.
 
@@ -77,6 +78,39 @@ The engine reads `x-requests-last` after each call, so the log reports **actual*
 - **`espnbet` is in region `us2`**, not `us`. Querying `regions=us` returns four books and silently omits it — no error. Always pass `bookmakers=`, never `regions=`.
 - Market keys always use `yds`, never `yards`. The "longest" markets are inconsistently ordered: `player_pass_longest_completion` but `player_rush_longest`.
 - `player_pass_interceptions` is the QB throwing them; `player_defensive_interceptions` is the defender catching them.
+
+## Season-Long Projections & Best Ball
+
+`projections.py` produces per-player season projections for QB/RB/WR/TE, surfaced on the **Best Ball** tab.
+
+**Method:** per-game production rates from last season → shrunk toward a prior by sample size → scaled by projected availability → ranked by **value over replacement**, with FantasyPros best-ball consensus (ECR) shown alongside.
+
+Three design decisions worth knowing:
+
+1. **VORP, not raw points.** Raw projected points aren't comparable across positions — you start one QB but three WRs. Ranking by raw points puts every startable QB above every skill player and makes consensus look wrong about quarterbacks when it isn't.
+2. **The prior is consensus, fit per position.** Shrinking a player who missed time toward "average QB including third-stringers" buries him; consensus already knows Burrow is elite despite a short season. The curve is fit **separately per position**, because ECR is an *overall* rank — pick 56 is roughly QB6 (~300 pts) but WR30 (far fewer), and one global curve maps every mid-round QB to a skill player's total.
+3. **Model and consensus are never blended into one ranking.** Both are shown with the delta explicit. The model is **not backtested** — a disagreement is a prompt to look closer, not an edge.
+
+**Not modeled in v1** (each needs data we don't have, or would be a guess dressed as math): scheme/coaching changes, injury-return curves, explicit team pace/pass-rate context, and rookie production (nflverse carries no college data — rookies are imputed from consensus rank and flagged `rookie`).
+
+**Known unresolved biases** vs consensus, pending a backtest: the model runs ~11 ranks low on WRs and ~17 high on TEs. Both need historical validation, not parameter tuning.
+
+### Scoring
+
+Defaults to **Underdog** best ball: 0.5 per reception, 0.04/passing yard, **4-point passing TDs**, −1 per interception, 6-point rushing/receiving TDs, −2 fumble lost, 2 per 2-pt conversion.
+
+Points are computed from components rather than nflverse's `fantasy_points`, which uses generic standard scoring (6-point passing TDs, −2 interceptions) and would put projections on the wrong scale.
+
+| `NFL_SCORING` | Per reception |
+|---|---|
+| `underdog` (default) | 0.5 |
+| `half` | 0.5 |
+| `ppr` | 1.0 |
+| `standard` | 0.0 |
+
+Replacement levels assume Underdog's 12-team lineup (1 QB / 2 RB / 3 WR / 1 TE / 1 FLEX), with flex spots apportioned to RB and WR. Override via `build_projections(replacement_ranks=...)`.
+
+⚠️ Consensus ECR ordering is PPR-flavored, so in `standard` the point scale self-calibrates but the consensus *ordering* still reflects reception-heavy assumptions.
 
 ## Setup
 

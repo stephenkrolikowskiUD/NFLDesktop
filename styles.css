@@ -956,3 +956,36 @@ td.push{color:var(--push);font-weight:700}
   .dash-bottom{padding:0 32px}
   .dash-props .prop-card{width:calc(25% - 6px)}
 }
+
+/* --- NFL position badges (mirrors .draft-pos-* from the MLB baseline) --- */
+.draft-pos-qb{background:#06b6d422;color:#06b6d4;border:1px solid #06b6d444}
+.draft-pos-rb{background:var(--over-soft);color:var(--over);border:1px solid var(--over-line)}
+.draft-pos-wr{background:#8b5cf622;color:#8b5cf6;border:1px solid #8b5cf644}
+.draft-pos-te{background:var(--warn-soft);color:var(--warn);border:1px solid var(--warn-line)}
+
+/* --- Best ball board --- */
+.bb-wrap{overflow-x:auto;padding:0 16px 16px}
+.bb-wrap table{min-width:820px;width:100%;border-collapse:collapse}
+.bb-wrap th{position:sticky;top:0;background:var(--surface-1);color:var(--accent);
+  font-size:var(--t-xs);text-transform:uppercase;letter-spacing:.04em;
+  padding:8px 6px;text-align:right;white-space:nowrap;z-index:1}
+.bb-wrap th:nth-child(1),.bb-wrap th:nth-child(2){text-align:left}
+.bb-wrap td{padding:7px 6px;text-align:right;font-size:var(--t-sm);
+  border-bottom:1px solid var(--surface-2);white-space:nowrap}
+.bb-wrap td:nth-child(1),.bb-wrap td:nth-child(2){text-align:left}
+.bb-row-drafted{opacity:.38}
+.bb-row-drafted .bb-name{text-decoration:line-through}
+.bb-name{font-weight:600;color:var(--ink-0)}
+.bb-take{cursor:pointer;user-select:none;color:var(--ink-quiet);font-weight:700}
+.bb-take:hover{color:var(--accent)}
+/* Model-vs-consensus delta. Deliberately not styled as good/bad — a gap is a
+   question to look into, not a verdict, so both directions read as neutral. */
+.bb-delta-up{color:var(--smash);font-weight:600}
+.bb-delta-dn{color:var(--strong);font-weight:600}
+.bb-flag{font-size:var(--t-xs);padding:1px 5px;border-radius:4px;margin-left:4px;
+  background:var(--surface-2);color:var(--ink-muted);border:1px solid var(--border-1)}
+.bb-roster{display:flex;gap:8px;flex-wrap:wrap;padding:0 16px 10px}
+.bb-slot{background:var(--surface-1);border:1px solid var(--border-1);border-radius:var(--r-md);
+  padding:6px 10px;font-size:var(--t-xs);color:var(--ink-muted)}
+.bb-slot strong{color:var(--ink-0);font-size:var(--t-sm)}
+.bb-slot-need{border-color:var(--warn-line);color:var(--warn)}

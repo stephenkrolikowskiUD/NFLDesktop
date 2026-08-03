@@ -53,6 +53,17 @@ function loadDraftSlate(){
   }catch(e){return{signature:"",selectedIds:new Set()}}
 }
 
+const BEST_BALL_DRAFTED_KEY="nfl-bestball-drafted-v1";
+function loadBestBallDrafted(){
+  try{
+    const parsed=JSON.parse(localStorage.getItem(BEST_BALL_DRAFTED_KEY)||"[]");
+    return new Set(Array.isArray(parsed)?parsed.map(String):[]);
+  }catch(e){return new Set()}
+}
+function saveBestBallDrafted(){
+  try{localStorage.setItem(BEST_BALL_DRAFTED_KEY,JSON.stringify([...st.bbDrafted]))}catch(e){}
+}
+
 const initialDraftSlate=loadDraftSlate();
 let st={
   tonight:[],gameLogs:[],splits:[],weather:[],pitchers:[],schedule:[],
@@ -67,6 +78,7 @@ let st={
   picksView:"shortlist",propsMetric:"ALL",propsSearch:"",propsTeam:"ALL",propsSort:"EDGE",propsMinHit:"0",propsMinEdge:"5",
   streakFilter:"all",drafted:new Set(),slipLegs:"3",
   draftSlate:{signature:initialDraftSlate.signature,selectedIds:initialDraftSlate.selectedIds,panelOpen:false},
+  projections:[],bbPos:"ALL",bbSort:"VORP",bbHideDrafted:false,bbDrafted:loadBestBallDrafted(),
   vsSP:[],
   lkPlayer:null,lkResults:[],lkQuery:"",lkSubTab:"career",lkPlayerType:"skill",
   lkCareer:null,lkYby:null,lkVsTeamStats:null,lkVsPlayerId:null,
@@ -2472,12 +2484,161 @@ function renderPropExplorerView(){
   return html;
 }
 
+// ============================================================================
+// BEST BALL DRAFT BOARD
+// ============================================================================
+// Model projection and consensus are shown SIDE BY SIDE with the gap explicit,
+// never collapsed into one ranking. The model is unvalidated (no backtest), so
+// a disagreement is a prompt to look closer, not a signal to trust. Collapsing
+// them would hide exactly the information needed to judge that.
+
+// Underdog rosters are 18 deep with a 1 QB / 2 RB / 3 WR / 1 TE / 1 FLEX
+// lineup, so these are build targets for an 18-man draft, not lineup slots.
+const BB_ROSTER_TARGETS={QB:2,RB:5,WR:9,TE:2};
+const BB_ROSTER_SIZE=18;
+
+function bbRows(){
+  return (st.projections||[]).map(r=>({
+    id:String(rowField(r,"player_id")||rowField(r,"player_display_name")||""),
+    name:cleanName(rowField(r,"player_display_name","player_name")),
+    pos:String(rowField(r,"position","pos")||"").toUpperCase(),
+    team:rowField(r,"team_now","team_abbr")||"",
+    bye:rowField(r,"bye"),
+    ecr:toNum(rowField(r,"ecr")),
+    ecrSd:toNum(rowField(r,"ecr_sd")),
+    projPpr:toNum(rowField(r,"proj_ppr")),
+    projGames:toNum(rowField(r,"proj_games")),
+    vorp:toNum(rowField(r,"vorp")),
+    modelRank:toNum(rowField(r,"model_rank")),
+    posRank:toNum(rowField(r,"model_pos_rank")),
+    delta:toNum(rowField(r,"ecr_vs_model")),
+    confidence:String(rowField(r,"confidence")||""),
+    source:String(rowField(r,"proj_source")||"")
+  })).filter(r=>r.name&&r.pos);
+}
+
+function bbToggleDrafted(id){
+  if(st.bbDrafted.has(id))st.bbDrafted.delete(id);else st.bbDrafted.add(id);
+  saveBestBallDrafted();render();
+}
+function bbResetDraft(){st.bbDrafted=new Set();saveBestBallDrafted();render()}
+function bbSetPos(p){st.bbPos=p;render()}
+function bbSetSort(k){st.bbSort=k;render()}
+function bbToggleHide(){st.bbHideDrafted=!st.bbHideDrafted;render()}
+
+function renderBestBallRoster(rows){
+  const mine=rows.filter(r=>st.bbDrafted.has(r.id));
+  const byPos={};
+  mine.forEach(r=>{byPos[r.pos]=(byPos[r.pos]||0)+1});
+  const byeCounts={};
+  mine.forEach(r=>{if(r.bye)byeCounts[r.bye]=(byeCounts[r.bye]||0)+1});
+  const stacked=Object.entries(byeCounts).filter(([,n])=>n>=3)
+    .map(([wk,n])=>`Wk ${esc(wk)} (${n})`);
+
+  const slots=Object.entries(BB_ROSTER_TARGETS).map(([pos,target])=>{
+    const have=byPos[pos]||0;
+    return `<div class="bb-slot ${have<target?"bb-slot-need":""}">${pos} <strong>${have}</strong>/${target}</div>`;
+  }).join("");
+
+  return `<div class="bb-roster">
+    <div class="bb-slot ${mine.length>BB_ROSTER_SIZE?"bb-slot-need":""}">Drafted <strong>${mine.length}</strong>/${BB_ROSTER_SIZE}</div>
+    ${slots}
+    ${stacked.length?`<div class="bb-slot bb-slot-need">Bye stack: ${stacked.join(", ")}</div>`:""}
+  </div>`;
+}
+
+function renderBestBallView(){
+  const all=bbRows();
+  if(!all.length){
+    return `<section class="page"><div class="card" style="margin:16px">
+      <div class="card-title">No projections yet</div>
+      <p style="color:var(--ink-1);line-height:1.5">The engine hasn't written a <code>Projections</code> tab yet.
+      Run the NFL Engine workflow, then reload.</p></div></section>`;
+  }
+
+  const positions=["ALL","QB","RB","WR","TE"];
+  const posChips=positions.map(p=>
+    `<div class="sub-tab ${st.bbPos===p?"active":""}" onclick="bbSetPos('${p}')">${p}</div>`).join("");
+  const sorts=[["VORP","Value"],["ECR","Consensus"],["DELTA","Disagreement"]];
+  const sortChips=sorts.map(([k,l])=>
+    `<div class="sub-tab ${st.bbSort===k?"active":""}" onclick="bbSetSort('${k}')">${l}</div>`).join("");
+
+  let rows=st.bbPos==="ALL"?all:all.filter(r=>r.pos===st.bbPos);
+  if(st.bbHideDrafted)rows=rows.filter(r=>!st.bbDrafted.has(r.id));
+
+  rows=[...rows].sort((a,b)=>{
+    if(st.bbSort==="ECR"){
+      // Unranked players sort last rather than first, which is what a raw
+      // ascending sort on 0 would do.
+      const av=a.ecr||9999,bv=b.ecr||9999;return av-bv;
+    }
+    if(st.bbSort==="DELTA")return Math.abs(b.delta)-Math.abs(a.delta);
+    return b.vorp-a.vorp;
+  });
+
+  const body=rows.slice(0,300).map(r=>{
+    const drafted=st.bbDrafted.has(r.id);
+    const deltaCls=r.delta>0?"bb-delta-up":r.delta<0?"bb-delta-dn":"";
+    const deltaTxt=r.ecr?`${r.delta>0?"+":""}${r.delta.toFixed(0)}`:"—";
+    const flag=r.source==="ecr_imputed"?`<span class="bb-flag" title="No prior-season usage; placed from consensus rank">rookie</span>`
+      :r.confidence==="changed teams"?`<span class="bb-flag" title="Changed teams — prior usage is less predictive">new tm</span>`
+      :r.confidence==="partial season"||r.confidence==="small sample"?`<span class="bb-flag" title="${esc(r.confidence)}">${esc(r.confidence==="small sample"?"sm samp":"part szn")}</span>`:"";
+    return `<tr class="${drafted?"bb-row-drafted":""}">
+      <td><span class="bb-take" onclick="bbToggleDrafted('${esc(r.id)}')">${drafted?"↺":"+"}</span></td>
+      <td><span class="bb-name">${esc(r.name)}</span><span class="draft-pos draft-pos-${esc(r.pos.toLowerCase())}">${esc(r.pos)}</span>${flag}</td>
+      <td>${esc(r.team)}</td>
+      <td>${r.bye?esc(r.bye):"—"}</td>
+      <td>${r.projPpr?r.projPpr.toFixed(0):"—"}</td>
+      <td>${r.projGames?r.projGames.toFixed(1):"—"}</td>
+      <td>${r.vorp?r.vorp.toFixed(0):"—"}</td>
+      <td>${r.modelRank?r.modelRank.toFixed(0):"—"}</td>
+      <td>${r.ecr?r.ecr.toFixed(1):"—"}</td>
+      <td class="${deltaCls}">${deltaTxt}</td>
+    </tr>`;
+  }).join("");
+
+  return `<section class="page">
+    <div style="padding:12px 16px 4px">
+      <div style="color:var(--accent);font-size:var(--t-sm);font-weight:700">Best Ball Draft Board</div>
+      <div style="color:var(--ink-muted);font-size:var(--t-xs);line-height:1.5;margin-top:2px">
+${(()=>{const f=String(rowField((st.projections||[])[0]||{},"scoring_format")||"");
+          return f?`<span class="bb-flag">${esc(f)} scoring</span> `:""})()}
+        Model projection and FantasyPros best-ball consensus side by side.
+        <strong>Disagreement is a question, not an edge</strong> — this model has not been backtested,
+        and consensus is a strong baseline.
+      </div>
+    </div>
+    ${renderBestBallRoster(all)}
+    <div class="draft-controls" style="padding:0 16px 8px;display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+      ${posChips}<span style="width:10px"></span>${sortChips}
+      <div class="sub-tab ${st.bbHideDrafted?"active":""}" onclick="bbToggleHide()">Hide drafted</div>
+      <div class="draft-reset" onclick="bbResetDraft()" style="cursor:pointer;color:var(--ink-muted);font-size:var(--t-xs);margin-left:auto">Reset</div>
+    </div>
+    <div class="bb-wrap"><table>
+      <thead><tr>
+        <th></th><th>Player</th><th>Tm</th><th>Bye</th>
+        <th title="Projected season PPR points">Proj</th>
+        <th title="Projected games played">G</th>
+        <th title="Points above the last startable player at this position">VORP</th>
+        <th title="Model rank by VORP">Mdl</th>
+        <th title="FantasyPros best-ball expert consensus rank">ECR</th>
+        <th title="ECR minus model rank. Positive = model higher on the player than consensus.">Δ</th>
+      </tr></thead>
+      <tbody>${body}</tbody>
+    </table></div>
+    <div style="padding:0 16px 20px;color:var(--ink-quiet);font-size:var(--t-xs)">
+      Showing ${Math.min(rows.length,300)} of ${rows.length}. Consensus scraped by nflverse from FantasyPros.
+    </div>
+  </section>`;
+}
+
 function renderAppHeader({activeTab,showCtrl,player,metricOpts,curTonight}){
   const navItems=[
     ["dashboard","dash","Dash"],
     ["picks","picks","Picks"],
     ["leaders","leaders","Leaders"],
     ["entry","entry","Game Builder"],
+    ["bestball","dash","Best Ball"],
     ["lookup","lookup","Lookup"],
     ["stats","stats","Model Performance"],
     ["method","info","Info"],
@@ -2988,9 +3149,10 @@ function loadAllData(){
   fetchOptionalSheet("All_Books_Props"),
   fetchOptionalSheet("Player_vs_Defense"),
   fetchOptionalSheet("Team_Rankings"),
+  fetchOptionalSheet("Projections","Season projections are unavailable."),
   fetchOptionalSheet("Pick_Performance"),
   fetchOptionalSheet("Pick_Performance_Snapshots")
-]).then(([_,tonight,logs,splits,weather,pitchers,schedule,pTonight,pLogs,pSplits,currentPickSource,picksHistory,props,allBooksProps,vsSP,teamRankings,pickPerformance,pickPerformanceSnaps])=>{
+]).then(([_,tonight,logs,splits,weather,pitchers,schedule,pTonight,pLogs,pSplits,currentPickSource,picksHistory,props,allBooksProps,vsSP,teamRankings,projections,pickPerformance,pickPerformanceSnaps])=>{
   resetDerived();
   st.tonight=normalizeKeys(cleanRows(tonight));
   st.gameLogs=normalizeKeys(cleanRows(logs));
@@ -3022,9 +3184,12 @@ function loadAllData(){
 	  st.vsSP=normalizeKeys(cleanRows(vsSP));
 	  const teamRankingRows=normalizeKeys(cleanRows(teamRankings||[]));
 	  const teamRankingKeys=new Set(Object.keys(teamRankingRows[0]||{}).map(canonicalFieldKey));
-	  const hasTeamRankingSchema=['team_id','team_abbr','off_k_pct','pit_hr9'].every(key=>teamRankingKeys.has(key));
+	  // NFL team aggregates. The MLB baseline checked for off_k_pct/pit_hr9 here,
+	  // which no football tab will ever have — it silently zeroed the tab.
+	  const hasTeamRankingSchema=['team_abbr','passing_yards','rushing_yards'].every(key=>teamRankingKeys.has(key));
 	  st.teamRankings=hasTeamRankingSchema?teamRankingRows:[];
 	  if(teamRankingRows.length&&!hasTeamRankingSchema)console.warn('⚠️ Team_Rankings is not populated yet; ignoring GViz fallback data.');
+	  st.projections=normalizeKeys(cleanRows(projections||[]));
 	  st.pickPerformance=normalizeKeys(cleanRows(pickPerformance||[]));
 	  st.pickPerformanceSnaps=normalizeKeys(cleanRows(pickPerformanceSnaps||[]));
 	  const DASHBOARD_EXPECTS = {
