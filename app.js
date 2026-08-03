@@ -247,9 +247,16 @@ function rowField(row,...names){
 // every tab with a `_tab` sentinel column naming itself, and we verify it.
 function verifyTabIdentity(name,rows,fields){
   if(!rows.length)return;
-  if(!fields||!fields.includes("_tab"))return; // pre-sentinel tab; nothing to check
+  // Fail CLOSED. The engine stamps _tab on every tab it writes, so a missing
+  // sentinel means we were served something else — most likely the first sheet
+  // via the gviz fallback, or a tab written by an older engine build. Returning
+  // early here would silently accept exactly the wrong data we're guarding
+  // against, which is how "every tab has 272 rows" happens.
+  if(!fields||!fields.includes("_tab")){
+    throw new Error(`Unverifiable sheet "${name}": no _tab sentinel. Re-run the engine.`);
+  }
   const got=String(rows[0]._tab||"").trim();
-  if(got&&got!==name){
+  if(got!==name){
     throw new Error(`Wrong sheet: asked for "${name}", got "${got}" (tab likely missing)`);
   }
 }
@@ -550,7 +557,11 @@ function saveFocus(){const el=document.activeElement;if(el&&el.id)return{id:el.i
 function restoreFocus(f){if(!f)return;const el=document.getElementById(f.id);if(el){_restoring=true;el.focus();if(f.val!==undefined)el.value=f.val;if(el.setSelectionRange&&f.pos!==undefined)try{el.setSelectionRange(f.pos,f.pos)}catch(e){}_restoring=false}}
 
 let useProxy=false;
+const LOOKUP_PORTED=false; // flip when Lookup is rebuilt on nflverse
 async function mlbFetch(url){
+  // Deliberately inert. This called statsapi.mlb.com, which has no NFL data;
+  // leaving it live would search baseball players for football names.
+  if(!LOOKUP_PORTED)throw new Error("Lookup is not yet ported to nflverse.");
   try{const r=await fetch(url);if(!r.ok)throw new Error(r.status);return r.json()}
   catch(e){if(!useProxy){useProxy=true;return(await fetch("https://corsproxy.io/?"+encodeURIComponent(url))).json()}throw e}
 }
@@ -2522,6 +2533,17 @@ function renderPicksPage(activeTab,picksHTML){
 }
 
 function renderLookupPage(activeTab){
+  if(!LOOKUP_PORTED){
+    return`${renderAppHeader({activeTab,showCtrl:false,player:"",metricOpts:"",curTonight:[]})}
+      <div class="page"><div class="card" style="margin:16px">
+        <div class="card-title">Lookup is being rebuilt</div>
+        <p style="color:var(--ink-1);line-height:1.5">This page was powered by the MLB Stats API — career splits,
+        year-by-year, and head-to-head — which has no football equivalent, so it needs a rebuild rather than a rename.</p>
+        <p style="color:var(--ink-muted);line-height:1.5">It will be rebuilt on nflverse, which carries roughly 25,000 players
+        with a full ID crosswalk. In the meantime, <strong>Dash</strong> and <strong>Player Form</strong> cover
+        per-player usage and game logs.</p>
+      </div></div>`;
+  }
   const lk=st.lkPlayer;
   const lkC=st.lkPlayerType==="qb"?[{k:"gamesPlayed",l:"G"},{k:"gamesStarted",l:"GS"},{k:"wins",l:"W"},{k:"losses",l:"L"},{k:"era",l:"ERA"},{k:"inningsPitched",l:"IP"},{k:"strikeOuts",l:"SO"},{k:"baseOnBalls",l:"BB"},{k:"whip",l:"WHIP"},{k:"avg",l:"BAA"}]:[{k:"gamesPlayed",l:"G"},{k:"atBats",l:"AB"},{k:"hits",l:"H"},{k:"homeRuns",l:"HR"},{k:"rbi",l:"RBI"},{k:"runs",l:"R"},{k:"stolenBases",l:"SB"},{k:"baseOnBalls",l:"BB"},{k:"strikeOuts",l:"SO"},{k:"avg",l:"AVG"},{k:"obp",l:"OBP"},{k:"slg",l:"SLG"},{k:"ops",l:"OPS"}];
   const fv=(s,k)=>{if(!s)return"—";const v=s[k];return v===undefined||v===null?"—":v};
@@ -3006,26 +3028,25 @@ function loadAllData(){
 	  st.pickPerformance=normalizeKeys(cleanRows(pickPerformance||[]));
 	  st.pickPerformanceSnaps=normalizeKeys(cleanRows(pickPerformanceSnaps||[]));
 	  const DASHBOARD_EXPECTS = {
-	    Tonights_Batters: ['player_name', 'team_abbr', 'opp_abbr_tonight',
-	                       'RETURNING', 'LIMITED_SAMPLE', 'L5_GAMES_PLAYED',
-	                       'GAMES_LAST_7D', 'IBB_RISK', 'LINEUP_PROTECTION_NOTE'],
+	    Slate_Skill: ['player_name', 'team_abbr', 'opp_abbr', 'pos',
+	                  'targets', 'target_share', 'snap_pct', 'fantasy_points_ppr'],
+	    Slate_QB: ['player_name', 'team_abbr', 'opp_abbr',
+	               'attempts', 'passing_yards', 'passing_tds'],
 	    Picks_Current: ['DATE', 'RUN_NUMBER', 'player', 'prop_type', 'line', 'lean',
 	                  'confidence', 'rationale', 'HIT'],
 	    Daily_Picks: ['DATE', 'RUN_NUMBER', 'player', 'prop_type', 'line', 'lean',
 	                  'confidence', 'rationale', 'HIT'],
 	    DK_Player_Props: ['PLAYER_NAME', 'METRIC', 'DK_LINE', 'OVER_ODDS', 'UNDER_ODDS'],
 	    All_Books_Props: ['PLAYER_NAME', 'METRIC', 'LINE', 'BOOK', 'OVER_ODDS', 'UNDER_ODDS'],
-	    Tonights_Pitchers: ['team_abbr', 'opp_pitcher_name', 'opp_pitcher_hand'],
-	    Team_Rankings: ['TEAM_ABBR', 'OFF_K_PCT', 'OFF_K_PCT_MOST_RANK',
-	                    'PIT_HR9', 'PIT_HR_ALLOWED_MOST_RANK'],
+	    Team_Rankings: ['team_abbr', 'passing_yards', 'rushing_yards'],
 	  };
 	  const _schemaSources = {
-	    Tonights_Batters: st.tonight,
+	    Slate_Skill: st.tonight,
 	    Picks_Current: normalizedCurrentPicks,
 	    Daily_Picks: st.picksHistory,
 	    DK_Player_Props: st.props,
 	    All_Books_Props: st.allBooksProps,
-	    Tonights_Pitchers: st.pitchers,
+	    Slate_QB: st.pitchers,
 	    Team_Rankings: st.teamRankings,
 	  };
 	  const _schemaIssues = [];
@@ -3065,17 +3086,23 @@ function loadAllData(){
   if(st.pickGuard)console.warn(`⚠️ ${st.pickGuard.text}`);
   if(st.tonight.length>0)console.log(`   Skill player row 0 keys:`,Object.keys(st.tonight[0]).slice(0,8));
   if(st.pTonight.length>0)console.log(`   QB row 0 keys:`,Object.keys(st.pTonight[0]).slice(0,8));
-  if(!st.player)console.error(`❌ NO DEFAULT PLAYER FOUND. Skill player row 0:`,JSON.stringify(st.tonight[0]).slice(0,200));
-  if(!st.gameLogs.length)console.warn("⚠️ Batter_Game_Logs unavailable — dashboard loaded without game log history.");
-  if(!st.tonight.length)console.warn("⚠️ Tonights_Batters unavailable — dashboard loaded without skill-player rows.");
+  // JSON.stringify(undefined) returns undefined, not a string, so .slice()
+  // throws on an empty slate. Only reachable when no rows loaded at all —
+  // which is exactly when you most need the diagnostics to survive.
+  if(!st.player){
+    if(st.tonight.length)console.error(`❌ NO DEFAULT PLAYER FOUND. Skill player row 0:`,JSON.stringify(st.tonight[0]).slice(0,200));
+    else console.error("❌ NO DEFAULT PLAYER FOUND — Slate_Skill returned no rows.");
+  }
+  if(!st.gameLogs.length)console.warn("⚠️ Skill_Game_Logs unavailable — dashboard loaded without game log history.");
+  if(!st.tonight.length)console.warn("⚠️ Slate_Skill unavailable — dashboard loaded without skill-player rows.");
   if(!st.tonight.length&&!st.pTonight.length&&!st.props.length&&!st.picks.length){
-    st.error="Could not load MLB dashboard data. Google returned no usable rows for the current dashboard sheets.";
+    st.error="Could not load NFL dashboard data. Google returned no usable rows for the current dashboard sheets — has the engine run since the tab contract changed?";
   }
   render();
 }).catch(err=>{
   console.error("❌ Load failed:",err);
   st.loading=false;
-  st.error=err?.message?.startsWith("Sheet load failed:")?`Could not load required MLB sheet: ${err.message.replace("Sheet load failed: ","")}.`:"Could not load MLB dashboard data. A required sheet request failed.";
+  st.error=err?.message?.startsWith("Sheet load failed:")?`Could not load required NFL sheet: ${err.message.replace("Sheet load failed: ","")}.`:"Could not load NFL dashboard data. A required sheet request failed.";
   render();
 });
 }
