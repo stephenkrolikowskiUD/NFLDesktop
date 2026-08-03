@@ -33,6 +33,18 @@ const TABS = {
 // STATE
 // ============================================================================
 
+// Shown while the Sheets tabs load. Picked once per page load, not per render,
+// so the line doesn't flicker between re-renders.
+const LOADING_LINES = [
+  'Scheming up the next Philly Special',
+  'Drawing it up in the dirt',
+  'Sending the tight end in motion',
+  'Checking the numbers on fourth and short',
+  'Waiting on the coordinator to script it',
+  'Running it back through the film',
+];
+const loadingLine = LOADING_LINES[Math.floor(Math.random() * LOADING_LINES.length)];
+
 let data = { games: [], teams: [], playerForm: [], injuries: [], propsBoard: [] };
 let activeTab = 'dashboard';
 let loadState = 'loading'; // loading | ready | error
@@ -389,7 +401,11 @@ function render() {
   const app = document.getElementById('app');
 
   if (loadState === 'loading') {
-    app.innerHTML = `<div class="loading">Loading the slate…</div>`;
+    app.innerHTML = `
+      <div class="loading">
+        <div class="loading-title">Loading the slate</div>
+        <div class="loading-copy">${esc(loadingLine)}…</div>
+      </div>`;
     return;
   }
 
