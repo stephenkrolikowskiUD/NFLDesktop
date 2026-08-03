@@ -387,11 +387,11 @@ function getPickGuard(latestDate,picksCount){
   const today=easternTodayISO();
   if(!picksCount){
     return st.props.length
-      ?{level:"warn",text:"Engine issue — model picks are missing or incomplete for tonight's slate."}
-      :{level:"info",text:"No model picks for tonight yet. Props may still be loading."};
+      ?{level:"warn",text:"Engine issue — model picks are missing or incomplete for this week's slate."}
+      :{level:"info",text:"No model picks for this week yet. Props may still be loading."};
   }
   if(latestDate&&latestDate!==today)return{level:"warn",text:`Showing stale model picks from ${latestDate}. Engine may be incomplete.`};
-  if(picksCount<3&&st.props.length>=12)return{level:"warn",text:`Model picks look incomplete for tonight (${picksCount} loaded).`};
+  if(picksCount<3&&st.props.length>=12)return{level:"warn",text:`Model picks look incomplete for this week (${picksCount} loaded).`};
   return null;
 }
 function renderPickGuard(guard){
@@ -1003,11 +1003,11 @@ function renderShortlistTray(){
 
 function renderTonightShortlist(){
   const rows=getTonightShortlist();
-  if(!rows.length)return`<section class="shortlist-shell"><div class="shortlist-head"><div><div class="analysis-eyebrow">Tonight's decision board</div><div class="shortlist-title">Tonight's Shortlist</div><div class="shortlist-sub">Only unlocked, adequately sampled props with actionable prices, +5% edge, and no active model or lineup warning qualify.</div></div><div class="shortlist-rule">Strict mode · passing allowed</div></div>${renderShortlistTray()}<div class="props-pass" style="margin:0"><div class="props-pass-title">No play clears every gate tonight</div><div class="props-pass-copy">The data loaded correctly; the board is declining to promote a weak or conflicted option. Prop Explorer still contains the wider research set.</div></div></section>`;
+  if(!rows.length)return`<section class="shortlist-shell"><div class="shortlist-head"><div><div class="analysis-eyebrow">This week's decision board</div><div class="shortlist-title">This Week's Shortlist</div><div class="shortlist-sub">Only unlocked, adequately sampled props with actionable prices, +5% edge, and no active model or lineup warning qualify.</div></div><div class="shortlist-rule">Strict mode · passing allowed</div></div>${renderShortlistTray()}<div class="props-pass" style="margin:0"><div class="props-pass-title">No play clears every gate this week</div><div class="props-pass-copy">The data loaded correctly; the board is declining to promote a weak or conflicted option. Prop Explorer still contains the wider research set.</div></div></section>`;
   const avgEdge=rows.reduce((sum,row)=>sum+row.edge,0)/rows.length;
   const aiBacked=rows.filter(row=>row.hasAI).length;
   const markets=new Set(rows.map(row=>row.metric)).size;
-  return`<section class="shortlist-shell"><div class="shortlist-head"><div><div class="analysis-eyebrow">Tonight's decision board</div><div class="shortlist-title">Tonight's Shortlist</div><div class="shortlist-sub">Qualified opportunities only: +5% modeled edge, playable price, 5+ decisive games, no sample warning, no lineup risk, no model disagreement, and not locked.</div></div><div class="shortlist-rule">Ranked by conviction</div></div><div class="shortlist-kpis"><div class="shortlist-kpi"><strong>${rows.length}</strong><span>Qualified</span></div><div class="shortlist-kpi"><strong>+${(avgEdge*100).toFixed(1)}%</strong><span>Average edge</span></div><div class="shortlist-kpi"><strong>${aiBacked}</strong><span>AI backed</span></div><div class="shortlist-kpi"><strong>${markets}</strong><span>Markets</span></div></div>${renderShortlistTray()}<div class="shortlist-grid">${rows.map((row,index)=>{
+  return`<section class="shortlist-shell"><div class="shortlist-head"><div><div class="analysis-eyebrow">This week's decision board</div><div class="shortlist-title">This Week's Shortlist</div><div class="shortlist-sub">Qualified opportunities only: +5% modeled edge, playable price, 5+ decisive games, no sample warning, no lineup risk, no model disagreement, and not locked.</div></div><div class="shortlist-rule">Ranked by conviction</div></div><div class="shortlist-kpis"><div class="shortlist-kpi"><strong>${rows.length}</strong><span>Qualified</span></div><div class="shortlist-kpi"><strong>+${(avgEdge*100).toFixed(1)}%</strong><span>Average edge</span></div><div class="shortlist-kpi"><strong>${aiBacked}</strong><span>AI backed</span></div><div class="shortlist-kpi"><strong>${markets}</strong><span>Markets</span></div></div>${renderShortlistTray()}<div class="shortlist-grid">${rows.map((row,index)=>{
     const edgePct=(row.edge*100).toFixed(1);
     const hitPct=(row.hitRate*100).toFixed(0);
     const impliedPct=(row.impliedProb*100).toFixed(0);
@@ -1205,7 +1205,7 @@ function renderConvergenceHTML(){
   const board=getConvergenceBoard();
   if(!board.length)return"";
   const top=board[0];
-  return `<div class="convergence-shell"><details class="convergence-details"><summary class="convergence-toggle"><div class="convergence-title"><div style="color:var(--accent);font-size:var(--t-sm);font-weight:700">${icon("picks")}Players of the Day</div><div style="color:var(--ink-muted);font-size:var(--t-xs)">Cross-tab convergence from market edge, model picks, Streaks, and Dingers.</div></div><div class="convergence-kpis"><span class="convergence-chip"><strong style="color:var(--accent)">${top.sourceCount}</strong> top</span><span class="convergence-chip"><strong>${board.length}</strong> 2+</span><span class="convergence-chip"><strong style="color:var(--over)">${board.filter(p=>p.sourceCount>=3).length}</strong> 3+</span></div></summary><div class="convergence-body"><div class="bet-summary">
+  return `<div class="convergence-shell"><details class="convergence-details"><summary class="convergence-toggle"><div class="convergence-title"><div style="color:var(--accent);font-size:var(--t-sm);font-weight:700">${icon("picks")}Players of the Day</div><div style="color:var(--ink-muted);font-size:var(--t-xs)">Cross-tab convergence from market edge, model picks, Streaks, and TDs.</div></div><div class="convergence-kpis"><span class="convergence-chip"><strong style="color:var(--accent)">${top.sourceCount}</strong> top</span><span class="convergence-chip"><strong>${board.length}</strong> 2+</span><span class="convergence-chip"><strong style="color:var(--over)">${board.filter(p=>p.sourceCount>=3).length}</strong> 3+</span></div></summary><div class="convergence-body"><div class="bet-summary">
     <div class="bs-card"><div class="bs-val" style="color:var(--accent)">${top.sourceCount}</div><div class="bs-lbl">TOP SIGNALS</div></div>
     <div class="bs-card"><div class="bs-val">${board.length}</div><div class="bs-lbl">2+ SURFACES</div></div>
     <div class="bs-card"><div class="bs-val" style="color:var(--over)">${board.filter(p=>p.sourceCount>=3).length}</div><div class="bs-lbl">3+ MATCHES</div></div>
@@ -1652,7 +1652,7 @@ const STATS_BREAK_EVEN=0.524;
 
 function entryField(row,keys){for(const k of keys){if(row&&row[k]!==undefined&&row[k]!==null&&String(row[k]).trim()!=='')return row[k]}return ''}
 function entryMetric(m){return typeof normalizePropMetric==='function'?normalizePropMetric(m):(typeof normalizePropName==='function'?normalizePropName(m):String(m||'').trim().toUpperCase())}
-function entryPropLabel(metric){const key=entryMetric(metric);const labels={P_SO:"Pitcher strikeouts",P_H:"Hits allowed",P_BB:"Walks allowed",P_ER:"Earned runs allowed",P_OUTS:"Pitching outs"};return labels[key]||propTypeLabel(key)}
+function entryPropLabel(metric){const key=entryMetric(metric);const labels={P_SO:"Passing yards",P_H:"Hits allowed",P_BB:"Walks allowed",P_ER:"Earned runs allowed",P_OUTS:"Pitching outs"};return labels[key]||propTypeLabel(key)}
 function entryTeam(row){return String(entryField(row,['team_abbr','TEAM_ABBREVIATION','TEAM','team','teamAbbr','TEAM_ABBR'])||'').trim().toUpperCase()}
 function entryOpp(row){return String(entryField(row,['opp_abbr_tonight','TONIGHT_OPP','OPP','opponent','OPPONENT','opp'])||'').trim().toUpperCase()}
 function entryPlayer(row){return cleanName(entryField(row,['player_name','PLAYER_NAME','PLAYER','player','Player']))}
@@ -1813,7 +1813,7 @@ function getDailyLeaders(metric){
 function renderDailyLeaders(){
   const metric=st.statsLeaderMetric||"H";
   const board=getDailyLeaders(metric);
-  const labels={H:"Hits",HR:"Home runs",RBI:"RBI",P_SO:"Pitcher strikeouts"};
+  const labels={H:"Hits",HR:"Home runs",RBI:"RBI",P_SO:"Passing yards"};
   const metricLabel=labels[metric]||metric;
   const dateLabel=board.date?new Date(`${board.date}T12:00:00`).toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"}):"Latest completed slate";
   const live=board.mode==="live";
@@ -2138,15 +2138,15 @@ function renderDingerBoardView(convergenceHTML){
   const db=getDingerBoard();
   if(!db.length){
     const missing=[];
-    if(!st.tonight.length)missing.push("tonight's batters");
+    if(!st.tonight.length)missing.push("this week's skill players");
     if(!st.gameLogs.length)missing.push("batter game logs");
     const detail=missing.length
       ?`Google Sheets did not return ${missing.join(" or ")} on this page load.`
-      :"No eligible hitters had usable at-bats and game-log history.";
+      :"No eligible players had usable snaps and game-log history.";
     return convergenceHTML+`<div class="empty" style="padding:40px;text-align:center"><div style="font-weight:800;color:var(--ink-1)">Dinger Board unavailable</div><div style="margin-top:6px">${detail}</div><button class="refresh-btn" style="margin-top:12px" onclick="loadAllData()">${icon("refresh")}Retry data load</button></div>`;
   }
-  let html=convergenceHTML+`<div class="dinger-header"><div class="dinger-title">Tonight's Dinger Board</div></div>
-  <div class="dinger-desc">Ranked by hitter power, recent form, opposing-starter quality, and sportsbook price. Top 3 are 🔥.</div>`;
+  let html=convergenceHTML+`<div class="dinger-header"><div class="dinger-title">This Week's TD Board</div></div>
+  <div class="dinger-desc">Ranked by red-zone usage, recent form, opposing-starter quality, and sportsbook price. Top 3 are 🔥.</div>`;
   html+=`<div class="cards-grid">`;
   html+=db.map((d,i)=>{
     const isTop=i<3;
@@ -2157,10 +2157,10 @@ function renderDingerBoardView(convergenceHTML){
     const matchupGrade=matchupAdjustment===null
       ?null
       :matchupAdjustment>=2
-        ?{label:"Favorable pitcher matchup",color:"var(--over)"}
+        ?{label:"Favorable defensive matchup",color:"var(--over)"}
         :matchupAdjustment<=-2
-          ?{label:"Tough pitcher matchup",color:"var(--under)"}
-          :{label:"Neutral pitcher matchup",color:"var(--ink-muted)"};
+          ?{label:"Tough defensive matchup",color:"var(--under)"}
+          :{label:"Neutral defensive matchup",color:"var(--ink-muted)"};
     const opponentRanking=getTeamRanking(d.opp);
     const teamContext=opponentRanking?`${esc(d.opp)} staff · ${teamRankValue(opponentRanking,"PIT_HR9","PIT_HR9_MOST_RANK",{digits:2,suffix:" HR/9",direction:"most"})}`:"";
     const locked=getLockInfo(d.name,false).started;
@@ -2189,8 +2189,8 @@ function renderKsBoardView(convergenceHTML){
   if(!kb.length){
     return convergenceHTML+`<div class="empty" style="padding:40px">No Ks data available. Run the engine first.</div>`;
   }
-  let html=convergenceHTML+`<div class="dinger-header"><div class="dinger-title">Tonight's K Board</div></div>
-  <div class="dinger-desc">Projected Ks blend season, L7, and L3 form, then adjust for the opponent's strikeout rate. Sportsbook price breaks close calls.</div>`;
+  let html=convergenceHTML+`<div class="dinger-header"><div class="dinger-title">This Week's Passing Board</div></div>
+  <div class="dinger-desc">Projected Ks blend season, L7, and L3 form, then adjust for the opponent's pass defense. Sportsbook price breaks close calls.</div>`;
   html+=`<div class="cards-grid">`;
   html+=kb.map((d,i)=>{
     const isTop=i<3;
@@ -2306,7 +2306,7 @@ function renderDraftBoardView(convergenceHTML){
         });
         html+=`</div>`;
         if(stacks.length){
-          html+=`<div style="padding:14px 16px 4px;color:var(--accent);font-size:var(--t-sm);font-weight:700">⚡ Stacks</div><div style="padding:0 16px 6px;color:var(--ink-muted);font-size:var(--t-xs)">Top 2-player hitter stacks ranked by combined UD projection, weak-pitcher targets, and Coors boosts.</div><div class="cards-grid">`;
+          html+=`<div style="padding:14px 16px 4px;color:var(--accent);font-size:var(--t-sm);font-weight:700">⚡ Stacks</div><div style="padding:0 16px 6px;color:var(--ink-muted);font-size:var(--t-xs)">Top 2-player stacks ranked by combined UD projection, weak-pitcher targets, and Coors boosts.</div><div class="cards-grid">`;
           html+=stacks.map((s,i)=>`<div class="bet-card ${i===0?"elite":"mid"}" style="cursor:default"><div class="bet-left"><div class="bet-name">${playerLink(s.players[0].name)} + ${playerLink(s.players[1].name)}</div><div class="bet-meta">${esc(s.team)} vs ${esc(s.pitcher)}${s.era?` · ERA ${s.era.toFixed(2)}`:""}${s.venue?` · ${esc(s.venue)}`:""}</div><div class="draft-tags" style="margin-top:6px">${s.tags.map(tag=>`<span class="draft-tag" style="background:${tag.includes("CORRELATED")?"#60a5fa22":tag.includes("HIGH TOTAL")?"var(--warn-soft)":"#34d39922"};color:${tag.includes("CORRELATED")?"#60a5fa":tag.includes("HIGH TOTAL")?"var(--warn)":"#34d399"}">${tag}</span>`).join("")}</div></div><div class="bet-right"><div class="bet-edge pos">${s.combinedProj}</div><div class="bet-sub">UD FP</div></div></div>`).join("");
           html+=`</div>`;
         }
@@ -2321,7 +2321,7 @@ function renderBetsBoardView(convergenceHTML){
       const elite=posEV.filter(b=>b.edge>=0.15);
       const strong=posEV.filter(b=>b.edge>=0.08&&b.edge<0.15);
       if(!allBets.length){html=convergenceHTML+`<div class="empty" style="padding:40px">No props available for +EV analysis. Run the engine with DK props first.</div>`}
-      else if(!posEV.length){html=convergenceHTML+`<div class="props-pass"><div class="props-pass-title">No actionable market edges tonight</div><div class="props-pass-copy">No eligible side clears both the +5% edge floor and the ${MARKET_EDGE_MIN_ODDS} price floor. Passing is better than promoting a heavily juiced near-certainty.</div></div>`}
+      else if(!posEV.length){html=convergenceHTML+`<div class="props-pass"><div class="props-pass-title">No actionable market edges this week</div><div class="props-pass-copy">No eligible side clears both the +5% edge floor and the ${MARKET_EDGE_MIN_ODDS} price floor. Passing is better than promoting a heavily juiced near-certainty.</div></div>`}
       else{
         html=convergenceHTML+`<div class="bet-summary"><div class="bs-card"><div class="bs-val">${posEV.length}</div><div class="bs-lbl">+EV PROPS</div></div><div class="bs-card"><div class="bs-val" style="color:var(--under)">${elite.length}</div><div class="bs-lbl">ELITE (15%+)</div></div><div class="bs-card"><div class="bs-val" style="color:var(--accent)">${strong.length}</div><div class="bs-lbl">STRONG (8%+)</div></div><div class="bs-card"><div class="bs-val" style="color:var(--ink-muted)">${allBets.length}</div><div class="bs-lbl">ANALYZED</div></div></div>`;
         html+=`<div style="padding:0 16px 4px;color:var(--ink-muted);font-size:var(--t-xs)">Edge = Your hit rate − DK implied probability. Higher = more value. Min 3 games of data.</div>`;
@@ -2438,7 +2438,7 @@ function renderPropExplorerView(){
       const sorted=filtered.slice(0,200);
       const playerCount=new Set(filtered.map(row=>normalizePlayerName(row.prop.PLAYER_NAME))).size;
       const teamBoardHTML=renderPropsTeamBoard(st.propsTeam,rankedProps);
-      html=`<div style="padding:14px 16px 0"><div class="analysis-eyebrow">Market research</div><div style="font-family:'Barlow Condensed',system-ui,sans-serif;font-size:var(--t-xl);font-weight:800;color:var(--ink-0)">Prop Explorer</div><div style="color:var(--ink-muted);font-size:var(--t-xs);margin-top:2px">Explore tonight's available markets. Default view shows only props with at least +5% modeled edge.</div></div><div class="props-toolbar">
+      html=`<div style="padding:14px 16px 0"><div class="analysis-eyebrow">Market research</div><div style="font-family:'Barlow Condensed',system-ui,sans-serif;font-size:var(--t-xl);font-weight:800;color:var(--ink-0)">Prop Explorer</div><div style="color:var(--ink-muted);font-size:var(--t-xs);margin-top:2px">Explore this week's available markets. Default view shows only props with at least +5% modeled edge.</div></div><div class="props-toolbar">
         <div class="props-control props-control-search"><label for="propsSearchInput">Player or team</label><input type="text" id="propsSearchInput" placeholder="Search Harper, TOR, Blue Jays..." value="${esc(st.propsSearch)}"/></div>
         <div class="props-control"><label for="propsTeamSelect">Team</label><select id="propsTeamSelect"><option value="ALL">All teams</option>${allTeams.map(team=>`<option value="${esc(team)}" ${st.propsTeam===team?"selected":""}>${esc(teamDisplayName(team))} (${esc(team)})</option>`).join("")}</select></div>
         <div class="props-control"><label for="propsSortSelect">Rank by</label><select id="propsSortSelect"><option value="EDGE" ${st.propsSort==="EDGE"?"selected":""}>Edge %</option><option value="HIT" ${st.propsSort==="HIT"?"selected":""}>Hit %</option><option value="SCORE" ${st.propsSort==="SCORE"?"selected":""}>Research score</option><option value="PLAYER" ${st.propsSort==="PLAYER"?"selected":""}>Player name</option></select></div>
@@ -2503,13 +2503,13 @@ function renderAppHeader({activeTab,showCtrl,player,metricOpts,curTonight}){
 
 function renderPicksPage(activeTab,picksHTML){
   const views=[
-    ["shortlist","Tonight's Shortlist"],
+    ["shortlist","This Week's Shortlist"],
     ["slips","Slips"],
     ["picks","Model Picks"],
     ["draft","Draft"],
     ["streaks","Streaks"],
-    ["dingers","Dingers"],
-    ["ks","Ks"],
+    ["dingers","TDs"],
+    ["ks","Passing"],
     ["props","Prop Explorer"],
   ];
   const tabs=views.map(([view,label])=>`<div class="sub-tab ${st.picksView===view?"active":""}" onclick="switchPicksView('${view}')">${label}</div>`).join("");
@@ -2517,7 +2517,7 @@ function renderPicksPage(activeTab,picksHTML){
     <div id="pg-picks" class="page ${activeTab==="picks"?"active":""}">
       <div class="sub-tabs" style="padding-top:12px">${tabs}</div>
       <div class="cards-wrap">${picksHTML}</div>
-      <div class="timestamp">Data from MLB Dashboard Engine · DraftKings via The Odds API</div>
+      <div class="timestamp">Data from nflverse · multi-book pricing via The Odds API</div>
     </div>`;
 }
 
@@ -2567,19 +2567,19 @@ function renderLookupPage(activeTab){
       <section class="lookup-search-shell"><div class="lookup-search-inner"><div class="lookup-search-kicker">MLB player database</div><div class="lookup-search-title">Player lookup</div><div class="search-wrap lookup-search-wrap"><input type="search" id="lkSearch" placeholder="Search any active MLB player" value="${esc(st.lkQuery)}" autocomplete="off"/>${lkSugs}</div></div></section>
       ${st.lookupError?`<div class="lookup-warning" role="status">${esc(st.lookupError)}</div>`:""}
       ${profile}
-      <div class="timestamp">Data from MLB Stats API · Live</div>
+      <div class="timestamp">Data from nflverse · Live</div>
     </div>`;
 }
 
 function renderMethodPage(activeTab){
   return `<div id="pg-method" class="page ${activeTab==="method"?"active":""}">
     <div style="padding:16px"><div style="text-align:center;margin-bottom:16px"><div style="font-size:28px;margin-bottom:4px">⚾</div><div style="color:var(--accent);font-weight:800;font-size:var(--t-md)">How This Dashboard Works</div><div style="color:var(--accent-soft);font-size:var(--t-xs);margin-top:4px">Under the hood of the MLB DFS Engine</div></div>
-      <div class="card" style="margin-bottom:10px"><div class="card-title">📡 Data Sources</div><div style="font-size:var(--t-sm);color:var(--ink-1);line-height:1.6"><div style="margin-bottom:6px"><span style="color:var(--accent);font-weight:700">MLB Stats API</span> — Batter/pitcher game logs, splits, career vs SP, tonight's schedule.</div><div style="margin-bottom:6px"><span style="color:var(--accent);font-weight:700">The Odds API</span> — Live spreads, totals, and player props across 13 markets.</div><div style="margin-bottom:6px"><span style="color:var(--accent);font-weight:700">OpenWeather</span> — Venue weather (temp, wind, conditions) for outdoor parks.</div><div><span style="color:var(--accent);font-weight:700">Google Sheets</span> — Central warehouse. Engine writes 14+ tabs; app reads live.</div></div></div>
-      <div class="card" style="margin-bottom:10px"><div class="card-title">⚙️ Calculations</div><div style="font-size:var(--t-sm);color:var(--ink-1);line-height:1.6"><span style="color:var(--accent);font-weight:700">Rolling Averages</span> L7/L14/L30/Season · <span style="color:var(--accent);font-weight:700">LHP/RHP Splits</span> · <span style="color:var(--accent);font-weight:700">Home/Away Splits</span> · <span style="color:var(--accent);font-weight:700">Career Batter vs SP</span> · <span style="color:var(--accent);font-weight:700">EV%</span> hit rate vs implied odds · <span style="color:var(--accent);font-weight:700">Line Movement</span> snapshot diffs</div></div>
+      <div class="card" style="margin-bottom:10px"><div class="card-title">📡 Data Sources</div><div style="font-size:var(--t-sm);color:var(--ink-1);line-height:1.6"><div style="margin-bottom:6px"><span style="color:var(--accent);font-weight:700">MLB Stats API</span> — Batter/QB game logs, splits, matchup history, this week's schedule.</div><div style="margin-bottom:6px"><span style="color:var(--accent);font-weight:700">The Odds API</span> — Live spreads, totals, and player props across 13 markets.</div><div style="margin-bottom:6px"><span style="color:var(--accent);font-weight:700">OpenWeather</span> — Venue weather (temp, wind, conditions) for outdoor parks.</div><div><span style="color:var(--accent);font-weight:700">Google Sheets</span> — Central warehouse. Engine writes 14+ tabs; app reads live.</div></div></div>
+      <div class="card" style="margin-bottom:10px"><div class="card-title">⚙️ Calculations</div><div style="font-size:var(--t-sm);color:var(--ink-1);line-height:1.6"><span style="color:var(--accent);font-weight:700">Rolling Averages</span> L7/L14/L30/Season · <span style="color:var(--accent);font-weight:700">LHP/RHP Splits</span> · <span style="color:var(--accent);font-weight:700">Home/Away Splits</span> · <span style="color:var(--accent);font-weight:700">Season vs Defense</span> · <span style="color:var(--accent);font-weight:700">EV%</span> hit rate vs implied odds · <span style="color:var(--accent);font-weight:700">Line Movement</span> snapshot diffs</div></div>
       <div class="card" style="margin-bottom:10px"><div class="card-title">Model Picks</div><div style="font-size:var(--t-sm);color:var(--ink-1);line-height:1.6">A deterministic market-and-form model and Gemini review layer produce a tracked recommendation cohort. Every pick is anchored to a real player, market, and sportsbook line; provenance badges distinguish validated-model selections from AI-reviewed candidates.</div></div>
       <div class="card" style="margin-bottom:10px"><div class="card-title">Market Edge & Slips</div><div style="font-size:var(--t-sm);color:var(--ink-1);line-height:1.6">The market-edge signal compares historical hit rates to implied odds as one input. Slips combine that signal with model review and recent form.</div></div>
-      <div class="card" style="margin-bottom:10px"><div class="card-title">Dingers</div><div style="font-size:var(--t-sm);color:var(--ink-1);line-height:1.6">HR probability board ranked by HR rate, recent power, and DK odds. Includes 3-leg dinger parlay combos.</div></div>
-      <div class="card" style="margin-bottom:10px"><div class="card-title">📖 Abbreviations</div><div style="font-size:var(--t-sm);color:var(--ink-1);line-height:1.7">H — Hits · HR — Home Runs · RBI — Runs Batted In · R — Runs · SB — Stolen Bases<br>TB — Total Bases · BB — Walks · SO — Strikeouts · AB — At Bats · AVG — Batting Average<br>1B — Singles · 2B — Doubles · 3B — Triples · HBP — Hit By Pitch<br>OPS — On-Base Plus Slugging · OBP — On-Base Percentage · SLG — Slugging Percentage<br>H+R+RBI — Hits + Runs + RBIs combo<br>IP — Innings Pitched · ER — Earned Runs · ERA — Earned Run Average<br>WHIP — Walks + Hits per Inning Pitched · K/9 — Strikeouts per 9 innings<br>QS — Quality Start (6+ IP, 3 or fewer ER) · W — Win · PC — Pitch Count<br>P_SO — Pitcher Strikeouts · P_H — Hits Allowed · P_BB — Walks Allowed · P_ER — Earned Runs<br>DK_FP — DraftKings Fantasy Points · UD_FP — Underdog Fantasy Points<br>EV% — Expected Value (hit rate minus implied odds)<br>LHP/RHP — Left/Right-Handed Pitcher<br>vs SP — Career stats against tonight's Starting Pitcher<br>SMASH/STRONG/LEAN — AI confidence tiers<br>L7/L14/L30 — Last 7/14/30 game averages · Seas — Season average</div></div>
+      <div class="card" style="margin-bottom:10px"><div class="card-title">Dingers</div><div style="font-size:var(--t-sm);color:var(--ink-1);line-height:1.6">TD probability board ranked by TD rate, recent usage, and best-book odds. Includes 3-leg TD parlay combos.</div></div>
+      <div class="card" style="margin-bottom:10px"><div class="card-title">📖 Abbreviations</div><div style="font-size:var(--t-sm);color:var(--ink-1);line-height:1.7">H — Hits · HR — Home Runs · RBI — Runs Batted In · R — Runs · SB — Stolen Bases<br>TB — Total Bases · BB — Walks · SO — Strikeouts · AB — At Bats · AVG — Batting Average<br>1B — Singles · 2B — Doubles · 3B — Triples · HBP — Hit By Pitch<br>OPS — On-Base Plus Slugging · OBP — On-Base Percentage · SLG — Slugging Percentage<br>H+R+RBI — Hits + Runs + RBIs combo<br>IP — Innings Pitched · ER — Earned Runs · ERA — Earned Run Average<br>WHIP — Walks + Hits per Inning Pitched · K/9 — Strikeouts per 9 innings<br>QS — Quality Start (6+ IP, 3 or fewer ER) · W — Win · PC — Pitch Count<br>P_SO — Passing Yards · P_H — Hits Allowed · P_BB — Walks Allowed · P_ER — Earned Runs<br>DK_FP — DraftKings Fantasy Points · UD_FP — Underdog Fantasy Points<br>EV% — Expected Value (hit rate minus implied odds)<br>LHP/RHP — Left/Right-Handed Pitcher<br>vs SP — Season stats against this week's defense<br>SMASH/STRONG/LEAN — AI confidence tiers<br>L7/L14/L30 — Last 7/14/30 game averages · Seas — Season average</div></div>
       <div class="card" style="margin-bottom:10px;border:1px solid var(--border-1)"><div class="card-title">🙏 Credits</div><div style="font-size:var(--t-sm);color:var(--ink-1);line-height:1.6"><div>Built by <span style="color:var(--accent);font-weight:700">Stephen Krolikowski</span></div><div>AI: <span style="color:var(--accent);font-weight:700">Gemini 3.6 Flash</span> · App: <span style="color:var(--accent);font-weight:700">Claude</span> by Anthropic</div><div>Engine + dashboard fixes with <span style="color:var(--accent);font-weight:700">Codex</span> by OpenAI</div><div>Props: <span style="color:var(--accent);font-weight:700">The Odds API</span> · Data: <span style="color:var(--accent);font-weight:700">MLB Stats API</span> · Weather: <span style="color:var(--accent);font-weight:700">OpenWeather</span></div></div></div>
       <div style="text-align:center;color:var(--ink-quiet);font-size:var(--t-xs);padding:8px 0 20px">For entertainment & research purposes only.</div>
     </div>
@@ -2725,14 +2725,14 @@ function renderDashboardPage(){
       base:modelScoreValue(pT,"P_SO_PLAYER_SCORE"),
       adjustment:modelScoreValue(pT,"P_SO_OPP_ADJ"),
       final:modelScoreValue(pT,"P_SO_EDGE_SCORE"),
-      detail:`Opponent offense adjustment for ${pT.opp_abbr_tonight||"tonight's matchup"}`
+      detail:`Opponent offense adjustment for ${pT.opp_abbr_tonight||"this week's matchup"}`
     };
   }else if(isP&&metric==="ER"){
     modelContext={
       base:modelScoreValue(pT,"P_ER_PLAYER_RISK_SCORE"),
       adjustment:modelScoreValue(pT,"P_ER_OPP_ADJ"),
       final:modelScoreValue(pT,"P_ER_RISK_SCORE"),
-      detail:`Opponent scoring-risk adjustment for ${pT.opp_abbr_tonight||"tonight's matchup"}`
+      detail:`Opponent scoring-risk adjustment for ${pT.opp_abbr_tonight||"this week's matchup"}`
     };
   }else if(!isP&&metric==="H"){
     modelContext={
@@ -2799,7 +2799,7 @@ function renderDashboardPage(){
           ${propsHTML?`<section class="analysis-section"><div class="analysis-section-head"><div class="analysis-section-title">Sportsbook markets</div><div class="analysis-section-meta">Live comparison by book</div></div>${propsHTML}</section>`:""}
         </main>
         <aside class="analysis-rail">
-          <section class="analysis-rail-section"><div class="analysis-rail-title">Tonight's matchup</div>${matchupAnalysisHTML}</section>
+          <section class="analysis-rail-section"><div class="analysis-rail-title">This week's matchup</div>${matchupAnalysisHTML}</section>
           ${modelContextHTML}
           ${opponentProfileHTML?`<section class="analysis-rail-section"><div class="analysis-rail-title">Opponent profile</div>${opponentProfileHTML}</section>`:""}
           ${hitRateAnalysisHTML?`<section class="analysis-rail-section"><div class="analysis-rail-title">Hit rates · ${esc(metric)} ${lineNum?`${analysisLean.toLowerCase()} ${lineNum}`:""}</div>${hitRateAnalysisHTML}</section>`:""}
@@ -3063,11 +3063,11 @@ function loadAllData(){
   console.log(`   Props: ${st.props.length}, Picks: ${st.picks.length}, Weather: ${st.weather.length}`);
   console.log(`   Team rankings: ${st.teamRankings.length}`);
   if(st.pickGuard)console.warn(`⚠️ ${st.pickGuard.text}`);
-  if(st.tonight.length>0)console.log(`   Batter row 0 keys:`,Object.keys(st.tonight[0]).slice(0,8));
-  if(st.pTonight.length>0)console.log(`   Pitcher row 0 keys:`,Object.keys(st.pTonight[0]).slice(0,8));
-  if(!st.player)console.error(`❌ NO DEFAULT PLAYER FOUND. Batter row 0:`,JSON.stringify(st.tonight[0]).slice(0,200));
+  if(st.tonight.length>0)console.log(`   Skill player row 0 keys:`,Object.keys(st.tonight[0]).slice(0,8));
+  if(st.pTonight.length>0)console.log(`   QB row 0 keys:`,Object.keys(st.pTonight[0]).slice(0,8));
+  if(!st.player)console.error(`❌ NO DEFAULT PLAYER FOUND. Skill player row 0:`,JSON.stringify(st.tonight[0]).slice(0,200));
   if(!st.gameLogs.length)console.warn("⚠️ Batter_Game_Logs unavailable — dashboard loaded without game log history.");
-  if(!st.tonight.length)console.warn("⚠️ Tonights_Batters unavailable — dashboard loaded without batter dashboard rows.");
+  if(!st.tonight.length)console.warn("⚠️ Tonights_Batters unavailable — dashboard loaded without skill-player rows.");
   if(!st.tonight.length&&!st.pTonight.length&&!st.props.length&&!st.picks.length){
     st.error="Could not load MLB dashboard data. Google returned no usable rows for the current dashboard sheets.";
   }
