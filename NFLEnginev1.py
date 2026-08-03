@@ -13,7 +13,6 @@ import os
 from datetime import datetime
 
 import pandas as pd
-import requests
 import pytz
 import gspread
 from gspread_dataframe import set_with_dataframe
@@ -21,6 +20,7 @@ from google.auth import default
 from google.oauth2.service_account import Credentials
 
 import nflverse_loader as nv
+import odds_client as oc
 
 # ============================================================================
 # CONFIGURATION
@@ -29,7 +29,14 @@ import nflverse_loader as nv
 SPORT_LABEL = "NFL"
 SHEET_ID = "1vJvcOsMyBEz1ZMJy6BKapdfG3FlvPIpB0eD_dviQBd0"
 ODDS_SPORT = "americanfootball_nfl"
-QUOTA_FLOOR_THIS_SPORT = int(os.getenv(f"{SPORT_LABEL}_ODDS_CREDIT_FLOOR", "100"))
+QUOTA_FLOOR_THIS_SPORT = int(os.getenv(f"{SPORT_LABEL}_ODDS_CREDIT_FLOOR", "500"))
+
+# Only pay for props on games within this horizon. Books open prop markets
+# progressively as kickoff approaches, so requesting the full 272-game season
+# would mostly buy empty responses — and for the games that DO have props, one
+# request per event per market batch adds up fast.
+PROPS_WINDOW_DAYS = int(os.getenv("NFL_PROPS_WINDOW_DAYS", "8"))
+SKIP_PROPS = os.getenv("NFL_SKIP_PROPS", "").lower() in {"1", "true", "yes"}
 
 eastern = pytz.timezone("US/Eastern")
 
@@ -103,50 +110,10 @@ def get_gspread_client():
     )
 
 
-def check_quota_or_abort(resp, context: str) -> int | None:
-    """Read x-requests-remaining and abort before burning through the floor."""
-    try:
-        remaining = int(resp.headers.get("x-requests-remaining", "99999"))
-    except (AttributeError, TypeError, ValueError):
-        return None
-    print(f"📊 Odds API credits remaining: {remaining}")
-    if remaining < QUOTA_FLOOR_THIS_SPORT:
-        raise RuntimeError(
-            f"🛑 QUOTA GUARD: {remaining} < {SPORT_LABEL} floor "
-            f"{QUOTA_FLOOR_THIS_SPORT} ({context}). Aborting run."
-        )
-    return remaining
-
-
 # ============================================================================
 # ODDS API
 # ============================================================================
-
-def fetch_game_odds(api_key: str, markets: str = "h2h,spreads,totals") -> list:
-    """One call covering every upcoming game. Cheap: 1 credit per market region."""
-    if not api_key:
-        print("⚠️  No Odds API key — skipping live odds")
-        return []
-    url = f"https://api.the-odds-api.com/v4/sports/{ODDS_SPORT}/odds/"
-    params = {
-        "apiKey": api_key,
-        "regions": "us",
-        "markets": markets,
-        "oddsFormat": "american",
-    }
-    try:
-        resp = requests.get(url, params=params, timeout=20)
-        check_quota_or_abort(resp, "game odds")
-        if resp.status_code != 200:
-            print(f"⚠️  Odds API returned {resp.status_code}: {resp.text[:200]}")
-            return []
-        return resp.json()
-    except RuntimeError:
-        raise
-    except Exception as e:
-        print(f"⚠️  Odds API error: {e}")
-        return []
-
+# Requests, retries, and quota accounting all live in odds_client.OddsClient.
 
 def extract_book_odds(events: list, preferred="draftkings", fallback="fanduel") -> pd.DataFrame:
     """Flatten Odds API events to one row per game, preferring a single book.
@@ -174,8 +141,11 @@ def extract_book_odds(events: list, preferred="draftkings", fallback="fanduel") 
         }
         for market in book.get("markets", []):
             key = market.get("key")
-            for oc in market.get("outcomes", []):
-                name, price, point = oc.get("name"), oc.get("price"), oc.get("point")
+            # Not `oc` — that's the odds_client module alias at module scope.
+            for outcome in market.get("outcomes", []):
+                name = outcome.get("name")
+                price = outcome.get("price")
+                point = outcome.get("point")
                 if key == "h2h":
                     if name == home:
                         row["live_home_ml"] = price
@@ -389,9 +359,42 @@ def main():
     print(f"   injuries: {len(injuries)} rows")
 
     print("\n📡 Odds API")
-    events = fetch_game_odds(odds_api_key)
-    odds = extract_book_odds(events)
-    print(f"   live odds: {len(odds)} games")
+    odds = pd.DataFrame()
+    props = pd.DataFrame()
+    board = pd.DataFrame()
+
+    if not odds_api_key:
+        print("   ⚠️  no Odds API key — skipping live odds and props")
+    else:
+        odds_api = oc.OddsClient(odds_api_key, quota_floor=QUOTA_FLOOR_THIS_SPORT)
+        try:
+            odds = extract_book_odds(odds_api.fetch_featured())
+            print(f"   featured odds: {len(odds)} games")
+
+            if SKIP_PROPS:
+                print("   ⏭️  props skipped (NFL_SKIP_PROPS set)")
+            else:
+                # /events is free, so narrowing the window costs nothing and
+                # avoids paying per-event for games books haven't priced yet.
+                upcoming = odds_api.fetch_events(within_days=PROPS_WINDOW_DAYS)
+                print(f"   events within {PROPS_WINDOW_DAYS}d: {len(upcoming)} (free call)")
+
+                if upcoming:
+                    props = oc.add_fair_prices(odds_api.fetch_props(upcoming))
+                    board = oc.best_price_board(props)
+                    if props.empty:
+                        print("   ℹ️  no props posted yet — books open these closer "
+                              "to kickoff (empty responses are not charged)")
+                    else:
+                        print(f"   props: {len(props)} quotes · "
+                              f"{props['player'].nunique()} players · "
+                              f"{len(board)} unique lines")
+        except oc.QuotaExhausted as e:
+            # Keep whatever was already fetched and still write the sheet —
+            # a partial refresh beats leaving the dashboard on stale data.
+            print(f"   {e}")
+
+        print(f"   💳 credits spent this run: {odds_api.spent} · remaining: {odds_api.remaining}")
 
     print("\n🔧 Building tabs")
     name_map = build_team_name_map(teams)
@@ -400,11 +403,13 @@ def main():
         "Teams": build_teams_tab(teams),
         "PlayerForm": build_player_form_tab(stats, snaps),
         "Injuries": build_injuries_tab(injuries),
+        "PlayerProps": props,
+        "PropsBoard": board,
     }
 
     print("\n📝 Writing to Google Sheets")
-    client = get_gspread_client()
-    write_to_sheets(client, SHEET_ID, tabs)
+    sheets = get_gspread_client()
+    write_to_sheets(sheets, SHEET_ID, tabs)
 
     elapsed = (datetime.now(eastern) - started).total_seconds()
     print(f"\n✅ Complete in {elapsed:.1f}s")

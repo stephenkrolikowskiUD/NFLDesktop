@@ -44,6 +44,39 @@ Baseline spreads, totals, and moneylines come from nflverse at zero Odds API cos
 | `Teams` | Team metadata, colors, conference/division |
 | `PlayerForm` | Recent usage: targets, target share, air yards share, WOPR, snap %, PPR |
 | `Injuries` | Report and practice status by week |
+| `PlayerProps` | Every prop quote per book, with no-vig fair probabilities and hold |
+| `PropsBoard` | Best price per player/market/line across all five books |
+
+Tabs are only written when they have rows — an empty frame is skipped so a thin run can't wipe a tab that still holds usable data.
+
+## Player Props & Odds API Cost
+
+Props come from `/v4/sports/{sport}/events/{eventId}/odds` — **one request per event**. There is no bulk props endpoint.
+
+Cost is `markets_returned × regions`, and three details make this far cheaper than it first looks:
+
+- **`/events` is free** (0 credits), so the engine lists events and narrows the window before spending anything.
+- **You're billed for markets *returned*, not requested**, and empty responses aren't charged. Over-requesting markets on a game whose books haven't opened costs nothing.
+- **`bookmakers=` replaces `regions=`** for costing — 10 books count as 1 region.
+
+Tuning knobs:
+
+| Env var | Default | Purpose |
+|---|---|---|
+| `NFL_PROPS_WINDOW_DAYS` | `8` | Only pull props for games within N days |
+| `NFL_SKIP_PROPS` | unset | Set to `1` to skip props entirely |
+| `NFL_ODDS_CREDIT_FLOOR` | `500` | Abort before spending below this many credits |
+
+The engine reads `x-requests-last` after each call, so the log reports **actual** credits spent, not an estimate.
+
+⚠️ **This API key is shared with MLBDesktop**, which runs 4×/day against the same monthly quota. Watch the floor during season overlap.
+
+### Bookmaker key traps
+
+- There is **no `caesars` key** — Caesars is `williamhill_us` (legacy William Hill US). Using `caesars` throws `INVALID_BOOKMAKERS`.
+- **`espnbet` is in region `us2`**, not `us`. Querying `regions=us` returns four books and silently omits it — no error. Always pass `bookmakers=`, never `regions=`.
+- Market keys always use `yds`, never `yards`. The "longest" markets are inconsistently ordered: `player_pass_longest_completion` but `player_rush_longest`.
+- `player_pass_interceptions` is the QB throwing them; `player_defensive_interceptions` is the defender catching them.
 
 ## Setup
 
@@ -71,6 +104,7 @@ nflverse needs no secret.
 - **`load_teams()` returns ~36 rows, not 32** — includes relocated franchises (OAK, SD, STL, LA). Don't assume a clean 32-row join.
 - **Depth charts schema broke in 2025.** Pre-2025 has 15 columns keyed by season/week; 2025+ has 12 different columns keyed by a `dt` snapshot timestamp. Loading a span across that boundary silently returns a nulled union.
 - **`practice_status` contains a literal whitespace value** upstream; sanitized in `load_injuries()`.
+- **A missing Sheets tab returns HTTP 200 with the *first* sheet's data.** Google's gviz CSV endpoint does not 404 on an unknown `sheet=` name — it silently falls back. A misspelled or not-yet-written tab therefore renders another tab's rows as if they were real. `app.js` guards this with a per-tab `requires` fingerprint column; don't remove it. (Caught live: the Props view showed 272 rows of `Games` data.)
 - **No red zone columns** in weekly stats. Either aggregate play-by-play (~20 MB/season) or use `load_ff_opportunity()` expected-points, which is more useful for projections anyway.
 - **nflverse update crons are manually re-enabled each September**, so early-Week-1 data can be stale even when requests succeed. `dataset_last_updated()` checks freshness cheaply.
 

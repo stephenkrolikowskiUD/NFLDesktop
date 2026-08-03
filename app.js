@@ -14,18 +14,26 @@ const sheetUrl = (tabName) =>
   `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(tabName)}`;
 
 // Must match the tab names the engine writes (see NFLEnginev1.py main()).
+//
+// `requires` is a fingerprint column, and it is load-bearing. Asking gviz for a
+// tab that doesn't exist does NOT 404 — it returns HTTP 200 containing the
+// FIRST sheet's data. Without a fingerprint check, a missing or misspelled tab
+// silently renders another tab's rows as if they were real, which is far worse
+// than an error because nothing looks wrong. Each column below appears only in
+// its own tab.
 const TABS = {
-  games: 'Games',
-  teams: 'Teams',
-  playerForm: 'PlayerForm',
-  injuries: 'Injuries',
+  games: { name: 'Games', requires: 'game_id' },
+  teams: { name: 'Teams', requires: 'team_abbr' },
+  playerForm: { name: 'PlayerForm', requires: 'target_share' },
+  injuries: { name: 'Injuries', requires: 'report_status' },
+  propsBoard: { name: 'PropsBoard', requires: 'best_over_odds' },
 };
 
 // ============================================================================
 // STATE
 // ============================================================================
 
-let data = { games: [], teams: [], playerForm: [], injuries: [] };
+let data = { games: [], teams: [], playerForm: [], injuries: [], propsBoard: [] };
 let activeTab = 'dashboard';
 let loadState = 'loading'; // loading | ready | error
 let loadError = '';
@@ -36,17 +44,28 @@ let selectedWeek = null;
 // ============================================================================
 
 async function loadTab(key) {
-  const response = await fetch(sheetUrl(TABS[key]));
-  if (!response.ok) throw new Error(`${TABS[key]}: HTTP ${response.status}`);
+  const { name, requires } = TABS[key];
+  const response = await fetch(sheetUrl(name));
+  if (!response.ok) throw new Error(`${name}: HTTP ${response.status}`);
   const csv = await response.text();
 
-  // A missing or unshared tab returns an HTML error page, not CSV. Detect that
+  // An unshared sheet returns an HTML error page, not CSV. Detect that
   // explicitly — otherwise PapaParse happily "parses" the HTML into junk rows.
   if (csv.trimStart().startsWith('<')) {
-    throw new Error(`${TABS[key]}: tab not found or sheet not public`);
+    throw new Error(`${name}: sheet not public`);
   }
 
   const parsed = Papa.parse(csv, { header: true, dynamicTyping: true, skipEmptyLines: true });
+
+  // Fingerprint check — see the comment on TABS. A 200 response proves nothing
+  // about *which* tab we got back.
+  if (requires && !parsed.meta.fields?.includes(requires)) {
+    throw new Error(
+      `${name}: tab missing (got a different sheet — no "${requires}" column). ` +
+      `Has the engine written this tab yet?`
+    );
+  }
+
   return parsed.data.filter((row) => Object.values(row).some((v) => v !== null && v !== ''));
 }
 
@@ -268,6 +287,52 @@ function renderInjuriesView() {
     </section>`;
 }
 
+function renderPropsView() {
+  if (!data.propsBoard.length) {
+    return `
+      <section class="view">
+        <header class="view-header"><h1>Player Props</h1></header>
+        <div class="empty-state">
+          <p>No props posted yet.</p>
+          <p class="muted">Books open prop markets progressively as kickoff approaches —
+          Week 1 is Sept 9. The engine polls within an 8-day window, and empty
+          responses aren't charged, so this fills in on its own.</p>
+        </div>
+      </section>`;
+  }
+
+  const rows = data.propsBoard
+    .slice(0, 200)
+    .map(
+      (p) => `
+      <tr>
+        <td class="player">${esc(p.player)}</td>
+        <td><span class="pos">${esc(p.metric)}</span></td>
+        <td class="num">${dec(p.line)}</td>
+        <td class="num">${esc(p.best_over_odds ?? '—')}</td>
+        <td class="muted">${esc(p.best_over_book ?? '—')}</td>
+        <td class="num">${esc(p.best_under_odds ?? '—')}</td>
+        <td class="muted">${esc(p.best_under_book ?? '—')}</td>
+        <td class="num">${esc(p.books_quoting ?? '—')}</td>
+      </tr>`
+    )
+    .join('');
+
+  return `
+    <section class="view">
+      <header class="view-header">
+        <h1>Player Props</h1>
+        <p class="subtitle">${data.propsBoard.length} lines · best price across DraftKings, FanDuel, BetMGM, theScore Bet, Caesars</p>
+      </header>
+      <table class="data-table">
+        <thead>
+          <tr><th>Player</th><th>Market</th><th>Line</th><th>Best Over</th><th>Book</th><th>Best Under</th><th>Book</th><th>Books</th></tr>
+        </thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </section>`;
+}
+
 function renderPicksView() {
   // Deliberately not shipping placeholder picks. Fake heuristics ("always take
   // the home team") look like signal on a dashboard and are worse than nothing.
@@ -312,6 +377,7 @@ function renderInfoView() {
 
 const VIEWS = {
   dashboard: { label: 'Slate', render: renderDashboardView },
+  props: { label: 'Props', render: renderPropsView },
   form: { label: 'Player Form', render: renderPlayerFormView },
   picks: { label: 'Picks', render: renderPicksView },
   teams: { label: 'Teams', render: renderTeamsView },
