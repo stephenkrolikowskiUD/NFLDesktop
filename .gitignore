@@ -1,0 +1,34 @@
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+.Python
+venv/
+.venv/
+env/
+.pytest_cache/
+.ipynb_checkpoints/
+
+# --- Secrets: never commit. Load via env vars / GitHub Actions secrets. ---
+.env
+.env.*
+!.env.example
+*credential*.json
+*service-account*.json
+*service_account*.json
+client_secret*.json
+gcp-*.json
+*.pem
+*.key
+secrets.json
+token.json
+
+# --- Engine local cache (see CACHE_DIR in MLBEnginev5-4.py) ---
+.dfs_engines_cache/
+
+# --- OS / editor noise ---
+.DS_Store
+Thumbs.db
+*.swp
+.idea/
+.vscode/
