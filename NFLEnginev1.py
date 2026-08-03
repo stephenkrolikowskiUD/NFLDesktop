@@ -291,6 +291,177 @@ def build_injuries_tab(injuries: pd.DataFrame) -> pd.DataFrame:
 
 
 # ============================================================================
+# MLB-CONTRACT TABS
+# ============================================================================
+# app.js is ported from MLBDesktop, so it expects that dashboard's tab and
+# column contract. Its rowField() aliasing layer accepts either UPPER_SNAKE or
+# lower_snake, so these builders emit generous column sets and let the
+# dashboard pick what it needs. Extra columns are harmless.
+
+SKILL_POSITIONS = ["RB", "WR", "TE"]
+
+
+def _slate_identity(df: pd.DataFrame) -> pd.DataFrame:
+    """Add the identity aliases every dashboard view expects."""
+    out = df.copy()
+    if "player_display_name" in out.columns:
+        out["player_name"] = out["player_display_name"]
+    if "team" in out.columns:
+        out["team_abbr"] = out["team"]
+    if "opponent_team" in out.columns:
+        out["opp_abbr"] = out["opponent_team"]
+    if "position" in out.columns:
+        out["pos"] = out["position"]
+    return out
+
+
+def build_slate_tab(stats: pd.DataFrame, snaps: pd.DataFrame,
+                    positions: list[str]) -> pd.DataFrame:
+    """Season-to-date per-player aggregate for one position group.
+
+    This is the "who's available and how are they used" surface. Pre-season it
+    reflects last season, which is the correct projection baseline anyway.
+    """
+    if stats.empty or "position" not in stats.columns:
+        return pd.DataFrame()
+
+    pool = stats[stats["position"].isin(positions)].copy()
+    if pool.empty:
+        return pd.DataFrame()
+
+    sum_cols = [c for c in [
+        "targets", "receptions", "receiving_yards", "receiving_tds",
+        "receiving_air_yards", "carries", "rushing_yards", "rushing_tds",
+        "attempts", "completions", "passing_yards", "passing_tds",
+        "passing_interceptions", "fantasy_points_ppr",
+    ] if c in pool.columns]
+    mean_cols = [c for c in [
+        "target_share", "air_yards_share", "wopr", "racr",
+        "passing_epa", "receiving_epa",
+    ] if c in pool.columns]
+
+    grouped = pool.groupby(["player_id", "player_display_name", "position"], dropna=False)
+    agg = grouped.agg(
+        {**{c: "sum" for c in sum_cols}, **{c: "mean" for c in mean_cols}}
+    ).reset_index()
+    agg["games"] = grouped.size().values
+
+    # Latest team/opponent, so the slate reflects current affiliation rather
+    # than whoever they played for in week 1.
+    latest = (pool.sort_values("week")
+                  .groupby("player_id", as_index=False)
+                  .last()[["player_id", "team", "opponent_team"]])
+    agg = agg.merge(latest, how="left", on="player_id")
+
+    if not snaps.empty and "gsis_id" in snaps.columns and "offense_pct" in snaps.columns:
+        snap_avg = (snaps.groupby("gsis_id", as_index=False)["offense_pct"]
+                         .mean().rename(columns={"gsis_id": "player_id",
+                                                 "offense_pct": "snap_pct"}))
+        agg = agg.merge(snap_avg, how="left", on="player_id")
+
+    for c in mean_cols + (["snap_pct"] if "snap_pct" in agg.columns else []):
+        agg[c] = agg[c].round(4)
+
+    agg = _slate_identity(agg)
+    sort_col = "fantasy_points_ppr" if "fantasy_points_ppr" in agg.columns else "games"
+    return agg.sort_values(sort_col, ascending=False).reset_index(drop=True)
+
+
+def build_game_logs_tab(stats: pd.DataFrame, positions: list[str]) -> pd.DataFrame:
+    """Per-week game logs for one position group — powers the log charts."""
+    if stats.empty or "position" not in stats.columns:
+        return pd.DataFrame()
+    logs = stats[stats["position"].isin(positions)].copy()
+    if logs.empty:
+        return pd.DataFrame()
+
+    keep = [c for c in [
+        "player_id", "player_display_name", "position", "season", "week",
+        "team", "opponent_team", "targets", "receptions", "receiving_yards",
+        "receiving_tds", "receiving_air_yards", "target_share",
+        "air_yards_share", "wopr", "racr", "carries", "rushing_yards",
+        "rushing_tds", "attempts", "completions", "passing_yards",
+        "passing_tds", "passing_interceptions", "fantasy_points_ppr",
+    ] if c in logs.columns]
+    out = _slate_identity(logs[keep])
+    out["game_date"] = ""  # filled from Schedule join downstream
+    return out.sort_values(["player_display_name", "week"]).reset_index(drop=True)
+
+
+def build_schedule_tab(schedule: pd.DataFrame) -> pd.DataFrame:
+    """Schedule with the home_abbr/away_abbr aliases the dashboard joins on."""
+    if schedule.empty:
+        return pd.DataFrame()
+    out = schedule.copy()
+    if "home_team" in out.columns:
+        out["home_abbr"] = out["home_team"]
+    if "away_team" in out.columns:
+        out["away_abbr"] = out["away_team"]
+    if "gameday" in out.columns:
+        out["game_date"] = out["gameday"]
+    if "gametime" in out.columns:
+        out["game_time"] = out["gametime"]
+    return out
+
+
+def build_team_rankings_tab(team_stats: pd.DataFrame) -> pd.DataFrame:
+    """Season team aggregates, used for matchup context and Leaders."""
+    if team_stats.empty:
+        return pd.DataFrame()
+    out = team_stats.copy()
+    if "team" in out.columns:
+        out["team_abbr"] = out["team"]
+    return out
+
+
+def build_dk_props_tab(board: pd.DataFrame) -> pd.DataFrame:
+    """Best-price board in MLB's DK_Player_Props column contract.
+
+    Column names are UPPER_SNAKE because the ported prop renderers read
+    p.PLAYER_NAME / p.METRIC / p.DK_LINE / p.OVER_ODDS / p.UNDER_ODDS directly
+    rather than through the aliasing layer.
+    """
+    if board.empty:
+        return pd.DataFrame()
+    out = pd.DataFrame({
+        "PLAYER_NAME": board["player"],
+        "METRIC": board["metric"],
+        "DK_LINE": board["line"],
+        "OVER_ODDS": board.get("best_over_odds"),
+        "UNDER_ODDS": board.get("best_under_odds"),
+        "BOOK": board.get("best_over_book"),
+        "REFERENCE_BOOK": board.get("best_over_book"),
+        "BEST_OVER_BOOK": board.get("best_over_book"),
+        "BEST_OVER_ODDS": board.get("best_over_odds"),
+        "BEST_UNDER_BOOK": board.get("best_under_book"),
+        "BEST_UNDER_ODDS": board.get("best_under_odds"),
+        "BOOKS_QUOTING": board.get("books_quoting"),
+        "GAME": board.get("event_away", "") + " @ " + board.get("event_home", ""),
+        "LAST_UPDATED": board.get("commence_time"),
+    })
+    return out.reset_index(drop=True)
+
+
+def build_all_books_props_tab(props: pd.DataFrame) -> pd.DataFrame:
+    """Every per-book quote in MLB's All_Books_Props contract."""
+    if props.empty:
+        return pd.DataFrame()
+    out = pd.DataFrame({
+        "PLAYER_NAME": props["player"],
+        "METRIC": props["metric"],
+        "LINE": props["line"],
+        "BOOK": props["book"],
+        "OVER_ODDS": props.get("over_odds"),
+        "UNDER_ODDS": props.get("under_odds"),
+        "OVER_IMPLIED": props.get("fair_over_prob"),
+        "UNDER_IMPLIED": props.get("fair_under_prob"),
+        "HOLD": props.get("hold"),
+        "LAST_UPDATED": props.get("last_update"),
+    })
+    return out.reset_index(drop=True)
+
+
+# ============================================================================
 # GOOGLE SHEETS
 # ============================================================================
 
@@ -315,6 +486,11 @@ def write_to_sheets(client, sheet_id: str, tabs: dict) -> None:
         ws.clear()
         # Sheets rejects NaN/NaT in JSON, and datetimes need to be strings.
         clean = df.copy()
+        # Stamp the tab's own name so the dashboard can prove it got the sheet
+        # it asked for. gviz returns the FIRST sheet's data (HTTP 200) when a
+        # tab doesn't exist, and column fingerprints can't catch it because
+        # Schedule and Games legitimately share columns like game_id.
+        clean["_tab"] = tab_name
         for col in clean.columns:
             if pd.api.types.is_datetime64_any_dtype(clean[col]):
                 clean[col] = clean[col].astype(str)
@@ -358,6 +534,9 @@ def main():
     injuries = nv.load_injuries(seasons=[stats_season])
     print(f"   injuries: {len(injuries)} rows")
 
+    team_stats = nv.load_team_stats(seasons=[stats_season])
+    print(f"   team stats: {len(team_stats)} rows")
+
     print("\n📡 Odds API")
     odds = pd.DataFrame()
     props = pd.DataFrame()
@@ -398,13 +577,23 @@ def main():
 
     print("\n🔧 Building tabs")
     name_map = build_team_name_map(teams)
+    games_tab = build_games_tab(schedule, odds, name_map)
+
     tabs = {
-        "Games": build_games_tab(schedule, odds, name_map),
+        # Tabs the ported MLB dashboard reads
+        "Schedule": build_schedule_tab(games_tab),
+        "Slate_Skill": build_slate_tab(stats, snaps, SKILL_POSITIONS),
+        "Slate_QB": build_slate_tab(stats, snaps, ["QB"]),
+        "Skill_Game_Logs": build_game_logs_tab(stats, SKILL_POSITIONS),
+        "QB_Game_Logs": build_game_logs_tab(stats, ["QB"]),
+        "Team_Rankings": build_team_rankings_tab(team_stats),
+        "DK_Player_Props": build_dk_props_tab(board),
+        "All_Books_Props": build_all_books_props_tab(props),
+        "Injuries": build_injuries_tab(injuries),
+        # Kept for reference / direct inspection
+        "Games": games_tab,
         "Teams": build_teams_tab(teams),
         "PlayerForm": build_player_form_tab(stats, snaps),
-        "Injuries": build_injuries_tab(injuries),
-        "PlayerProps": props,
-        "PropsBoard": board,
     }
 
     print("\n📝 Writing to Google Sheets")

@@ -28,6 +28,10 @@ CACHE_TTL_SECONDS = 6 * 3600  # in-season the upstream refreshes after each slat
 _ASSETS = {
     "player_stats_week": ("stats_player", "stats_player_week_{season}.parquet"),
     "player_stats_reg":  ("stats_player", "stats_player_reg_{season}.parquet"),
+    # Asset naming mirrors stats_player. Not independently verified, so the
+    # direct path may 404 — _load_direct degrades to an empty frame if so.
+    "team_stats_week":   ("stats_team", "stats_team_week_{season}.parquet"),
+    "team_stats_reg":    ("stats_team", "stats_team_reg_{season}.parquet"),
     "snap_counts":       ("snap_counts", "snap_counts_{season}.parquet"),
     "injuries":          ("injuries", "injuries_{season}.parquet"),
     "rosters":           ("rosters", "roster_{season}.parquet"),
@@ -198,6 +202,13 @@ def load_player_stats(seasons=None, summary_level="week") -> pd.DataFrame:
     """
     key = "player_stats_week" if summary_level == "week" else "player_stats_reg"
     return _load(key, seasons=seasons, fn_name="load_player_stats",
+                 summary_level=summary_level)
+
+
+def load_team_stats(seasons=None, summary_level="reg") -> pd.DataFrame:
+    """Team-level aggregates for matchup context and Leaders."""
+    key = "team_stats_week" if summary_level == "week" else "team_stats_reg"
+    return _load(key, seasons=seasons, fn_name="load_team_stats",
                  summary_level=summary_level)
 
 
