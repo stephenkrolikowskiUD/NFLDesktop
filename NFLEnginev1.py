@@ -1,16 +1,26 @@
-# @title 🏈 NFL Dashboard Engine (v1.0 — Data Pipeline) — 2026-08-02
-import pandas as pd
-import numpy as np
-import requests
+# @title 🏈 NFL Dashboard Engine (v1.1 — nflverse data layer) — 2026-08-02
+#
+# Data sources:
+#   nflverse   — schedule, player stats, snap counts, injuries, rosters (free, no auth)
+#   Odds API   — live multi-book moneylines, spreads, totals, player props
+#
+# nflverse schedules already carry spread_line / total_line, so baseline market
+# numbers cost zero Odds API credits. Odds API is only needed for multi-book
+# pricing and player props.
+
 import json
-import time
 import os
-from datetime import datetime, timedelta
+from datetime import datetime
+
+import pandas as pd
+import requests
 import pytz
 import gspread
 from gspread_dataframe import set_with_dataframe
 from google.auth import default
 from google.oauth2.service_account import Credentials
+
+import nflverse_loader as nv
 
 # ============================================================================
 # CONFIGURATION
@@ -18,294 +28,370 @@ from google.oauth2.service_account import Credentials
 
 SPORT_LABEL = "NFL"
 SHEET_ID = "1vJvcOsMyBEz1ZMJy6BKapdfG3FlvPIpB0eD_dviQBd0"
-CACHE_DIR = os.path.join(os.path.dirname(__file__), "cache")
-CACHE_TTL_SECONDS = 3600  # 1 hour
-QUOTA_FLOOR_THIS_SPORT = 100  # Guard Odds API quota
+ODDS_SPORT = "americanfootball_nfl"
+QUOTA_FLOOR_THIS_SPORT = int(os.getenv(f"{SPORT_LABEL}_ODDS_CREDIT_FLOOR", "100"))
 
-if not os.path.exists(CACHE_DIR):
-    os.makedirs(CACHE_DIR)
-
-# Timezone
-eastern = pytz.timezone('US/Eastern')
+eastern = pytz.timezone("US/Eastern")
 
 # ============================================================================
 # UTILITIES
 # ============================================================================
 
-def load_secret(key_name: str, prompt: str = None, allow_missing: bool = False) -> str:
-    """Load secret from env or prompt user. allow_missing=True returns empty string if not found."""
-    if key_name in os.environ:
-        return os.environ[key_name]
-    if prompt:
-        value = input(prompt).strip()
-        if value:
-            return value
+def load_secret(name: str, prompt_text: str | None = None,
+                allow_missing: bool = False) -> str:
+    """Env var first (GitHub Actions), then interactive prompt (local runs)."""
+    env_val = os.environ.get(name)
+    if env_val:
+        return env_val
+    if prompt_text:
+        try:
+            value = input(prompt_text).strip()
+            if value:
+                return value
+        except (EOFError, KeyboardInterrupt):
+            pass
     if allow_missing:
-        print(f"⚠️  {key_name} not set (optional)")
+        print(f"⚠️  {name} not set — continuing without it")
         return ""
-    raise ValueError(f"Missing required {key_name}")
+    raise RuntimeError(f"Missing required secret: {name}")
 
-def record_odds_quota(resp) -> int | None:
-    """Capture x-requests-remaining from Odds API response."""
+
+def get_gspread_client():
+    """Authorize gspread from the service-account JSON.
+
+    GOOGLE_SERVICE_ACCOUNT_JSON holds the JSON *content* (that's how it's stored
+    as a GitHub Actions secret), not a path. GOOGLE_APPLICATION_CREDENTIALS is
+    supported as a path for local runs.
+    """
+    scopes = [
+        "https://www.googleapis.com/auth/spreadsheets",
+        "https://www.googleapis.com/auth/drive",
+    ]
+    svc_json = (os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON")
+                or os.environ.get("GSPREAD_SERVICE_ACCOUNT_JSON"))
+    if svc_json:
+        creds = Credentials.from_service_account_info(json.loads(svc_json), scopes=scopes)
+        print("✅ Google auth via service account env")
+        return gspread.authorize(creds)
+
+    key_path = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
+    if key_path and os.path.exists(key_path):
+        creds = Credentials.from_service_account_file(key_path, scopes=scopes)
+        print(f"✅ Google auth via key file ({os.path.basename(key_path)})")
+        return gspread.authorize(creds)
+
+    raise RuntimeError(
+        "Google auth unavailable. Set GOOGLE_SERVICE_ACCOUNT_JSON (JSON content) "
+        "or GOOGLE_APPLICATION_CREDENTIALS (path to key file)."
+    )
+
+
+def check_quota_or_abort(resp, context: str) -> int | None:
+    """Read x-requests-remaining and abort before burning through the floor."""
     try:
-        remaining = int(resp.headers.get('x-requests-remaining', '99999'))
-        print(f"📊 Odds API quota: {remaining} remaining")
-        return remaining
+        remaining = int(resp.headers.get("x-requests-remaining", "99999"))
     except (AttributeError, TypeError, ValueError):
         return None
-
-def check_quota_or_abort(resp, context: str) -> None:
-    """Abort if Odds API quota below floor."""
-    remaining = record_odds_quota(resp)
-    if remaining is None:
-        return
+    print(f"📊 Odds API credits remaining: {remaining}")
     if remaining < QUOTA_FLOOR_THIS_SPORT:
-        msg = f"🛑 QUOTA GUARD: {remaining} remaining < {SPORT_LABEL} floor {QUOTA_FLOOR_THIS_SPORT} ({context}). Aborting."
-        print(msg)
-        raise RuntimeError(msg)
+        raise RuntimeError(
+            f"🛑 QUOTA GUARD: {remaining} < {SPORT_LABEL} floor "
+            f"{QUOTA_FLOOR_THIS_SPORT} ({context}). Aborting run."
+        )
+    return remaining
 
-def cached_fetch(cache_key: str, fetch_fn):
-    """Return cached payload if fresh, else fetch and cache."""
-    path = os.path.join(CACHE_DIR, f"{SPORT_LABEL}_{cache_key}.json")
-    if os.path.exists(path) and (time.time() - os.path.getmtime(path)) < CACHE_TTL_SECONDS:
-        age = int(time.time() - os.path.getmtime(path))
-        try:
-            with open(path) as f:
-                cached = json.load(f)
-            print(f"💾 Cache hit: {cache_key} (age {age}s)")
-            return cached
-        except Exception as e:
-            print(f"⚠️  Cache unreadable for {cache_key} ({e}) — refetching")
-    data = fetch_fn()
-    if data:
-        tmp_path = f"{path}.tmp"
-        try:
-            with open(tmp_path, 'w') as f:
-                json.dump(data, f)
-            os.replace(tmp_path, path)
-        except Exception as e:
-            print(f"⚠️  Could not cache {cache_key}: {e}")
-    return data
 
 # ============================================================================
-# BIG BALLS API (NFL Schedule, Team Info, Game State)
+# ODDS API
 # ============================================================================
 
-def fetch_nfl_schedule(api_key: str, week: int = None) -> list:
-    """Fetch NFL schedule from Big Balls Sports Data API."""
-    base_url = "https://api.bigballsdata.com/v1/nfl"
-
-    try:
-        if week:
-            url = f"{base_url}/schedule?week={week}"
-        else:
-            url = f"{base_url}/schedule"
-
-        headers = {"Authorization": f"Bearer {api_key}"}
-        resp = requests.get(url, headers=headers, timeout=10)
-
-        if resp.status_code == 200:
-            return resp.json()
-        else:
-            print(f"⚠️  Big Balls schedule fetch failed: {resp.status_code}")
-            return []
-    except Exception as e:
-        print(f"⚠️  Big Balls schedule error: {e}")
+def fetch_game_odds(api_key: str, markets: str = "h2h,spreads,totals") -> list:
+    """One call covering every upcoming game. Cheap: 1 credit per market region."""
+    if not api_key:
+        print("⚠️  No Odds API key — skipping live odds")
         return []
-
-def fetch_nfl_teams(api_key: str) -> list:
-    """Fetch NFL teams from Big Balls."""
-    base_url = "https://api.bigballsdata.com/v1/nfl/teams"
-
-    try:
-        headers = {"Authorization": f"Bearer {api_key}"}
-        resp = requests.get(base_url, headers=headers, timeout=10)
-
-        if resp.status_code == 200:
-            return resp.json()
-        else:
-            print(f"⚠️  Big Balls teams fetch failed: {resp.status_code}")
-            return []
-    except Exception as e:
-        print(f"⚠️  Big Balls teams error: {e}")
-        return []
-
-# ============================================================================
-# ODDS API (Spreads, Moneylines, Props)
-# ============================================================================
-
-def fetch_odds(api_key: str) -> dict:
-    """Fetch live NFL odds from The Odds API."""
-    url = "https://api.the-odds-api.com/v4/sports/americanfootball_nfl/odds/"
+    url = f"https://api.the-odds-api.com/v4/sports/{ODDS_SPORT}/odds/"
     params = {
         "apiKey": api_key,
         "regions": "us",
-        "markets": "h2h,spreads",  # Moneylines and spreads
+        "markets": markets,
+        "oddsFormat": "american",
     }
-
     try:
-        resp = requests.get(url, params=params, timeout=10)
-        check_quota_or_abort(resp, "odds fetch")
-
-        if resp.status_code == 200:
-            return resp.json()
-        else:
-            print(f"⚠️  Odds API fetch failed: {resp.status_code}")
-            return {}
+        resp = requests.get(url, params=params, timeout=20)
+        check_quota_or_abort(resp, "game odds")
+        if resp.status_code != 200:
+            print(f"⚠️  Odds API returned {resp.status_code}: {resp.text[:200]}")
+            return []
+        return resp.json()
+    except RuntimeError:
+        raise
     except Exception as e:
         print(f"⚠️  Odds API error: {e}")
+        return []
+
+
+def extract_book_odds(events: list, preferred="draftkings", fallback="fanduel") -> pd.DataFrame:
+    """Flatten Odds API events to one row per game, preferring a single book.
+
+    Mirrors the MLB engine's approach: prefer DraftKings, fall back to FanDuel,
+    then whatever book is present, so a book dropping a market doesn't blank
+    the row.
+    """
+    rows = []
+    for event in events:
+        home = event.get("home_team", "")
+        away = event.get("away_team", "")
+        books = event.get("bookmakers", [])
+        book = (next((b for b in books if b.get("key") == preferred), None)
+                or next((b for b in books if b.get("key") == fallback), None)
+                or (books[0] if books else None))
+        if not book:
+            continue
+
+        row = {
+            "odds_home_team": home,
+            "odds_away_team": away,
+            "commence_time": event.get("commence_time", ""),
+            "bookmaker": book.get("title", ""),
+        }
+        for market in book.get("markets", []):
+            key = market.get("key")
+            for oc in market.get("outcomes", []):
+                name, price, point = oc.get("name"), oc.get("price"), oc.get("point")
+                if key == "h2h":
+                    if name == home:
+                        row["live_home_ml"] = price
+                    elif name == away:
+                        row["live_away_ml"] = price
+                elif key == "spreads":
+                    if name == home:
+                        row["live_home_spread"], row["live_home_spread_odds"] = point, price
+                    elif name == away:
+                        row["live_away_spread"], row["live_away_spread_odds"] = point, price
+                elif key == "totals":
+                    if name == "Over":
+                        row["live_total"], row["live_over_odds"] = point, price
+                    elif name == "Under":
+                        row["live_under_odds"] = price
+        rows.append(row)
+    return pd.DataFrame(rows)
+
+
+# ============================================================================
+# TRANSFORMS
+# ============================================================================
+
+# Odds API uses full team names; nflverse uses abbreviations.
+def build_team_name_map(teams: pd.DataFrame) -> dict:
+    if teams.empty or "team_name" not in teams.columns:
         return {}
+    return dict(zip(teams["team_name"], teams["team_abbr"]))
+
+
+def build_games_tab(schedule: pd.DataFrame, odds: pd.DataFrame,
+                    name_map: dict) -> pd.DataFrame:
+    """Schedule as the spine, live odds overlaid where available.
+
+    Sign conventions differ between the two sources and are deliberately left
+    as-is rather than normalized here:
+      nflverse `spread_line`  → POSITIVE means the home team is favored (+3.5)
+      book `live_home_spread` → NEGATIVE means the home team is favored (-3.5)
+    Both describe the same line. Normalize at the point of comparison, and do
+    not assume a shared sign when diffing them.
+    """
+    if schedule.empty:
+        return pd.DataFrame()
+
+    keep = [c for c in [
+        "game_id", "season", "game_type", "week", "gameday", "weekday", "gametime",
+        "away_team", "home_team", "away_score", "home_score",
+        "spread_line", "total_line", "away_moneyline", "home_moneyline",
+        "roof", "surface", "temp", "wind", "stadium", "div_game",
+        "away_rest", "home_rest",
+    ] if c in schedule.columns]
+    games = schedule[keep].copy()
+
+    if not odds.empty:
+        odds = odds.copy()
+        odds["home_abbr"] = odds["odds_home_team"].map(name_map)
+        odds["away_abbr"] = odds["odds_away_team"].map(name_map)
+
+        unmapped = odds[odds["home_abbr"].isna() | odds["away_abbr"].isna()]
+        if not unmapped.empty:
+            names = pd.unique(pd.concat([
+                unmapped["odds_home_team"], unmapped["odds_away_team"]
+            ]).dropna())
+            print(f"   ⚠️  {len(unmapped)} odds rows unmapped to abbreviations: "
+                  f"{list(names)[:6]}")
+
+        odds = odds.dropna(subset=["home_abbr", "away_abbr"])
+        odds_cols = [c for c in odds.columns
+                     if c.startswith("live_") or c == "bookmaker"]
+        games = games.merge(
+            odds[["home_abbr", "away_abbr"] + odds_cols],
+            how="left",
+            left_on=["home_team", "away_team"],
+            right_on=["home_abbr", "away_abbr"],
+        ).drop(columns=["home_abbr", "away_abbr"], errors="ignore")
+
+    return games
+
+
+def build_teams_tab(teams: pd.DataFrame) -> pd.DataFrame:
+    if teams.empty:
+        return pd.DataFrame()
+    keep = [c for c in [
+        "team_abbr", "team_name", "team_nick", "team_conf", "team_division",
+        "team_color", "team_color2", "team_logo_espn",
+    ] if c in teams.columns]
+    return teams[keep].copy()
+
+
+def build_player_form_tab(stats: pd.DataFrame, snaps: pd.DataFrame,
+                          top_n_weeks: int = 6) -> pd.DataFrame:
+    """Recent-form table: last N weeks of usage per skill-position player.
+
+    This is the raw input surface the projection model will consume — usage and
+    share metrics, not projections themselves.
+    """
+    if stats.empty:
+        return pd.DataFrame()
+
+    skill = stats[stats["position"].isin(["QB", "RB", "WR", "TE"])].copy()
+    if skill.empty:
+        return pd.DataFrame()
+
+    max_week = skill["week"].max()
+    recent = skill[skill["week"] > max_week - top_n_weeks]
+
+    cols = [c for c in [
+        "player_id", "player_display_name", "position", "team", "opponent_team",
+        "season", "week", "targets", "receptions", "receiving_yards",
+        "receiving_tds", "receiving_air_yards", "target_share", "air_yards_share",
+        "wopr", "racr", "carries", "rushing_yards", "rushing_tds",
+        "attempts", "completions", "passing_yards", "passing_tds",
+        "passing_epa", "receiving_epa", "fantasy_points_ppr",
+    ] if c in recent.columns]
+    out = recent[cols].copy()
+
+    if not snaps.empty and "gsis_id" in snaps.columns:
+        snap_cols = ["gsis_id", "season", "week", "offense_pct", "offense_snaps"]
+        available = [c for c in snap_cols if c in snaps.columns]
+        if {"gsis_id", "week"} <= set(available):
+            out = out.merge(
+                snaps[available].rename(columns={"gsis_id": "player_id"}),
+                how="left", on=[c for c in ["player_id", "season", "week"]
+                                if c in available or c == "player_id"],
+            )
+
+    return out.sort_values(["week", "fantasy_points_ppr"],
+                           ascending=[False, False]).reset_index(drop=True)
+
+
+def build_injuries_tab(injuries: pd.DataFrame) -> pd.DataFrame:
+    if injuries.empty:
+        return pd.DataFrame()
+    keep = [c for c in [
+        "season", "week", "team", "gsis_id", "full_name", "position",
+        "report_primary_injury", "report_status",
+        "practice_primary_injury", "practice_status",
+    ] if c in injuries.columns]
+    out = injuries[keep].copy()
+    if "week" in out.columns:
+        out = out.sort_values(["week", "team"], ascending=[False, True])
+    return out.reset_index(drop=True)
+
 
 # ============================================================================
-# DATA TRANSFORMATIONS
+# GOOGLE SHEETS
 # ============================================================================
 
-def transform_games(schedule: list, odds: dict) -> pd.DataFrame:
-    """Transform schedule + odds into games DataFrame."""
-    games = []
+def write_to_sheets(client, sheet_id: str, tabs: dict) -> None:
+    sheet = client.open_by_key(sheet_id)
+    for tab_name, df in tabs.items():
+        if df is None:
+            continue
+        if df.empty:
+            # Writing an empty frame would wipe a tab that still holds usable
+            # data from a previous run — skip instead. Same reasoning as the
+            # MLB engine's empty-tab guard (see MLBDesktop ENGINE_AUDIT.md).
+            print(f"   ⏭️  {tab_name}: empty, leaving existing tab untouched")
+            continue
+        try:
+            ws = sheet.worksheet(tab_name)
+        except gspread.exceptions.WorksheetNotFound:
+            ws = sheet.add_worksheet(title=tab_name,
+                                     rows=max(len(df) + 10, 100),
+                                     cols=max(len(df.columns) + 5, 26))
+            print(f"   ➕ created tab {tab_name}")
+        ws.clear()
+        # Sheets rejects NaN/NaT in JSON, and datetimes need to be strings.
+        clean = df.copy()
+        for col in clean.columns:
+            if pd.api.types.is_datetime64_any_dtype(clean[col]):
+                clean[col] = clean[col].astype(str)
+        clean = clean.where(pd.notna(clean), "")
+        set_with_dataframe(ws, clean, include_index=False, resize=True)
+        print(f"   ✅ {tab_name}: {len(clean)} rows × {len(clean.columns)} cols")
 
-    for game in schedule:
-        away_team = game.get("away_team", "")
-        home_team = game.get("home_team", "")
-        start_time = game.get("start_time", "")
-
-        # Find matching odds for this game
-        game_odds = {}
-        for odds_game in odds.get("games", []):
-            if (odds_game.get("away_team") == away_team or
-                odds_game.get("home_team") == home_team):
-                game_odds = odds_game
-                break
-
-        spread = "—"
-        moneyline_home = "—"
-        moneyline_away = "—"
-
-        for bookmaker in game_odds.get("bookmakers", []):
-            for market in bookmaker.get("markets", []):
-                if market.get("key") == "spreads":
-                    for outcome in market.get("outcomes", []):
-                        if outcome.get("name") == home_team:
-                            spread = f"{home_team} {outcome.get('point', 0)}"
-                if market.get("key") == "h2h":
-                    for outcome in market.get("outcomes", []):
-                        if outcome.get("name") == home_team:
-                            moneyline_home = outcome.get("odds", "—")
-                        if outcome.get("name") == away_team:
-                            moneyline_away = outcome.get("odds", "—")
-
-        games.append({
-            "away_team": away_team,
-            "home_team": home_team,
-            "start_time": start_time,
-            "spread": spread,
-            "moneyline_home": moneyline_home,
-            "moneyline_away": moneyline_away,
-        })
-
-    return pd.DataFrame(games)
-
-def generate_picks(games_df: pd.DataFrame) -> pd.DataFrame:
-    """Generate basic moneyline picks (placeholder logic)."""
-    picks = []
-
-    for _, game in games_df.iterrows():
-        # Simple heuristic: pick home team
-        picks.append({
-            "team": game["home_team"],
-            "pick_type": "moneyline",
-            "confidence": "medium",
-            "reasoning": "home field advantage",
-        })
-
-    return pd.DataFrame(picks)
-
-def generate_spread_picks(games_df: pd.DataFrame) -> pd.DataFrame:
-    """Generate spread picks (placeholder logic)."""
-    picks = []
-
-    for _, game in games_df.iterrows():
-        # Simple heuristic: pick away team spread
-        picks.append({
-            "team": game["away_team"],
-            "spread": game["spread"],
-            "confidence": "low",
-            "reasoning": "contrarian",
-        })
-
-    return pd.DataFrame(picks)
 
 # ============================================================================
-# GOOGLE SHEETS WRITER
-# ============================================================================
-
-def write_to_sheets(sheet_id: str, data_dict: dict) -> None:
-    """Write data to Google Sheets."""
-    try:
-        # Authenticate (assumes GOOGLE_APPLICATION_CREDENTIALS env var set)
-        creds = Credentials.from_service_account_file(
-            os.environ.get("GOOGLE_APPLICATION_CREDENTIALS", "credentials.json")
-        )
-        client = gspread.authorize(creds)
-        sheet = client.open_by_key(sheet_id)
-
-        # Clear and write each tab
-        for tab_name, df in data_dict.items():
-            try:
-                worksheet = sheet.worksheet(tab_name)
-            except gspread.exceptions.WorksheetNotFound:
-                worksheet = sheet.add_worksheet(title=tab_name, rows=1, cols=1)
-
-            worksheet.clear()
-            set_with_dataframe(worksheet, df, include_index=False, allow_formulas=True)
-            print(f"✅ Wrote {len(df)} rows to {tab_name}")
-
-    except Exception as e:
-        print(f"⚠️  Failed to write to Sheets: {e}")
-
-# ============================================================================
-# MAIN ENGINE
+# MAIN
 # ============================================================================
 
 def main():
-    print(f"🏈 {SPORT_LABEL} Engine v1.0 starting at {datetime.now(eastern)}")
+    started = datetime.now(eastern)
+    print(f"🏈 {SPORT_LABEL} Engine v1.1 — {started:%Y-%m-%d %H:%M:%S %Z}")
 
-    # Load API keys
-    big_balls_key = load_secret("BIG_BALLS_API_KEY", "🔑 Big Balls API Key: ")
-    odds_api_key = load_secret("ODDS_API_KEY", "🔑 Odds API Key: ")
-    gemini_key = load_secret("GEMINI_API_KEY", "🤖 Gemini API Key: ", allow_missing=True)
+    odds_api_key = load_secret("ODDS_API_KEY", "🔑 Odds API Key: ", allow_missing=True)
 
-    if not SHEET_ID:
-        raise ValueError("SHEET_ID not set in config")
+    # nflverse labels a season by its September start, so Jan–Aug reports the
+    # prior year. Ahead of kickoff, that prior season is the projection baseline.
+    stats_season = nv.current_season()
+    schedule_season = stats_season + 1 if started.month >= 3 else stats_season
+    print(f"📅 stats baseline: {stats_season} · schedule: {schedule_season}")
 
-    # Fetch data
-    print("📡 Fetching NFL schedule...")
-    schedule = cached_fetch("schedule", lambda: fetch_nfl_schedule(big_balls_key))
+    print("\n📡 nflverse")
+    teams = nv.load_teams()
+    print(f"   teams: {len(teams)}")
 
-    print("📡 Fetching teams...")
-    teams = cached_fetch("teams", lambda: fetch_nfl_teams(big_balls_key))
+    schedule = nv.load_schedules(seasons=[schedule_season])
+    if schedule.empty:
+        print(f"   ⚠️  no {schedule_season} schedule — falling back to {stats_season}")
+        schedule = nv.load_schedules(seasons=[stats_season])
+    print(f"   schedule: {len(schedule)} games")
 
-    print("📡 Fetching odds...")
-    odds = cached_fetch("odds", lambda: fetch_odds(odds_api_key))
+    stats = nv.load_player_stats(seasons=[stats_season])
+    print(f"   player stats: {len(stats)} rows")
 
-    # Transform data
-    print("🔧 Transforming data...")
-    games_df = transform_games(schedule, odds)
-    teams_df = pd.DataFrame(teams) if teams else pd.DataFrame()
-    picks_df = generate_picks(games_df)
-    spread_picks_df = generate_spread_picks(games_df)
+    snaps = nv.attach_gsis_id(nv.load_snap_counts(seasons=[stats_season]))
+    print(f"   snap counts: {len(snaps)} rows")
 
-    # Write to Sheets
-    print("📝 Writing to Google Sheets...")
-    data_to_write = {
-        "Games": games_df,
-        "Picks": picks_df,
-        "SpreadPicks": spread_picks_df,
-        "Teams": teams_df,
+    injuries = nv.load_injuries(seasons=[stats_season])
+    print(f"   injuries: {len(injuries)} rows")
+
+    print("\n📡 Odds API")
+    events = fetch_game_odds(odds_api_key)
+    odds = extract_book_odds(events)
+    print(f"   live odds: {len(odds)} games")
+
+    print("\n🔧 Building tabs")
+    name_map = build_team_name_map(teams)
+    tabs = {
+        "Games": build_games_tab(schedule, odds, name_map),
+        "Teams": build_teams_tab(teams),
+        "PlayerForm": build_player_form_tab(stats, snaps),
+        "Injuries": build_injuries_tab(injuries),
     }
-    write_to_sheets(SHEET_ID, data_to_write)
 
-    print(f"✅ Engine run complete at {datetime.now(eastern)}")
+    print("\n📝 Writing to Google Sheets")
+    client = get_gspread_client()
+    write_to_sheets(client, SHEET_ID, tabs)
+
+    elapsed = (datetime.now(eastern) - started).total_seconds()
+    print(f"\n✅ Complete in {elapsed:.1f}s")
+
 
 if __name__ == "__main__":
     main()

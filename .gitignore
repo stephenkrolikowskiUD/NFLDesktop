@@ -23,8 +23,9 @@ gcp-*.json
 secrets.json
 token.json
 
-# --- Engine local cache (see CACHE_DIR in MLBEnginev5-4.py) ---
+# --- Engine local cache (see CACHE_DIR in NFLEnginev1.py / nflverse_loader.py) ---
 .dfs_engines_cache/
+cache/
 
 # --- OS / editor noise ---
 .DS_Store
