@@ -12,13 +12,25 @@
 # "use last year's points" — treat model-vs-consensus gaps as a cross-check,
 # never an override.
 #
-# Confirmed weaknesses: over-projects players who changed teams (~+20 pts),
-# under-projects players who missed time (~-17 pts), over-projects overall
-# (~+9 pts). The consensus-anchored prior below CANNOT be validated — nflverse
+# Confirmed weakness that remains: over-projects players who CHANGED TEAMS by
+# ~+19 pts. Not corrected — see SHRINK_GAMES_TEAM_CHANGE for why the obvious fix
+# makes the model worse overall. Flagged on the board instead.
+# Fixed since the first backtest: partial-season players were under-projected by
+# ~17 pts; raising AVAILABILITY_PRIOR_WEIGHT removed it. Overall it still
+# over-projects by ~+9 pts. The consensus-anchored prior below CANNOT be validated — nflverse
 # ships one ECR scrape date, so no historical consensus exists.
 #
 # Deliberately NOT modeled in v1 (each needs data we don't have or judgment
 # calls that would be guesses dressed as math):
+#   - age / decline curves. This is visibly biting: the players the model most
+#     favors over consensus are aging veterans coming off productive seasons
+#     (Kupp, Stafford, Goedert, Henry). Consensus prices expected decline; this
+#     model only sees last year's production. rosters carries years_exp and
+#     birthdate, so this is the most tractable next improvement.
+#   - role changes. The mirror image: consensus is far higher than the model on
+#     players expected to step into starting jobs (Tuten, Cam Ward, Sampson),
+#     because their 2025 usage doesn't reflect a 2026 promotion. 2026 depth
+#     charts would address this.
 #   - scheme/coaching changes
 #   - injury-return curves
 #   - explicit team pace / pass-rate context
@@ -36,14 +48,39 @@ POSITION_GROUPS = ["QB", "RB", "WR", "TE"]
 # gets a 50/50 blend of their own rate and the positional mean.
 SHRINK_GAMES = 4.0
 # Changing teams makes last season's usage less predictive of next season's, so
-# those players are pulled harder toward the positional mean.
+# those players are pulled harder toward the positional mean. Backtest confirms
+# they are otherwise over-projected by ~20 points.
+# Left at 8 deliberately. Raising it does reduce the confirmed +19 pt
+# over-projection of these players (to ~+12 at k=28), but costs both MAE
+# (56.3 -> 57.3) and rank correlation (0.631 -> 0.626). That tradeoff says the
+# positional mean is the wrong correction: players who change teams don't
+# regress toward average, they land in genuinely different roles. Trading
+# overall accuracy for a cosmetically better subgroup number isn't worth it, so
+# this stays a documented known bias, flagged as "new tm" on the draft board for
+# the user's own judgment, rather than papered over.
 SHRINK_GAMES_TEAM_CHANGE = 8.0
+# A short season is a DIFFERENT problem from a team change and needs the
+# opposite treatment. The per-game rate of someone who played 8 games is still
+# reliable — it's their availability that's in question, and project_games
+# already handles that separately. Shrinking their rate as well double-counts
+# it, which is why the backtest shows partial-season players UNDER-projected by
+# ~17 points. Lumping both conditions under one prior weight made tuning one
+# actively worsen the other.
+SHRINK_GAMES_PARTIAL_SEASON = 4.0
 
 # Availability is itself shrunk: a player who missed time once shouldn't be
 # projected for 17 games, but neither should one bad year define them.
+#
+# The prior weight was raised from 6 to 10 on backtest evidence. Prior-year
+# games played predicts next-year games played only weakly (rank correlation
+# ~0.17), so regressing harder toward the league average is the correct
+# treatment. This alone removed the partial-season under-projection the
+# backtest found (-17 pts -> +1 pt) while slightly IMPROVING both MAE (56.5 ->
+# 56.3) and rank correlation (0.625 -> 0.631) — no tradeoff, which is why it
+# was preferred over distorting those players' per-game rates to compensate.
 FULL_SEASON_GAMES = 17
 LEAGUE_AVG_GAMES = 15.0
-AVAILABILITY_PRIOR_WEIGHT = 6.0
+AVAILABILITY_PRIOR_WEIGHT = 10.0
 
 # Value over replacement. Raw projected points are NOT comparable across
 # positions: you start one QB but three WRs, so a QB's points are measured
@@ -186,12 +223,15 @@ def shrink_rates(rates: pd.DataFrame, priors: pd.DataFrame) -> pd.DataFrame:
 
     out = rates.merge(priors, how="left", on="position")
     g = out["games_played"].astype(float)
-    # A partial season is weak evidence for projecting a full one — the missing
-    # games are usually injury, and prior-year availability predicts next-year
-    # availability only loosely. Treat it like a team change: lean harder on the
-    # prior rather than extrapolating a short sample across 17 games.
-    high_uncertainty = out["changed_team"].fillna(False).astype(bool) | (g < 12)
-    k = np.where(high_uncertainty, SHRINK_GAMES_TEAM_CHANGE, SHRINK_GAMES)
+    # Team change and short season are distinct failure modes pulling in
+    # opposite directions, so they get separate prior weights.
+    moved = out["changed_team"].fillna(False).astype(bool)
+    partial = (g < 12) & ~moved
+    k = np.select(
+        [moved, partial],
+        [SHRINK_GAMES_TEAM_CHANGE, SHRINK_GAMES_PARTIAL_SEASON],
+        default=SHRINK_GAMES,
+    )
 
     for col in [c for c in rates.columns if c.endswith("_pg")]:
         prior = out.get(f"{col}_prior")
@@ -516,7 +556,7 @@ def build_projections(stats: pd.DataFrame, rosters: pd.DataFrame,
             moved.to_numpy(dtype=bool),
             (games >= 12).to_numpy(dtype=bool),
         ],
-        ["rookie/consensus-only", "small sample", "changed teams", "full season"],
+        ["no prior-season data", "small sample", "changed teams", "full season"],
         default="partial season",
     )
 

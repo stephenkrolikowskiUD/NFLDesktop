@@ -2496,6 +2496,7 @@ function renderPropExplorerView(){
 // lineup, so these are build targets for an 18-man draft, not lineup slots.
 const BB_ROSTER_TARGETS={QB:2,RB:5,WR:9,TE:2};
 const BB_ROSTER_SIZE=18;
+const BB_DRAFTABLE_ECR=BB_ROSTER_SIZE*12;  // 216 total picks in a 12-team draft
 
 function bbRows(){
   return (st.projections||[]).map(r=>({
@@ -2550,7 +2551,7 @@ function renderBestBallRoster(rows){
 function renderBestBallView(){
   const all=bbRows();
   if(!all.length){
-    return `<section class="page"><div class="card" style="margin:16px">
+    return `<section><div class="card" style="margin:16px">
       <div class="card-title">No projections yet</div>
       <p style="color:var(--ink-1);line-height:1.5">The engine hasn't written a <code>Projections</code> tab yet.
       Run the NFL Engine workflow, then reload.</p></div></section>`;
@@ -2572,15 +2573,23 @@ function renderBestBallView(){
       // ascending sort on 0 would do.
       const av=a.ecr||9999,bv=b.ecr||9999;return av-bv;
     }
-    if(st.bbSort==="DELTA")return Math.abs(b.delta)-Math.abs(a.delta);
+    if(st.bbSort==="DELTA"){
+      // Rank disagreement only among players who will actually be drafted.
+      // Beyond the draftable pool both rankings are meaningless and their gap
+      // is an artifact of the model ranking more players than consensus does.
+      const ad=a.ecr&&a.ecr<=BB_DRAFTABLE_ECR?Math.abs(a.delta):-1;
+      const bd=b.ecr&&b.ecr<=BB_DRAFTABLE_ECR?Math.abs(b.delta):-1;
+      return bd-ad;
+    }
     return b.vorp-a.vorp;
   });
 
   const body=rows.slice(0,300).map(r=>{
     const drafted=st.bbDrafted.has(r.id);
     const deltaCls=r.delta>0?"bb-delta-up":r.delta<0?"bb-delta-dn":"";
-    const deltaTxt=r.ecr?`${r.delta>0?"+":""}${r.delta.toFixed(0)}`:"—";
-    const flag=r.source==="ecr_imputed"?`<span class="bb-flag" title="No prior-season usage; placed from consensus rank">rookie</span>`
+    const deltaRounded=Math.round(r.delta);
+    const deltaTxt=r.ecr?`${deltaRounded>0?"+":""}${deltaRounded}`:"—";
+    const flag=r.source==="ecr_imputed"?`<span class="bb-flag" title="No prior-season usage at all (rookie, or a veteran who did not play); placed from consensus rank">no data</span>`
       :r.confidence==="changed teams"?`<span class="bb-flag" title="Changed teams — prior usage is less predictive">new tm</span>`
       :r.confidence==="partial season"||r.confidence==="small sample"?`<span class="bb-flag" title="${esc(r.confidence)}">${esc(r.confidence==="small sample"?"sm samp":"part szn")}</span>`:"";
     return `<tr class="${drafted?"bb-row-drafted":""}">
@@ -2597,15 +2606,17 @@ function renderBestBallView(){
     </tr>`;
   }).join("");
 
-  return `<section class="page">
+  return `<section>
     <div style="padding:12px 16px 4px">
       <div style="color:var(--accent);font-size:var(--t-sm);font-weight:700">Best Ball Draft Board</div>
       <div style="color:var(--ink-muted);font-size:var(--t-xs);line-height:1.5;margin-top:2px">
 ${(()=>{const f=String(rowField((st.projections||[])[0]||{},"scoring_format")||"");
           return f?`<span class="bb-flag">${esc(f)} scoring</span> `:""})()}
         Model projection and FantasyPros best-ball consensus side by side.
-        <strong>Disagreement is a question, not an edge</strong> — this model has not been backtested,
-        and consensus is a strong baseline.
+        <strong>Disagreement is a question, not an edge.</strong> Backtested over 7 seasons: this model
+        beats a naive carry-forward on point accuracy but <strong>ties it on ranking</strong>, so its draft
+        order has no demonstrated edge over consensus. Known bias: players tagged
+        <span class="bb-flag">new tm</span> are over-projected by roughly 20 points.
       </div>
     </div>
     ${renderBestBallRoster(all)}
@@ -2695,8 +2706,10 @@ function renderPicksPage(activeTab,picksHTML){
 
 function renderLookupPage(activeTab){
   if(!LOOKUP_PORTED){
-    return`${renderAppHeader({activeTab,showCtrl:false,player:"",metricOpts:"",curTonight:[]})}
-      <div class="page"><div class="card" style="margin:16px">
+    // Must be a #pg-lookup page div like every other page — render() emits the
+    // header once at the top, so rendering it again here duplicated the nav.
+    return`<div id="pg-lookup" class="page ${activeTab==="lookup"?"active":""}">
+      <div class="card" style="margin:16px">
         <div class="card-title">Lookup is being rebuilt</div>
         <p style="color:var(--ink-1);line-height:1.5">This page was powered by the MLB Stats API — career splits,
         year-by-year, and head-to-head — which has no football equivalent, so it needs a rebuild rather than a rename.</p>
@@ -3045,6 +3058,7 @@ function render(){
   <div id="pg-stats" class="page ${activeTab==="stats"?"active":""}">${renderStatsView()}</div>
   <div id="pg-leaders" class="page ${activeTab==="leaders"?"active":""}">${renderLeadersView()}</div>
   <div id="pg-entry" class="page ${activeTab==="entry"?"active":""}">${renderGameEntryView()}</div>
+  <div id="pg-bestball" class="page ${activeTab==="bestball"?"active":""}">${renderBestBallView()}</div>
 
   ${renderLookupPage(activeTab)}
 

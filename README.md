@@ -91,7 +91,12 @@ Three design decisions worth knowing:
 2. **The prior is consensus, fit per position.** Shrinking a player who missed time toward "average QB including third-stringers" buries him; consensus already knows Burrow is elite despite a short season. The curve is fit **separately per position**, because ECR is an *overall* rank — pick 56 is roughly QB6 (~300 pts) but WR30 (far fewer), and one global curve maps every mid-round QB to a skill player's total.
 3. **Model and consensus are never blended into one ranking.** Both are shown with the delta explicit. The model is **not backtested** — a disagreement is a prompt to look closer, not an edge.
 
-**Not modeled in v1** (each needs data we don't have, or would be a guess dressed as math): scheme/coaching changes, injury-return curves, explicit team pace/pass-rate context, and rookie production (nflverse carries no college data — rookies are imputed from consensus rank and flagged `rookie`).
+**Not modeled in v1.** Two of these are visibly biting, and the Disagreement sort surfaces them cleanly:
+
+- **No age/decline curve.** The players the model most favors over consensus are aging veterans coming off productive seasons (Kupp, Stafford, Goedert, Henry). Consensus prices expected decline; the model only sees last year's production. `load_rosters()` carries `years_exp` and `birthdate`, so this is the most tractable next improvement.
+- **No role-change modeling.** The mirror image: consensus is far higher than the model on players expected to step into starting jobs (Tuten ECR 53 vs model 202, Cam Ward, Sampson), because 2025 usage doesn't reflect a 2026 promotion. 2026 depth charts would address this.
+
+Also absent: scheme/coaching changes, injury-return curves, explicit team pace/pass-rate context, and rookie production (nflverse carries no college data — players with no prior-season usage are imputed from consensus and flagged `no data`).
 
 ### Backtest results
 
