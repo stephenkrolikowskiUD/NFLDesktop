@@ -269,6 +269,95 @@ def load_teams() -> pd.DataFrame:
     return _load("teams", fn_name="load_teams")
 
 
+def load_depth_charts(seasons=None) -> pd.DataFrame:
+    """Raw depth charts. Schema differs before/after 2025 — see depth_ranks()."""
+    return _load("depth_charts", seasons=seasons, fn_name="load_depth_charts")
+
+
+def depth_ranks(seasons=None, snapshot="latest") -> pd.DataFrame:
+    """Depth position per player, normalized across the 2025 schema break.
+
+    Returns: player_id, team, position, depth_rank (1 = starter).
+
+    nflverse changed this feed's schema in 2025 and the two shapes share almost
+    nothing:
+      pre-2025  15 cols, one row per player-week: season/week/game_type,
+                club_code, position, depth_team ('1'/'2'/'3' as STRINGS)
+      2025+     12 cols, a continuous snapshot feed keyed on a `dt` timestamp
+                with no season or week at all: team, pos_abb, pos_rank (ints)
+
+    Loading a span across that boundary silently returns the nulled union of
+    both, so each is handled separately and reduced to the same columns.
+
+    `snapshot` controls which point in the new feed to read, and the choice
+    matters more than it looks:
+
+      "latest"   (default) newest dt. Correct for the CURRENT season, where the
+                 newest snapshot is today's pre-season depth chart.
+      "earliest" oldest dt. Correct for a COMPLETED season, where the newest
+                 snapshot is the END of that year — which both leaks the future
+                 and misrepresents the season, since a player benched in week 17
+                 reads as a backup despite having started fifteen games.
+
+    Backtesting a finished season with "latest" measurably degraded a fold
+    (2024->2025 rank correlation fell 0.606 -> 0.569), which is what surfaced
+    this distinction.
+
+    The pre-2025 feed has no preseason rows at all — game_type is REG onward —
+    so it always falls back to week 1. That remains mild lookahead: a week-1
+    depth chart is published at the season start rather than in August. Camp
+    reporting makes most of it knowable earlier, but it is not strictly
+    point-in-time and shouldn't be read as such.
+    """
+    raw = load_depth_charts(seasons=seasons)
+    if raw.empty:
+        return pd.DataFrame()
+
+    frames = []
+
+    # --- 2025+ snapshot feed ---
+    if {"dt", "pos_rank", "pos_abb"} <= set(raw.columns):
+        new = raw[raw["dt"].notna()].copy()
+        if not new.empty:
+            pick = new["dt"].min() if snapshot == "earliest" else new["dt"].max()
+            new = new[new["dt"] == pick]
+            new = new[new["pos_abb"].isin(["QB", "RB", "WR", "TE"])]
+            frames.append(pd.DataFrame({
+                "player_id": new["gsis_id"],
+                "team": new["team"],
+                "position": new["pos_abb"],
+                "depth_rank": pd.to_numeric(new["pos_rank"], errors="coerce"),
+            }))
+
+    # --- pre-2025 per-week rows ---
+    if {"depth_team", "week"} <= set(raw.columns):
+        old = raw[raw["depth_team"].notna() & raw["week"].notna()].copy()
+        if "game_type" in old.columns:
+            old = old[old["game_type"].eq("REG")]
+        if not old.empty:
+            old = old[old["week"] == old["week"].min()]
+            old = old[old["position"].isin(["QB", "RB", "WR", "TE"])]
+            team_col = "club_code" if "club_code" in old.columns else "team"
+            frames.append(pd.DataFrame({
+                "player_id": old["gsis_id"],
+                "team": old[team_col],
+                "position": old["position"],
+                # Strings in this schema, hence the explicit coercion.
+                "depth_rank": pd.to_numeric(old["depth_team"], errors="coerce"),
+            }))
+
+    if not frames:
+        return pd.DataFrame()
+
+    out = pd.concat(frames, ignore_index=True)
+    out = out.dropna(subset=["player_id", "depth_rank"])
+    # A player can appear at several spots (e.g. WR and PR); keep the best.
+    out = (out.sort_values("depth_rank")
+              .drop_duplicates(subset=["player_id"], keep="first")
+              .reset_index(drop=True))
+    return out
+
+
 def load_pbp(seasons=None) -> pd.DataFrame:
     """Play-by-play. ~20 MB per season — only load when a metric genuinely
     needs play-level detail (e.g. red zone splits)."""

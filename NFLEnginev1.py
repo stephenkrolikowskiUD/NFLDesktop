@@ -559,8 +559,12 @@ def main():
     ff_ids = nv.load_ff_playerids()
     print(f"   best-ball consensus: {len(best_ball_ecr)} ranked")
     print(f"   scoring: {SCORING} ({pj.SCORING_FORMATS.get(SCORING, '?')} per reception)")
+    # "latest" is correct for the upcoming season — the newest snapshot is the
+    # current pre-season depth chart.
+    depth = nv.depth_ranks(seasons=[schedule_season], snapshot="latest")
+    print(f"   depth chart: {len(depth)} players")
     projections = pj.build_projections(stats, rosters_now, best_ball_ecr, ff_ids,
-                                       scoring=SCORING)
+                                       scoring=SCORING, depth=depth)
     if not projections.empty:
         # Stamp the format so the dashboard can label the board rather than
         # assuming PPR — the point totals are meaningless without it.

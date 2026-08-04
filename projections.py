@@ -116,6 +116,49 @@ def age_multiplier(position: pd.Series, age: pd.Series) -> pd.Series:
     return mult.where(slope.notna() & years.notna(), 1.0)
 
 
+# Depth-chart (role) adjustment, MEASURED not assumed. Derived 2026-08-03 as the
+# median actual/projected ratio by position and depth rank, across 7 backtest
+# folds (2018->2025), using each target season's SEASON-OPENING depth chart.
+#
+# This is the model's single largest correction, and it addresses its biggest
+# blind spot: projections are built from last season's usage, so a player who is
+# now a backup still carries a starter's workload forward. A backup quarterback
+# delivers about 14% of what the naive projection says.
+#
+# Every cell has n >= 21 and a tight leave-one-out range (all spreads < 0.25),
+# so unlike the age slopes none of these flip direction depending on the fold
+# held out:
+#
+#   QB1 1.046 (n=193, 1.019..1.083)   QB2 0.141 (n=107, 0.123..0.145)
+#   RB1 0.946 (n=244, 0.922..0.973)   RB2 0.787 (n=172, 0.768..0.800)
+#   TE1 0.913 (n=242, 0.910..0.932)   TE2 0.544 (n=178, 0.507..0.639)
+#   WR1 0.963 (n=522, 0.949..0.978)   WR2 0.604 (n=231, 0.583..0.618)
+#   ...rank 3 covers 3-and-deeper.
+#
+# Fitted on the full population rather than only top-ranked projections: the
+# model rarely ranks a backup QB highly, so a top-250 cut left QB2 with n=9 and
+# fell back to a pooled 0.649 — wildly wrong for a player who does not take
+# snaps. Refit periodically; these are empirical constants, not laws.
+DEPTH_MULTIPLIERS = {
+    ("QB", 1): 1.046, ("QB", 2): 0.141, ("QB", 3): 0.126,
+    ("RB", 1): 0.946, ("RB", 2): 0.787, ("RB", 3): 0.465,
+    ("TE", 1): 0.913, ("TE", 2): 0.544, ("TE", 3): 0.268,
+    ("WR", 1): 0.963, ("WR", 2): 0.604, ("WR", 3): 0.359,
+}
+DEPTH_RANK_CAP = 3
+
+
+def depth_multiplier(position: pd.Series, depth_rank: pd.Series) -> pd.Series:
+    """Role adjustment. 1.0 where depth is unknown — never penalize on absence."""
+    rank = pd.to_numeric(depth_rank, errors="coerce").clip(upper=DEPTH_RANK_CAP)
+    pairs = zip(position.fillna(""), rank)
+    mult = pd.Series(
+        [DEPTH_MULTIPLIERS.get((p, int(r))) if pd.notna(r) else None
+         for p, r in pairs],
+        index=position.index, dtype="float64")
+    return mult.fillna(1.0)
+
+
 # Value over replacement. Raw projected points are NOT comparable across
 # positions: you start one QB but three WRs, so a QB's points are measured
 # against a readily available replacement QB, not against a WR. Without this,
@@ -466,6 +509,9 @@ def impute_rookies(df: pd.DataFrame, rookies: pd.DataFrame) -> pd.DataFrame:
         return df
 
     add["proj_games"] = LEAGUE_AVG_GAMES
+    for col in ("age_mult", "depth_mult"):
+        if col not in add.columns:
+            add[col] = 1.0
     add["proj_ppg"] = (add["proj_ppr"] / add["proj_games"]).round(2)
     add["proj_source"] = "ecr_imputed"
     add["games_played"] = 0
@@ -481,7 +527,8 @@ def impute_rookies(df: pd.DataFrame, rookies: pd.DataFrame) -> pd.DataFrame:
 def build_projections(stats: pd.DataFrame, rosters: pd.DataFrame,
                       ecr: pd.DataFrame, playerids: pd.DataFrame,
                       replacement_ranks: dict | None = None,
-                      scoring: str = DEFAULT_SCORING) -> pd.DataFrame:
+                      scoring: str = DEFAULT_SCORING,
+                      depth: pd.DataFrame | None = None) -> pd.DataFrame:
     """Season-long projections for QB/RB/WR/TE, with consensus alongside."""
     rates = per_game_rates(stats, scoring=scoring)
     if rates.empty:
@@ -553,7 +600,15 @@ def build_projections(stats: pd.DataFrame, rosters: pd.DataFrame,
     else:
         out["proj_ppr"] = out["proj_raw_ppr"]
     out["age_mult"] = age_multiplier(out["position"], out.get("age")).round(3)
-    out["proj_ppr"] = (out["proj_ppr"] * out["age_mult"]).round(1)
+    if depth is not None and not depth.empty:
+        out = out.merge(depth[["player_id", "depth_rank"]], how="left",
+                        on="player_id")
+        covered = out["depth_rank"].notna().mean()
+        print(f"   🪜 depth chart covered {covered:.1%} of projected players")
+    else:
+        out["depth_rank"] = np.nan
+    out["depth_mult"] = depth_multiplier(out["position"], out["depth_rank"]).round(3)
+    out["proj_ppr"] = (out["proj_ppr"] * out["age_mult"] * out["depth_mult"]).round(1)
     out["proj_ppg"] = (out["proj_ppr"] / out["proj_games"]).round(2)
     out["proj_source"] = "model"
 
@@ -610,7 +665,8 @@ def build_projections(stats: pd.DataFrame, rosters: pd.DataFrame,
         "player_id", "player_display_name", "position", "team_now", "team_prior",
         "changed_team", "years_exp", "age", "games_played", "proj_games",
         "proj_ppr", "proj_ppg", "proj_raw_ppr", "ecr_implied_ppr",
-        "consensus_weight", "age_mult", "vorp", "replacement_ppr",
+        "consensus_weight", "age_mult", "depth_rank", "depth_mult",
+        "vorp", "replacement_ppr",
         "model_rank", "model_pos_rank",
         "ecr", "ecr_sd", "ecr_best", "ecr_worst", "ecr_vs_model", "bye",
         "proj_source", "confidence", "target_share", "wopr",

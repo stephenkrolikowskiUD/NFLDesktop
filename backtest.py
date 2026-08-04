@@ -104,8 +104,13 @@ def run_fold(train_season: int, scoring: str, playerids: pd.DataFrame,
     ecr = (build_proxy_consensus(train_stats, playerids, scoring)
            if use_proxy else pd.DataFrame())
 
+    # Season-OPENING depth chart for the year being predicted. "earliest" is
+    # essential for a completed season: the newest snapshot is that year's END,
+    # which leaks the future and misreads anyone benched late.
+    depth = nv.depth_ranks(seasons=[target], snapshot="earliest")
+
     proj = pj.build_projections(train_stats, rosters, ecr, playerids,
-                               scoring=scoring)
+                               scoring=scoring, depth=depth)
     if proj.empty:
         return pd.DataFrame()
 
@@ -131,15 +136,38 @@ def spearman(a: pd.Series, b: pd.Series) -> float:
     return float(a[valid].corr(b[valid], method="spearman"))
 
 
-def evaluate(df: pd.DataFrame, label: str, top_n: int | None = None) -> dict:
+def select_eval_set(df: pd.DataFrame, top_n: int | None,
+                    eval_set: str = "naive") -> pd.DataFrame:
+    """Choose which players to score.
+
+    MODEL-INDEPENDENT BY DEFAULT, and that matters more than it sounds. Ranking
+    by `model_rank` lets each model version pick its own exam: change the model
+    and the scored population changes with it, so the baseline's number drifts
+    too and versions stop being comparable. That mistake made an earlier build
+    look like it beat naive on ranking when a fair set showed it losing.
+
+    "naive" ranks by prior-season points — the same information the baseline
+    itself uses — so every variant is scored on identical players.
+    "model" keeps the old behaviour for the "how good are the players I would
+    actually draft" question, which is legitimate but not comparable across
+    versions.
+    """
+    if df.empty or not top_n:
+        return df
+    if eval_set == "model":
+        return df.nsmallest(top_n, "model_rank")
+    ranked = df[df["naive_pts"].notna()]
+    if ranked.empty:
+        return df.nsmallest(top_n, "model_rank")
+    return ranked.nlargest(top_n, "naive_pts")
+
+
+def evaluate(df: pd.DataFrame, label: str, top_n: int | None = None,
+             eval_set: str = "naive") -> dict:
     """Accuracy of projection vs actual, alongside the naive baseline."""
     if df.empty:
         return {}
-    d = df.copy()
-    if top_n:
-        # Judge on the players you'd actually draft, not the deep bench where
-        # everyone projects near zero and correlations look flattering.
-        d = d.nsmallest(top_n, "model_rank")
+    d = select_eval_set(df, top_n, eval_set)
 
     err = d["proj_ppr"] - d["actual_pts"]
     naive_err = d["naive_pts"] - d["actual_pts"]
@@ -156,13 +184,12 @@ def evaluate(df: pd.DataFrame, label: str, top_n: int | None = None) -> dict:
     }
 
 
-def position_bias(df: pd.DataFrame, top_n: int | None = None) -> pd.DataFrame:
+def position_bias(df: pd.DataFrame, top_n: int | None = None,
+                  eval_set: str = "naive") -> pd.DataFrame:
     """Signed error by position — the direct test of the WR-low / TE-high claim."""
     if df.empty:
         return pd.DataFrame()
-    d = df.copy()
-    if top_n:
-        d = d.nsmallest(top_n, "model_rank")
+    d = select_eval_set(df, top_n, eval_set)
     d["err"] = d["proj_ppr"] - d["actual_pts"]
     out = d.groupby("position").agg(
         n=("err", "size"),
@@ -183,6 +210,10 @@ def main():
     ap.add_argument("--scoring", default=pj.DEFAULT_SCORING)
     ap.add_argument("--top", type=int, default=150,
                     help="evaluate on the top N by model rank")
+    ap.add_argument("--eval-set", choices=["naive", "model"], default="naive",
+                    help="which players to score. 'naive' (default) is "
+                         "model-independent and comparable across versions; "
+                         "'model' scores the model's own top N")
     ap.add_argument("--proxy-consensus", action="store_true",
                     help="substitute prior-season finish for missing historical ECR")
     args = ap.parse_args()
@@ -203,7 +234,7 @@ def main():
         if fold.empty:
             print(f"   ⚠️  fold {train} produced nothing — skipped")
             continue
-        m = evaluate(fold, str(train), top_n=args.top)
+        m = evaluate(fold, str(train), top_n=args.top, eval_set=args.eval_set)
         print(f"   {train}->{train+1}: n={m['n']:4d} "
               f"spearman={m['spearman']:.3f} (naive {m['naive_spearman']:.3f}) "
               f"MAE={m['MAE']:6.1f} (naive {m['naive_MAE']:6.1f}) "
@@ -216,9 +247,11 @@ def main():
 
     allf = pd.concat(folds, ignore_index=True)
 
-    print(f"\n{'='*74}\nPOOLED — top {args.top} by model rank per fold\n{'='*74}")
+    label = ("prior-season points (model-independent)" if args.eval_set == "naive"
+             else "model rank (NOT comparable across versions)")
+    print(f"\n{'='*74}\nPOOLED — top {args.top} per fold by {label}\n{'='*74}")
     pooled = evaluate(allf, "pooled", top_n=None)
-    top_only = pd.concat([f.nsmallest(args.top, "model_rank") for f in folds],
+    top_only = pd.concat([select_eval_set(f, args.top, args.eval_set) for f in folds],
                          ignore_index=True)
     m = evaluate(top_only, "pooled-top")
     print(f"   rank correlation : {m['spearman']:.3f}   vs naive {m['naive_spearman']:.3f}")

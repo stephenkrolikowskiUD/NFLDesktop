@@ -98,7 +98,7 @@ Three design decisions worth knowing:
 **Not modeled in v1.** Two of these are visibly biting, and the Disagreement sort surfaces them cleanly:
 
 - ~~No age/decline curve~~ — **added**, see below.
-- **No role-change modeling.** The mirror image: consensus is far higher than the model on players expected to step into starting jobs (Tuten ECR 53 vs model 202, Cam Ward, Sampson), because 2025 usage doesn't reflect a 2026 promotion. 2026 depth charts would address this.
+- ~~No role-change modeling~~ — **added**, see below. This turned out to be the single most valuable feature in the model.
 
 Also absent: scheme/coaching changes, injury-return curves, explicit team pace/pass-rate context, and rookie production (nflverse carries no college data — players with no prior-season usage are imputed from consensus and flagged `no data`).
 
@@ -108,10 +108,16 @@ Also absent: scheme/coaching changes, injury-return curves, explicit team pace/p
 
 | | Model | Naive carry-forward |
 |---|---|---|
-| Rank correlation | **0.630** | 0.608 |
-| MAE (points) | **56.0** | 61.4 |
+| Rank correlation | **0.652** | 0.616 |
+| MAE (points) | **54.3** | 60.9 |
 
-**Read this before trusting the rankings.** The model beats a naive carry-forward on point accuracy (~9% lower MAE) and now edges it on ranking too (0.630 vs 0.608, better in 5 of 7 folds). That ranking gap only appeared after the age adjustment — before it, the two were effectively tied. It is still a modest edge over a trivial baseline, so treat the board as a cross-check on consensus rather than an override.
+Scored on the top 200 by *prior-season* points — a **model-independent** set, so every model version is judged on identical players. Beats naive on ranking in 6 of 7 folds, ties the seventh.
+
+**Methodology correction worth knowing about.** Earlier versions of this table scored the top N *by model rank*, which let each model version pick its own exam — change the model and the scored population changes, so the baseline's number drifts and versions stop being comparable. Under that flawed metric an earlier build appeared to beat naive on ranking; on a fair set it was actually **losing** (0.599 vs 0.612). Use `--eval-set naive` (the default now); `--eval-set model` is retained for the different question of "how good are the players I'd actually draft."
+
+**The depth-chart adjustment is what makes this model work.** Without it, rank correlation is 0.599 against naive's 0.612 — worse than carrying last season forward. With it, 0.656. Everything else (shrinkage, availability, consensus prior, age) is worth about as much as the single fact of whether a player is currently a starter.
+
+Still a modest edge over a trivial baseline, so treat the board as a cross-check on consensus rather than an override.
 
 Confirmed by backtest:
 
@@ -149,6 +155,26 @@ Validated out-of-sample (slopes fit excluding the scored fold): MAE improved in 
 Unexpected side benefit: the **changed-teams bias fell from +19 to +11 points**. Many players who switch teams are older veterans, so age was the underlying confound — and correcting it fixed most of that bias without the accuracy cost that shrinking those players directly had incurred.
 
 These are empirical constants, not laws. Refit periodically.
+
+### Depth-chart (role) adjustment — the model's most valuable feature
+
+Median `actual / projected` by position and depth rank, from each target season's **season-opening** depth chart:
+
+| Rank | QB | RB | WR | TE |
+|---|---|---|---|---|
+| 1 (starter) | 1.046 | 0.946 | 0.963 | 0.913 |
+| 2 | **0.141** | 0.787 | 0.604 | 0.544 |
+| 3+ | 0.126 | 0.465 | 0.359 | 0.268 |
+
+This addresses the model's biggest structural blind spot: projections come from last season's usage, so a player who is now a backup still carries a starter's workload forward. A backup quarterback delivers about **14%** of the naive projection.
+
+Every cell has n ≥ 21 and a tight leave-one-out range (all spreads < 0.25), so unlike the age slopes none flip direction depending on which fold is held out.
+
+Fitted on the **full population**, not just top-ranked projections. A top-250 cut left QB2 with n=9, falling back to a pooled 0.649 — wildly wrong for someone who doesn't take snaps. Widening to all players gave QB2 n=107.
+
+**Snapshot timing is load-bearing.** nflverse's 2025+ depth chart feed is a continuous `dt` snapshot stream with no season or week. Reading the *newest* snapshot of a completed season leaks the future and misreads anyone benched late — it measurably degraded a fold (rank correlation 0.606 → 0.569). So `depth_ranks(snapshot=...)` takes `"earliest"` for backtesting finished seasons and `"latest"` for the upcoming one, where newest genuinely means current preseason.
+
+Caveat: pre-2025 depth charts have no preseason rows at all (`game_type` is REG onward), so those folds fall back to week 1. A week-1 depth chart is published at the season start rather than in August — camp reporting makes most of it knowable earlier, but it isn't strictly point-in-time.
 
 ### Scoring
 
