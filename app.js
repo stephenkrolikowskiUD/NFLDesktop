@@ -2501,6 +2501,27 @@ function bbIsDraftable(r){
   return (r.ecr&&r.ecr<=BB_DRAFTABLE_ECR)||(r.modelRank&&r.modelRank<=BB_DRAFTABLE_ECR);
 }
 
+function bbScarcityRows(rows){
+  const basePool=(rows||[]).filter(r=>r&&r.pos&&r.projPpr);
+  return Object.entries(BB_ROSTER_TARGETS).map(([pos,targetPerRoster])=>{
+    const startersNeeded=targetPerRoster*12;
+    const sorted=basePool
+      .filter(r=>r.pos===pos)
+      .sort((a,b)=>(b.projPpr||0)-(a.projPpr||0));
+    const cutoff=sorted[startersNeeded-1]||null;
+    const nextUp=sorted[startersNeeded]||null;
+    const cliff=cutoff&&nextUp?(cutoff.projPpr-nextUp.projPpr):0;
+    return {
+      pos,
+      startersNeeded,
+      available:sorted.length,
+      cutoff,
+      nextUp,
+      cliff
+    };
+  });
+}
+
 function bbRows(){
   return (st.projections||[]).map(r=>({
     id:String(rowField(r,"player_id")||rowField(r,"player_display_name")||""),
@@ -2571,6 +2592,8 @@ function renderBestBallView(){
     `<div class="sub-tab ${st.bbSort===k?"active":""}" onclick="bbSetSort('${k}')">${l}</div>`).join("");
   const teams=[...new Set(all.map(r=>r.team).filter(Boolean))].sort();
   const searchNeedle=normalizePlayerName(st.bbSearch);
+  const scarcityPool=(st.bbDraftableOnly?all.filter(bbIsDraftable):all).filter(r=>!st.bbDrafted.has(r.id));
+  const scarcityRows=bbScarcityRows(scarcityPool);
 
   let rows=st.bbPos==="ALL"?all:all.filter(r=>r.pos===st.bbPos);
   if(searchNeedle)rows=rows.filter(r=>
@@ -2695,6 +2718,19 @@ ${(()=>{const f=String(rowField((st.projections||[])[0]||{},"scoring_format")||"
         <div class="val">${filteredRows.filter(r=>r.pos==="WR"||r.pos==="TE").length}</div>
         <div class="lbl">WR/TE in view</div>
       </div>
+    </div>
+    <div class="bb-insights bb-insights-scarcity">
+      ${scarcityRows.map(r=>{
+        const cutoffLabel=r.cutoff?`${r.cutoff.name} · ${r.cutoff.projPpr.toFixed(0)} pts`:"No cutoff yet";
+        const nextLabel=r.nextUp?`${r.nextUp.name} · ${r.nextUp.projPpr.toFixed(0)} pts`:"Pool exhausted";
+        return `<div class="card bb-note-card">
+          <div class="card-title">${esc(r.pos)} Scarcity</div>
+          <div class="bb-note-copy">Starter line at ${r.startersNeeded} drafted. This is the replacement cliff for a 12-team build.</div>
+          <div class="bb-note-row"><span class="bb-note-name">Starter cutoff</span><span class="bb-note-meta">${esc(cutoffLabel)}</span></div>
+          <div class="bb-note-row"><span class="bb-note-name">Next up</span><span class="bb-note-meta">${esc(nextLabel)}</span></div>
+          <div class="bb-note-row"><span class="bb-note-name">Cliff</span><span class="bb-note-meta">${r.cliff>0?`${r.cliff.toFixed(1)} pts drop`:"Flat tier"}</span></div>
+        </div>`;
+      }).join("")}
     </div>
     <div class="bb-insights">
       <div class="card bb-note-card">
