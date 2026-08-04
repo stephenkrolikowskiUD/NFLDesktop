@@ -2586,6 +2586,21 @@ function renderBestBallView(){
   const topDisagreement=[...filteredRows]
     .filter(r=>r.ecr&&r.modelRank)
     .sort((a,b)=>Math.abs(b.delta)-Math.abs(a.delta))[0]||null;
+  const modelTargets=[...filteredRows]
+    .filter(r=>r.ecr&&r.modelRank&&r.delta>=8)
+    .sort((a,b)=>b.delta-a.delta)
+    .slice(0,3);
+  const consensusTargets=[...filteredRows]
+    .filter(r=>r.ecr&&r.modelRank&&r.delta<=-8)
+    .sort((a,b)=>a.delta-b.delta)
+    .slice(0,3);
+  const riskRows=[...filteredRows]
+    .filter(r=>r.source==="ecr_imputed"||r.confidence==="changed teams"||r.confidence==="partial season"||r.confidence==="small sample")
+    .sort((a,b)=>{
+      const order=v=>v==="changed teams"?0:v==="partial season"?1:v==="small sample"?2:3;
+      return order(a.confidence)-order(b.confidence);
+    })
+    .slice(0,4);
   const topVorp=[...filteredRows].sort((a,b)=>b.vorp-a.vorp)[0]||null;
   const avgProj=filteredRows.length
     ? filteredRows.reduce((sum,r)=>sum+(r.projPpr||0),0)/filteredRows.length
@@ -2679,6 +2694,23 @@ ${(()=>{const f=String(rowField((st.projections||[])[0]||{},"scoring_format")||"
       <div class="stat-box">
         <div class="val">${filteredRows.filter(r=>r.pos==="WR"||r.pos==="TE").length}</div>
         <div class="lbl">WR/TE in view</div>
+      </div>
+    </div>
+    <div class="bb-insights">
+      <div class="card bb-note-card">
+        <div class="card-title">Model Likes More Than Consensus</div>
+        <div class="bb-note-copy">Useful when we want upside names the room may let slide.</div>
+        ${modelTargets.length?modelTargets.map(r=>`<div class="bb-note-row"><span class="bb-note-name">${esc(r.name)}</span><span class="bb-note-meta">${esc(r.team)} · ${esc(r.pos)} · ${r.delta>0?"+":""}${Math.round(r.delta)}</span></div>`).join(""):`<div class="bb-note-empty">No big model-over-consensus gaps in this view.</div>`}
+      </div>
+      <div class="card bb-note-card">
+        <div class="card-title">Consensus Likes More Than Model</div>
+        <div class="bb-note-copy">Good pressure-test list when the market is stronger than our projection.</div>
+        ${consensusTargets.length?consensusTargets.map(r=>`<div class="bb-note-row"><span class="bb-note-name">${esc(r.name)}</span><span class="bb-note-meta">${esc(r.team)} · ${esc(r.pos)} · ${Math.round(r.delta)}</span></div>`).join(""):`<div class="bb-note-empty">No big consensus-over-model gaps in this view.</div>`}
+      </div>
+      <div class="card bb-note-card">
+        <div class="card-title">Watchlist</div>
+        <div class="bb-note-copy">Names where context matters most before we trust the ranking.</div>
+        ${riskRows.length?riskRows.map(r=>`<div class="bb-note-row"><span class="bb-note-name">${esc(r.name)}</span><span class="bb-note-meta">${esc(r.team)} · ${esc(r.pos)} · ${esc(r.source==="ecr_imputed"?"no data":r.confidence||"watch")}</span></div>`).join(""):`<div class="bb-note-empty">No active watchlist flags in this view.</div>`}
       </div>
     </div>
     <div class="bb-toolbar">
