@@ -6,15 +6,19 @@ This repo is the GitHub Pages frontend for the NFL system. The engine writes dat
 
 ## Status: In Development
 
-Week 1 kickoff is **2026-09-09** (NE @ SEA). Data pipeline is live; the projection model is the next build.
+Week 1 kickoff is **2026-09-09** (NE @ SEA).
 
 - ✅ nflverse data layer with direct-parquet fallback
 - ✅ Schedule, spreads, totals, moneylines, snap counts, injuries, usage shares
-- ✅ Dashboard reads Sheets by tab name
-- ⬜ Projection model
-- ⬜ Picks (moneyline, spread, player props)
+- ✅ Dashboard ported from MLBDesktop (55 renderers, shared design system)
+- ✅ Player props with multi-book best-price routing
+- ✅ Season-long projection model, backtested over 7 seasons
+- ✅ Best Ball draft board
+- ⬜ Age/decline and role-change terms (the two biggest known gaps)
+- ⬜ Weekly picks (moneyline, spread, player props)
 - ⬜ Team selections / combo builder
 - ⬜ Grader + Pick Performance
+- ⬜ Lookup rebuild on nflverse (was MLB Stats API)
 
 ## How It Works
 
@@ -89,7 +93,7 @@ Three design decisions worth knowing:
 
 1. **VORP, not raw points.** Raw projected points aren't comparable across positions — you start one QB but three WRs. Ranking by raw points puts every startable QB above every skill player and makes consensus look wrong about quarterbacks when it isn't.
 2. **The prior is consensus, fit per position.** Shrinking a player who missed time toward "average QB including third-stringers" buries him; consensus already knows Burrow is elite despite a short season. The curve is fit **separately per position**, because ECR is an *overall* rank — pick 56 is roughly QB6 (~300 pts) but WR30 (far fewer), and one global curve maps every mid-round QB to a skill player's total.
-3. **Model and consensus are never blended into one ranking.** Both are shown with the delta explicit. The model is **not backtested** — a disagreement is a prompt to look closer, not an edge.
+3. **Model and consensus are never blended into one ranking.** Both are shown with the delta explicit, because the backtest found the model's *ranking* no better than naive (see below). A disagreement is a prompt to look closer, not an edge.
 
 **Not modeled in v1.** Two of these are visibly biting, and the Disagreement sort surfaces them cleanly:
 
@@ -104,15 +108,15 @@ Also absent: scheme/coaching changes, injury-return curves, explicit team pace/p
 
 | | Model | Naive carry-forward |
 |---|---|---|
-| Rank correlation | 0.622 | 0.616 |
-| MAE (points) | **56.2** | 61.3 |
+| Rank correlation | 0.631 | 0.616 |
+| MAE (points) | **56.3** | 61.3 |
 
 **Read this before trusting the rankings.** The model beats a naive carry-forward of last season's points on *point accuracy* (~8% lower MAE) but essentially **ties it on ranking**. Drafting is a ranking problem, so the model's draft order carries little demonstrated edge over "use last year's points." Treat it as a cross-check on consensus, not an override.
 
 Confirmed by backtest:
 
 - **Over-projects players who changed teams** by ~+20 points
-- **Under-projects players who missed time** by ~−17 points (the Burrow/Daniels case is a real weakness, not a quirk)
+- ~~Under-projects players who missed time by ~−17 points~~ — **fixed** by raising `AVAILABILITY_PRIOR_WEIGHT` to 10; now +1 point
 - Mild overall over-projection, ~+9 points
 - Availability rank correlation is only 0.17, but per-player availability still beats a flat league average on MAE (56.2 vs 59.6), so it stays
 
