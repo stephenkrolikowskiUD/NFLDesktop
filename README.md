@@ -93,7 +93,32 @@ Three design decisions worth knowing:
 
 **Not modeled in v1** (each needs data we don't have, or would be a guess dressed as math): scheme/coaching changes, injury-return curves, explicit team pace/pass-rate context, and rookie production (nflverse carries no college data — rookies are imputed from consensus rank and flagged `rookie`).
 
-**Known unresolved biases** vs consensus, pending a backtest: the model runs ~11 ranks low on WRs and ~17 high on TEs. Both need historical validation, not parameter tuning.
+### Backtest results
+
+`backtest.py` trains on season N and scores against N+1. Seven folds (2018→2019 … 2024→2025), evaluated on the top 150 by model rank, Underdog scoring:
+
+| | Model | Naive carry-forward |
+|---|---|---|
+| Rank correlation | 0.622 | 0.616 |
+| MAE (points) | **56.2** | 61.3 |
+
+**Read this before trusting the rankings.** The model beats a naive carry-forward of last season's points on *point accuracy* (~8% lower MAE) but essentially **ties it on ranking**. Drafting is a ranking problem, so the model's draft order carries little demonstrated edge over "use last year's points." Treat it as a cross-check on consensus, not an override.
+
+Confirmed by backtest:
+
+- **Over-projects players who changed teams** by ~+20 points
+- **Under-projects players who missed time** by ~−17 points (the Burrow/Daniels case is a real weakness, not a quirk)
+- Mild overall over-projection, ~+9 points
+- Availability rank correlation is only 0.17, but per-player availability still beats a flat league average on MAE (56.2 vs 59.6), so it stays
+
+**Not confirmed:** an earlier draft of this README claimed the model ran ~11 ranks low on WRs and ~17 high on TEs. The backtest does **not** support that — all positions over-project fairly uniformly (QB +3.3%, RB +6.8%, TE +5.8%, WR +6.3%). That pattern was disagreement with the single 2026 consensus snapshot, not a model defect.
+
+**Cannot be validated:** nflverse's `ff_rankings` ships a single scrape date, so no historical expert consensus exists and the consensus-anchored prior is untestable. `--proxy-consensus` substitutes prior-season finish, but that makes partial-season players *worse* (−24.2 vs −17.1) — someone who missed time has a poor prior-season finish, so the proxy reinforces the exact pessimism real expert rankings would correct. The proxy tests the mechanism, not the thing that makes it work.
+
+```bash
+python backtest.py --start 2018 --end 2024 --top 150
+python backtest.py --start 2018 --end 2024 --top 150 --proxy-consensus
+```
 
 ### Scoring
 

@@ -5,9 +5,17 @@
 # FantasyPros best-ball consensus (ECR) carried alongside — never blended into
 # one opaque number.
 #
-# WHAT THIS IS NOT: validated. Nothing here has been backtested against held-out
-# seasons, so treat model-vs-consensus disagreement as a question to look into,
-# not an edge. Consensus is a strong baseline and beating it is not assumed.
+# WHAT THE BACKTEST SAYS (see backtest.py; 7 folds 2018->2025, top 150):
+# this beats a naive carry-forward of last season's points on MAE (56.2 vs
+# 61.3) but essentially TIES it on rank correlation (0.622 vs 0.616). Drafting
+# is a ranking problem, so the draft order here has no demonstrated edge over
+# "use last year's points" — treat model-vs-consensus gaps as a cross-check,
+# never an override.
+#
+# Confirmed weaknesses: over-projects players who changed teams (~+20 pts),
+# under-projects players who missed time (~-17 pts), over-projects overall
+# (~+9 pts). The consensus-anchored prior below CANNOT be validated — nflverse
+# ships one ECR scrape date, so no historical consensus exists.
 #
 # Deliberately NOT modeled in v1 (each needs data we don't have or judgment
 # calls that would be guesses dressed as math):
