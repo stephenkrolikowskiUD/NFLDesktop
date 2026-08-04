@@ -14,7 +14,7 @@ Week 1 kickoff is **2026-09-09** (NE @ SEA).
 - ✅ Player props with multi-book best-price routing
 - ✅ Season-long projection model, backtested over 7 seasons
 - ✅ Best Ball draft board
-- ⬜ Age/decline and role-change terms (the two biggest known gaps)
+- ✅ Age/decline and depth-chart role adjustment
 - ⬜ Weekly picks (moneyline, spread, player props)
 - ⬜ Team selections / combo builder
 - ⬜ Grader + Pick Performance

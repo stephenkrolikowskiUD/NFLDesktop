@@ -78,7 +78,7 @@ let st={
   picksView:"shortlist",propsMetric:"ALL",propsSearch:"",propsTeam:"ALL",propsSort:"EDGE",propsMinHit:"0",propsMinEdge:"5",
   streakFilter:"all",drafted:new Set(),slipLegs:"3",
   draftSlate:{signature:initialDraftSlate.signature,selectedIds:initialDraftSlate.selectedIds,panelOpen:false},
-  projections:[],bbPos:"ALL",bbSort:"VORP",bbHideDrafted:false,bbDrafted:loadBestBallDrafted(),
+  projections:[],bbPos:"ALL",bbSort:"VORP",bbHideDrafted:false,bbDrafted:loadBestBallDrafted(),bbSearch:"",bbTeam:"ALL",bbDraftableOnly:true,
   vsSP:[],
   lkPlayer:null,lkResults:[],lkQuery:"",lkSubTab:"career",lkPlayerType:"skill",
   lkCareer:null,lkYby:null,lkVsTeamStats:null,lkVsPlayerId:null,
@@ -2497,6 +2497,9 @@ function renderPropExplorerView(){
 const BB_ROSTER_TARGETS={QB:2,RB:5,WR:9,TE:2};
 const BB_ROSTER_SIZE=18;
 const BB_DRAFTABLE_ECR=BB_ROSTER_SIZE*12;  // 216 total picks in a 12-team draft
+function bbIsDraftable(r){
+  return (r.ecr&&r.ecr<=BB_DRAFTABLE_ECR)||(r.modelRank&&r.modelRank<=BB_DRAFTABLE_ECR);
+}
 
 function bbRows(){
   return (st.projections||[]).map(r=>({
@@ -2526,6 +2529,9 @@ function bbResetDraft(){st.bbDrafted=new Set();saveBestBallDrafted();render()}
 function bbSetPos(p){st.bbPos=p;render()}
 function bbSetSort(k){st.bbSort=k;render()}
 function bbToggleHide(){st.bbHideDrafted=!st.bbHideDrafted;render()}
+function bbSetSearch(v){st.bbSearch=String(v||"");render()}
+function bbSetTeam(v){st.bbTeam=String(v||"ALL");render()}
+function bbToggleDraftable(){st.bbDraftableOnly=!st.bbDraftableOnly;render()}
 
 function renderBestBallRoster(rows){
   const mine=rows.filter(r=>st.bbDrafted.has(r.id));
@@ -2563,9 +2569,27 @@ function renderBestBallView(){
   const sorts=[["VORP","Value"],["ECR","Consensus"],["DELTA","Disagreement"]];
   const sortChips=sorts.map(([k,l])=>
     `<div class="sub-tab ${st.bbSort===k?"active":""}" onclick="bbSetSort('${k}')">${l}</div>`).join("");
+  const teams=[...new Set(all.map(r=>r.team).filter(Boolean))].sort();
+  const searchNeedle=normalizePlayerName(st.bbSearch);
 
   let rows=st.bbPos==="ALL"?all:all.filter(r=>r.pos===st.bbPos);
+  if(searchNeedle)rows=rows.filter(r=>
+    normalizePlayerName(r.name).includes(searchNeedle)||
+    normalizePlayerName(r.team).includes(searchNeedle)
+  );
+  if(st.bbTeam!=="ALL")rows=rows.filter(r=>r.team===st.bbTeam);
+  if(st.bbDraftableOnly)rows=rows.filter(bbIsDraftable);
   if(st.bbHideDrafted)rows=rows.filter(r=>!st.bbDrafted.has(r.id));
+
+  const filteredRows=[...rows];
+  const filteredDrafted=filteredRows.filter(r=>st.bbDrafted.has(r.id)).length;
+  const topDisagreement=[...filteredRows]
+    .filter(r=>r.ecr&&r.modelRank)
+    .sort((a,b)=>Math.abs(b.delta)-Math.abs(a.delta))[0]||null;
+  const topVorp=[...filteredRows].sort((a,b)=>b.vorp-a.vorp)[0]||null;
+  const avgProj=filteredRows.length
+    ? filteredRows.reduce((sum,r)=>sum+(r.projPpr||0),0)/filteredRows.length
+    : 0;
 
   rows=[...rows].sort((a,b)=>{
     if(st.bbSort==="ECR"){
@@ -2614,17 +2638,62 @@ ${(()=>{const f=String(rowField((st.projections||[])[0]||{},"scoring_format")||"
           return f?`<span class="bb-flag">${esc(f)} scoring</span> `:""})()}
         Model projection and FantasyPros best-ball consensus side by side.
         <strong>Disagreement is a question, not an edge.</strong> Backtested over 7 seasons on a
-        model-independent sample: rank correlation 0.65 vs 0.62 for simply carrying last season
-        forward — a real but modest edge over a trivial baseline, so this is a cross-check on
-        consensus, not an override. Depth-chart role does most of that work; strip it out and the
-        model ranks <em>worse</em> than carry-forward.
-        Current known bias: tight ends run about 12% low, and the board under-projects by ~5 points
-        overall.
+        model-independent sample, this board beats simple carry-forward on both error and ranking,
+        but only by a modest margin. That means the signal is useful, not magical: use it to
+        pressure-test consensus, especially when role, availability, and age adjustments disagree
+        with the market. Depth-chart role does most of the heavy lifting.
       </div>
     </div>
     ${renderBestBallRoster(all)}
+    <div class="stat-grid">
+      <div class="stat-box">
+        <div class="val">${filteredRows.length}</div>
+        <div class="lbl">${st.bbDraftableOnly?"Draftable pool":"Players in view"}</div>
+      </div>
+      <div class="stat-box">
+        <div class="val">${filteredDrafted}</div>
+        <div class="lbl">Drafted in current view</div>
+      </div>
+      <div class="stat-box">
+        <div class="val">${topVorp?topVorp.vorp.toFixed(0):"—"}</div>
+        <div class="lbl">${topVorp?`${topVorp.name} VORP`:"Top VORP"}</div>
+      </div>
+      <div class="stat-box">
+        <div class="val">${topDisagreement?`${Math.round(topDisagreement.delta)>0?"+":""}${Math.round(topDisagreement.delta)}`:"—"}</div>
+        <div class="lbl">${topDisagreement?`${topDisagreement.name} disagreement`:"Biggest disagreement"}</div>
+      </div>
+    </div>
+    <div class="stat-grid" style="padding-top:0">
+      <div class="stat-box">
+        <div class="val">${avgProj?avgProj.toFixed(0):"—"}</div>
+        <div class="lbl">Avg projected points</div>
+      </div>
+      <div class="stat-box">
+        <div class="val">${filteredRows.filter(r=>r.pos==="QB").length}</div>
+        <div class="lbl">QB in view</div>
+      </div>
+      <div class="stat-box">
+        <div class="val">${filteredRows.filter(r=>r.pos==="RB").length}</div>
+        <div class="lbl">RB in view</div>
+      </div>
+      <div class="stat-box">
+        <div class="val">${filteredRows.filter(r=>r.pos==="WR"||r.pos==="TE").length}</div>
+        <div class="lbl">WR/TE in view</div>
+      </div>
+    </div>
+    <div class="bb-toolbar">
+      <div class="props-control props-control-search">
+        <label for="bbSearchInput">Player or team</label>
+        <input type="text" id="bbSearchInput" placeholder="Search Barkley, PHI, QB..." value="${esc(st.bbSearch)}" oninput="bbSetSearch(this.value)"/>
+      </div>
+      <div class="props-control">
+        <label for="bbTeamSelect">Team</label>
+        <select id="bbTeamSelect" onchange="bbSetTeam(this.value)"><option value="ALL">All teams</option>${teams.map(team=>`<option value="${esc(team)}" ${st.bbTeam===team?"selected":""}>${esc(team)}</option>`).join("")}</select>
+      </div>
+    </div>
     <div class="draft-controls" style="padding:0 16px 8px;display:flex;gap:6px;flex-wrap:wrap;align-items:center">
       ${posChips}<span style="width:10px"></span>${sortChips}
+      <div class="sub-tab ${st.bbDraftableOnly?"active":""}" onclick="bbToggleDraftable()">Draftable only</div>
       <div class="sub-tab ${st.bbHideDrafted?"active":""}" onclick="bbToggleHide()">Hide drafted</div>
       <div class="draft-reset" onclick="bbResetDraft()" style="cursor:pointer;color:var(--ink-muted);font-size:var(--t-xs);margin-left:auto">Reset</div>
     </div>
@@ -2641,7 +2710,7 @@ ${(()=>{const f=String(rowField((st.projections||[])[0]||{},"scoring_format")||"
       <tbody>${body}</tbody>
     </table></div>
     <div style="padding:0 16px 20px;color:var(--ink-quiet);font-size:var(--t-xs)">
-      Showing ${Math.min(rows.length,300)} of ${rows.length}. Consensus scraped by nflverse from FantasyPros.
+      Showing ${Math.min(rows.length,300)} of ${rows.length}. Draftable pool defaults to the first ${BB_DRAFTABLE_ECR} picks by model rank or consensus rank. Consensus scraped by nflverse from FantasyPros.
     </div>
   </section>`;
 }

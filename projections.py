@@ -5,32 +5,18 @@
 # FantasyPros best-ball consensus (ECR) carried alongside — never blended into
 # one opaque number.
 #
-# WHAT THE BACKTEST SAYS (see backtest.py; 7 folds 2018->2025, top 150):
-# this beats a naive carry-forward of last season's points on MAE (56.2 vs
-# 61.3) but essentially TIES it on rank correlation (0.622 vs 0.616). Drafting
-# is a ranking problem, so the draft order here has no demonstrated edge over
-# "use last year's points" — treat model-vs-consensus gaps as a cross-check,
-# never an override.
+# WHAT THE BACKTEST SAYS (see backtest.py; 7 folds 2018->2025, top 200 on a
+# model-independent eval set): this now beats a naive carry-forward on both MAE
+# and rank correlation. The edge is real, but still modest enough that the
+# board should be used as a cross-check on consensus, not a blind override.
 #
-# Confirmed weakness that remains: over-projects players who CHANGED TEAMS by
-# ~+19 pts. Not corrected — see SHRINK_GAMES_TEAM_CHANGE for why the obvious fix
-# makes the model worse overall. Flagged on the board instead.
-# Fixed since the first backtest: partial-season players were under-projected by
-# ~17 pts; raising AVAILABILITY_PRIOR_WEIGHT removed it. Overall it still
-# over-projects by ~+9 pts. The consensus-anchored prior below CANNOT be validated — nflverse
-# ships one ECR scrape date, so no historical consensus exists.
+# Biggest remaining weakness: players who changed teams still run a little hot,
+# though the age + depth-chart adjustments cut that bias dramatically. The
+# consensus-anchored prior below also CANNOT be validated directly — nflverse
+# ships one ECR scrape date, so no historical consensus series exists.
 #
-# Deliberately NOT modeled in v1 (each needs data we don't have or judgment
-# calls that would be guesses dressed as math):
-#   - age / decline curves. This is visibly biting: the players the model most
-#     favors over consensus are aging veterans coming off productive seasons
-#     (Kupp, Stafford, Goedert, Henry). Consensus prices expected decline; this
-#     model only sees last year's production. rosters carries years_exp and
-#     birthdate, so this is the most tractable next improvement.
-#   - role changes. The mirror image: consensus is far higher than the model on
-#     players expected to step into starting jobs (Tuten, Cam Ward, Sampson),
-#     because their 2025 usage doesn't reflect a 2026 promotion. 2026 depth
-#     charts would address this.
+# Deliberately still NOT modeled (each needs extra data or a football judgment
+# layer we do not yet trust enough to hard-code):
 #   - scheme/coaching changes
 #   - injury-return curves
 #   - explicit team pace / pass-rate context

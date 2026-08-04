@@ -828,6 +828,7 @@ td.push{color:var(--push);font-weight:700}
   .props-control-search{grid-column:1/-1}
   .props-filter{padding-left:10px;padding-right:10px}
   .props-tbl-wrap{padding-left:10px;padding-right:10px}
+  .bb-toolbar{grid-template-columns:1fr}
   .team-props-board{margin-left:10px;margin-right:10px}
   .team-props-head{align-items:flex-start;flex-direction:column;gap:7px}
   .team-props-staff{justify-content:flex-start}
@@ -916,6 +917,7 @@ td.push{color:var(--push);font-weight:700}
   .stat-grid{margin:0 24px 8px}
   .props-filter{padding:8px 24px}
   .props-tbl-wrap{padding:0 24px 16px;max-height:65vh}
+  .bb-toolbar{padding:0 24px 10px}
   .profile{padding:16px 24px;gap:20px}
   .profile-info h2{font-size:var(--t-lg)}
   .lk-section{padding:14px 24px 0}
@@ -964,6 +966,7 @@ td.push{color:var(--push);font-weight:700}
 .draft-pos-te{background:var(--warn-soft);color:var(--warn);border:1px solid var(--warn-line)}
 
 /* --- Best ball board --- */
+.bb-toolbar{display:grid;grid-template-columns:minmax(220px,1.5fr) minmax(140px,.7fr);gap:8px;padding:0 16px 10px}
 .bb-wrap{overflow-x:auto;padding:0 16px 16px}
 .bb-wrap table{min-width:820px;width:100%;border-collapse:collapse}
 .bb-wrap th{position:sticky;top:0;background:var(--surface-1);color:var(--accent);
