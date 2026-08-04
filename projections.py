@@ -82,6 +82,40 @@ FULL_SEASON_GAMES = 17
 LEAGUE_AVG_GAMES = 15.0
 AVAILABILITY_PRIOR_WEIGHT = 10.0
 
+# Age adjustment, MEASURED not assumed. Derived 2026-08-03 by regressing
+# log(actual / projected) on age across 7 backtest folds (2018->2025, top 200 by
+# model rank per fold), then refitting with each fold held out to test stability:
+#
+#   RB  slope -0.046/yr   (leave-one-out range -0.034 .. -0.056)  STABLE
+#   WR  slope -0.024/yr   (leave-one-out range -0.017 .. -0.029)  STABLE
+#   QB  slope +0.007/yr   (range -0.003 .. +0.020, crosses zero)  NOT APPLIED
+#   TE  slope +0.000/yr   (range -0.017 .. +0.009, crosses zero)  NOT APPLIED
+#
+# QB and TE are deliberately absent: their slopes flip sign depending on which
+# fold is held out, so an adjustment there would be fitting noise. That RBs
+# decline steeply while QBs don't is also what football knowledge predicts,
+# which is mild independent support that the RB/WR effects are real.
+#
+# Applied RELATIVE to a reference age (the position's mean), so a typical-aged
+# player is unchanged and only the age *differential* moves. The raw fitted
+# intercepts sat near 0.65, but that reflects the model's overall +9pt
+# over-projection, not aging — anchoring keeps those two corrections separate.
+#
+# Refit periodically; these are empirical constants, not laws.
+AGE_SLOPES = {"RB": -0.046, "WR": -0.024}
+AGE_REFERENCE = {"QB": 28.0, "RB": 26.0, "WR": 26.0, "TE": 26.0}
+
+
+def age_multiplier(position: pd.Series, age: pd.Series) -> pd.Series:
+    """Multiplicative age adjustment, 1.0 where no stable effect was measured."""
+    slope = position.map(AGE_SLOPES)
+    ref = position.map(AGE_REFERENCE)
+    years = pd.to_numeric(age, errors="coerce") - ref
+    mult = np.exp(slope.astype(float) * years)
+    # No measured slope, or unknown age -> no adjustment.
+    return mult.where(slope.notna() & years.notna(), 1.0)
+
+
 # Value over replacement. Raw projected points are NOT comparable across
 # positions: you start one QB but three WRs, so a QB's points are measured
 # against a readily available replacement QB, not against a WR. Without this,
@@ -460,7 +494,15 @@ def build_projections(stats: pd.DataFrame, rosters: pd.DataFrame,
         active = rosters.copy()
         if "status" in active.columns:
             active = active[active["status"].isin(["ACT", "RES", "DEV"])]
-        keep = [c for c in ["gsis_id", "team", "position", "full_name",
+        # Age as of Sept 1 of the projected season — the football-relevant age,
+        # not age at the time the roster file was published.
+        if "birth_date" in active.columns and "season" in active.columns:
+            born = pd.to_datetime(active["birth_date"], errors="coerce")
+            season_start = pd.to_datetime(
+                active["season"].astype("Int64").astype(str) + "-09-01",
+                errors="coerce")
+            active["age"] = ((season_start - born).dt.days / 365.25).round(1)
+        keep = [c for c in ["gsis_id", "team", "position", "full_name", "age",
                             "years_exp", "rookie_year", "depth_chart_position"]
                 if c in active.columns]
         active = (active[keep]
@@ -470,8 +512,9 @@ def build_projections(stats: pd.DataFrame, rosters: pd.DataFrame,
 
     df = rates.copy()
     if not active.empty:
-        df = df.merge(active[["player_id", "team_now", "years_exp"]],
-                      how="left", on="player_id")
+        merge_cols = [c for c in ["player_id", "team_now", "years_exp", "age"]
+                      if c in active.columns]
+        df = df.merge(active[merge_cols], how="left", on="player_id")
         # No current roster row means not on a 2026 roster — drop rather than
         # project someone who isn't in the league.
         before = len(df)
@@ -481,6 +524,7 @@ def build_projections(stats: pd.DataFrame, rosters: pd.DataFrame,
     else:
         df["team_now"] = df["team_prior"]
         df["years_exp"] = np.nan
+        df["age"] = np.nan
 
     df["changed_team"] = (df["team_now"] != df["team_prior"]) & df["team_prior"].notna()
 
@@ -508,6 +552,8 @@ def build_projections(stats: pd.DataFrame, rosters: pd.DataFrame,
         out["proj_ppr"] = out["ppr_season_hat"].round(1)
     else:
         out["proj_ppr"] = out["proj_raw_ppr"]
+    out["age_mult"] = age_multiplier(out["position"], out.get("age")).round(3)
+    out["proj_ppr"] = (out["proj_ppr"] * out["age_mult"]).round(1)
     out["proj_ppg"] = (out["proj_ppr"] / out["proj_games"]).round(2)
     out["proj_source"] = "model"
 
@@ -562,9 +608,9 @@ def build_projections(stats: pd.DataFrame, rosters: pd.DataFrame,
 
     cols = [c for c in [
         "player_id", "player_display_name", "position", "team_now", "team_prior",
-        "changed_team", "years_exp", "games_played", "proj_games",
+        "changed_team", "years_exp", "age", "games_played", "proj_games",
         "proj_ppr", "proj_ppg", "proj_raw_ppr", "ecr_implied_ppr",
-        "consensus_weight", "vorp", "replacement_ppr",
+        "consensus_weight", "age_mult", "vorp", "replacement_ppr",
         "model_rank", "model_pos_rank",
         "ecr", "ecr_sd", "ecr_best", "ecr_worst", "ecr_vs_model", "bye",
         "proj_source", "confidence", "target_share", "wopr",

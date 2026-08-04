@@ -97,7 +97,7 @@ Three design decisions worth knowing:
 
 **Not modeled in v1.** Two of these are visibly biting, and the Disagreement sort surfaces them cleanly:
 
-- **No age/decline curve.** The players the model most favors over consensus are aging veterans coming off productive seasons (Kupp, Stafford, Goedert, Henry). Consensus prices expected decline; the model only sees last year's production. `load_rosters()` carries `years_exp` and `birthdate`, so this is the most tractable next improvement.
+- ~~No age/decline curve~~ — **added**, see below.
 - **No role-change modeling.** The mirror image: consensus is far higher than the model on players expected to step into starting jobs (Tuten ECR 53 vs model 202, Cam Ward, Sampson), because 2025 usage doesn't reflect a 2026 promotion. 2026 depth charts would address this.
 
 Also absent: scheme/coaching changes, injury-return curves, explicit team pace/pass-rate context, and rookie production (nflverse carries no college data — players with no prior-season usage are imputed from consensus and flagged `no data`).
@@ -108,10 +108,10 @@ Also absent: scheme/coaching changes, injury-return curves, explicit team pace/p
 
 | | Model | Naive carry-forward |
 |---|---|---|
-| Rank correlation | 0.631 | 0.616 |
-| MAE (points) | **56.3** | 61.3 |
+| Rank correlation | **0.630** | 0.608 |
+| MAE (points) | **56.0** | 61.4 |
 
-**Read this before trusting the rankings.** The model beats a naive carry-forward of last season's points on *point accuracy* (~8% lower MAE) but essentially **ties it on ranking**. Drafting is a ranking problem, so the model's draft order carries little demonstrated edge over "use last year's points." Treat it as a cross-check on consensus, not an override.
+**Read this before trusting the rankings.** The model beats a naive carry-forward on point accuracy (~9% lower MAE) and now edges it on ranking too (0.630 vs 0.608, better in 5 of 7 folds). That ranking gap only appeared after the age adjustment — before it, the two were effectively tied. It is still a modest edge over a trivial baseline, so treat the board as a cross-check on consensus rather than an override.
 
 Confirmed by backtest:
 
@@ -128,6 +128,27 @@ Confirmed by backtest:
 python backtest.py --start 2018 --end 2024 --top 150
 python backtest.py --start 2018 --end 2024 --top 150 --proxy-consensus
 ```
+
+### Age adjustment (measured, not assumed)
+
+Derived by regressing `log(actual / projected)` on age across the backtest folds, then refitting with each fold held out to test whether the slope survives:
+
+| Pos | Slope/yr | Leave-one-out range | Applied? |
+|---|---|---|---|
+| RB | −0.046 | −0.034 … −0.056 | ✅ stable |
+| WR | −0.024 | −0.017 … −0.029 | ✅ stable |
+| QB | +0.007 | −0.003 … +0.020 | ❌ crosses zero |
+| TE | +0.000 | −0.017 … +0.009 | ❌ crosses zero |
+
+**QB and TE get no adjustment** — their slopes flip sign depending on which fold is held out, so applying one would fit noise. That RBs decline steeply while QBs don't is also what football knowledge predicts, which is mild independent support that the RB/WR effects are real.
+
+Applied *relative to* a reference age (the position's mean), so a typical-aged player is unchanged and only the age differential moves. The raw fitted intercepts sat near 0.65, but that reflects the model's overall over-projection rather than aging — anchoring keeps the two corrections separate.
+
+Validated out-of-sample (slopes fit excluding the scored fold): MAE improved in **6 of 7 folds**, mean rank correlation 0.628 → 0.640.
+
+Unexpected side benefit: the **changed-teams bias fell from +19 to +11 points**. Many players who switch teams are older veterans, so age was the underlying confound — and correcting it fixed most of that bias without the accuracy cost that shrinking those players directly had incurred.
+
+These are empirical constants, not laws. Refit periodically.
 
 ### Scoring
 
