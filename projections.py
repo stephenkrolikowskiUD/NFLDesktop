@@ -79,7 +79,13 @@ SHRINK_GAMES_PARTIAL_SEASON = 4.0
 # 56.3) and rank correlation (0.625 -> 0.631) — no tradeoff, which is why it
 # was preferred over distorting those players' per-game rates to compensate.
 FULL_SEASON_GAMES = 17
-LEAGUE_AVG_GAMES = 15.0
+# 15.0 was an assumption and it was too high: across the backtest population the
+# actual mean is 13.6 games, so the model projected ~1.3 games too many for
+# everyone. Swept against the backtest — 14.0 gives the smallest point bias
+# (-1.3 vs +2.7) with the best MAE and rank correlation. Pushing lower to 13.0
+# keeps shrinking the games error but overshoots points to -5.1, and points are
+# what the board is built on.
+LEAGUE_AVG_GAMES = 14.0
 AVAILABILITY_PRIOR_WEIGHT = 10.0
 
 # Age adjustment, MEASURED not assumed. Derived 2026-08-03 by regressing
@@ -116,9 +122,18 @@ def age_multiplier(position: pd.Series, age: pd.Series) -> pd.Series:
     return mult.where(slope.notna() & years.notna(), 1.0)
 
 
-# Depth-chart (role) adjustment, MEASURED not assumed. Derived 2026-08-03 as the
-# median actual/projected ratio by position and depth rank, across 7 backtest
+# Depth-chart (role) adjustment, MEASURED not assumed. Derived 2026-08-03 as
+# sum(actual) / sum(projected) by position and depth rank, across 7 backtest
 # folds (2018->2025), using each target season's SEASON-OPENING depth chart.
+#
+# The statistic matters. These were first fit as the MEDIAN ratio, which
+# under-projected badly: outcomes are right-skewed (a few players hugely
+# outperform), so the median of a ratio sits well below the ratio that actually
+# balances totals — 0.913 vs 0.997 for TE1, 0.268 vs 0.439 for TE3. That alone
+# produced a 12% tight-end shortfall. sum/sum is the ratio that makes aggregate
+# projections unbiased and weights by projection size, which is what a draft
+# board cares about. Out-of-sample it beat the median on both MAE (55.0 vs 55.2)
+# and rank correlation (0.649 vs 0.642).
 #
 # This is the model's single largest correction, and it addresses its biggest
 # blind spot: projections are built from last season's usage, so a player who is
@@ -129,10 +144,10 @@ def age_multiplier(position: pd.Series, age: pd.Series) -> pd.Series:
 # so unlike the age slopes none of these flip direction depending on the fold
 # held out:
 #
-#   QB1 1.046 (n=193, 1.019..1.083)   QB2 0.141 (n=107, 0.123..0.145)
-#   RB1 0.946 (n=244, 0.922..0.973)   RB2 0.787 (n=172, 0.768..0.800)
-#   TE1 0.913 (n=242, 0.910..0.932)   TE2 0.544 (n=178, 0.507..0.639)
-#   WR1 0.963 (n=522, 0.949..0.978)   WR2 0.604 (n=231, 0.583..0.618)
+#   QB1 1.046 (n=193)   QB2 0.312 (n=107)   QB3 0.158 (n=21)
+#   RB1 1.015 (n=244)   RB2 0.859 (n=172)   RB3 0.561 (n=108)
+#   TE1 0.997 (n=242)   TE2 0.730 (n=178)   TE3 0.437 (n=120)
+#   WR1 0.989 (n=522)   WR2 0.750 (n=231)   WR3 0.512 (n=124)
 #   ...rank 3 covers 3-and-deeper.
 #
 # Fitted on the full population rather than only top-ranked projections: the
@@ -140,10 +155,10 @@ def age_multiplier(position: pd.Series, age: pd.Series) -> pd.Series:
 # fell back to a pooled 0.649 — wildly wrong for a player who does not take
 # snaps. Refit periodically; these are empirical constants, not laws.
 DEPTH_MULTIPLIERS = {
-    ("QB", 1): 1.046, ("QB", 2): 0.141, ("QB", 3): 0.126,
-    ("RB", 1): 0.946, ("RB", 2): 0.787, ("RB", 3): 0.465,
-    ("TE", 1): 0.913, ("TE", 2): 0.544, ("TE", 3): 0.268,
-    ("WR", 1): 0.963, ("WR", 2): 0.604, ("WR", 3): 0.359,
+    ("QB", 1): 1.046, ("QB", 2): 0.312, ("QB", 3): 0.158,
+    ("RB", 1): 1.015, ("RB", 2): 0.859, ("RB", 3): 0.561,
+    ("TE", 1): 0.997, ("TE", 2): 0.730, ("TE", 3): 0.437,
+    ("WR", 1): 0.989, ("WR", 2): 0.750, ("WR", 3): 0.512,
 }
 DEPTH_RANK_CAP = 3
 

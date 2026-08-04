@@ -108,10 +108,13 @@ Also absent: scheme/coaching changes, injury-return curves, explicit team pace/p
 
 | | Model | Naive carry-forward |
 |---|---|---|
-| Rank correlation | **0.652** | 0.616 |
-| MAE (points) | **54.3** | 60.9 |
+| Rank correlation | **0.662** | 0.616 |
+| MAE (points) | **53.8** | 60.9 |
+| Mean bias | −1.3 | — |
 
-Scored on the top 200 by *prior-season* points — a **model-independent** set, so every model version is judged on identical players. Beats naive on ranking in 6 of 7 folds, ties the seventh.
+Scored on the top 200 by *prior-season* points — a **model-independent** set, so every model version is judged on identical players. Beats naive on ranking in **all 7 folds**.
+
+Positional bias is now within ±4.2% everywhere (QB +2.8%, RB +0.8%, TE −4.2%, WR −3.7%), down from a −12.3% tight-end shortfall.
 
 **Methodology correction worth knowing about.** Earlier versions of this table scored the top N *by model rank*, which let each model version pick its own exam — change the model and the scored population changes, so the baseline's number drifts and versions stop being comparable. Under that flawed metric an earlier build appeared to beat naive on ranking; on a fair set it was actually **losing** (0.599 vs 0.612). Use `--eval-set naive` (the default now); `--eval-set model` is retained for the different question of "how good are the players I'd actually draft."
 
@@ -122,8 +125,10 @@ Still a modest edge over a trivial baseline, so treat the board as a cross-check
 Confirmed by backtest:
 
 - ~~Over-projects players who changed teams by ~+20 points~~ — **fixed**, now +1. The age adjustment took it to +11 and the depth-chart adjustment closed the rest: players who switch teams often land in a different depth role, and the chart captures that directly.
-- **Under-projects tight ends by ~12%** — the TE depth multipliers overcorrected. Current largest positional bias.
-- Under-projects by ~5 points overall (it over-projected by ~9 before the role adjustment)
+- ~~Under-projects tight ends by ~12%~~ — **fixed**, now −4.2%. The cause was the *statistic*, not the tight-end cells: depth multipliers were fit as the median ratio, and outcomes are right-skewed enough that the median sits well below the ratio which balances totals (TE1 0.913 vs 0.997). Refit as `sum(actual)/sum(projected)`.
+- ~~Availability over-projected by ~1.3 games~~ — **halved to +0.88**. `LEAGUE_AVG_GAMES` was assumed at 15.0; the measured population mean is 13.6. Swept to 14.0, which minimizes point bias.
+- **Overall bias now −1.3 points**, down from +11.6 at the start of the session.
+- Largest remaining: players who changed teams, +8.8 points.
 - ~~Under-projects players who missed time by ~−17 points~~ — **fixed** by raising `AVAILABILITY_PRIOR_WEIGHT` to 10; now +1 point
 - Mild overall over-projection, ~+9 points
 - Availability rank correlation is only 0.17, but per-player availability still beats a flat league average on MAE (56.2 vs 59.6), so it stays
