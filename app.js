@@ -78,7 +78,7 @@ let st={
   picksView:"shortlist",propsMetric:"ALL",propsSearch:"",propsTeam:"ALL",propsSort:"EDGE",propsMinHit:"0",propsMinEdge:"5",
   streakFilter:"all",drafted:new Set(),slipLegs:"3",
   draftSlate:{signature:initialDraftSlate.signature,selectedIds:initialDraftSlate.selectedIds,panelOpen:false},
-  projections:[],bbPos:"ALL",bbSort:"VORP",bbHideDrafted:false,bbDrafted:loadBestBallDrafted(),bbSearch:"",bbTeam:"ALL",bbDraftableOnly:true,
+  projections:[],bbPos:"ALL",bbSort:"VORP",bbHideDrafted:false,bbDrafted:loadBestBallDrafted(),bbSearch:"",bbTeam:"ALL",bbDraftableOnly:true,bbScoring:"half",
   vsSP:[],
   lkPlayer:null,lkResults:[],lkQuery:"",lkSubTab:"career",lkPlayerType:"skill",
   lkCareer:null,lkYby:null,lkVsTeamStats:null,lkVsPlayerId:null,
@@ -2501,16 +2501,51 @@ function bbIsDraftable(r){
   return (r.ecr&&r.ecr<=BB_DRAFTABLE_ECR)||(r.modelRank&&r.modelRank<=BB_DRAFTABLE_ECR);
 }
 
+function bbSourceScoring(){
+  const raw=String(rowField((st.projections||[])[0]||{},"scoring_format")||"").toLowerCase();
+  return raw==="ppr"?"full":"half";
+}
+
+function bbProjectedPoints(row,scoring=st.bbScoring){
+  const base=toNum(row.projPpr);
+  const rec=toNum(row.projReceptions);
+  const source=bbSourceScoring();
+  if(source===scoring)return base;
+  if(source==="half"&&scoring==="full")return base+(0.5*rec);
+  if(source==="full"&&scoring==="half")return base-(0.5*rec);
+  return base;
+}
+
+function bbWithDisplayStats(rows,scoring=st.bbScoring){
+  const enriched=(rows||[]).map(r=>({...r,displayProj:bbProjectedPoints(r,scoring)}));
+  const replacementByPos={};
+  Object.entries(BB_ROSTER_TARGETS).forEach(([pos,targetPerRoster])=>{
+    const startersNeeded=targetPerRoster*12;
+    const pool=enriched
+      .filter(r=>r.pos===pos&&Number.isFinite(r.displayProj))
+      .sort((a,b)=>(b.displayProj||0)-(a.displayProj||0));
+    const replacement=pool[startersNeeded-1]?.displayProj ?? pool[pool.length-1]?.displayProj ?? 0;
+    replacementByPos[pos]=replacement;
+  });
+  return enriched.map(r=>({
+    ...r,
+    displayVorp:Math.max(0,(r.displayProj||0)-(replacementByPos[r.pos]||0)),
+    replacementProj:replacementByPos[r.pos]||0
+  }));
+}
+
 function bbScarcityRows(rows){
-  const basePool=(rows||[]).filter(r=>r&&r.pos&&r.projPpr);
+  const basePool=(rows||[]).filter(r=>r&&r.pos&&Number.isFinite(r.displayProj||r.projPpr));
   return Object.entries(BB_ROSTER_TARGETS).map(([pos,targetPerRoster])=>{
     const startersNeeded=targetPerRoster*12;
     const sorted=basePool
       .filter(r=>r.pos===pos)
-      .sort((a,b)=>(b.projPpr||0)-(a.projPpr||0));
+      .sort((a,b)=>((b.displayProj||b.projPpr||0)-(a.displayProj||a.projPpr||0)));
     const cutoff=sorted[startersNeeded-1]||null;
     const nextUp=sorted[startersNeeded]||null;
-    const cliff=cutoff&&nextUp?(cutoff.projPpr-nextUp.projPpr):0;
+    const cutoffProj=cutoff?(cutoff.displayProj??cutoff.projPpr):0;
+    const nextProj=nextUp?(nextUp.displayProj??nextUp.projPpr):0;
+    const cliff=cutoff&&nextUp?(cutoffProj-nextProj):0;
     return {
       pos,
       startersNeeded,
@@ -2532,6 +2567,7 @@ function bbRows(){
     ecr:toNum(rowField(r,"ecr")),
     ecrSd:toNum(rowField(r,"ecr_sd")),
     projPpr:toNum(rowField(r,"proj_ppr")),
+    projReceptions:toNum(rowField(r,"proj_receptions")),
     projGames:toNum(rowField(r,"proj_games")),
     vorp:toNum(rowField(r,"vorp")),
     modelRank:toNum(rowField(r,"model_rank")),
@@ -2553,6 +2589,7 @@ function bbToggleHide(){st.bbHideDrafted=!st.bbHideDrafted;render()}
 function bbSetSearch(v){st.bbSearch=String(v||"");render()}
 function bbSetTeam(v){st.bbTeam=String(v||"ALL");render()}
 function bbToggleDraftable(){st.bbDraftableOnly=!st.bbDraftableOnly;render()}
+function bbSetScoring(v){st.bbScoring=v==="full"?"full":"half";render()}
 
 function renderBestBallRoster(rows){
   const mine=rows.filter(r=>st.bbDrafted.has(r.id));
@@ -2576,7 +2613,9 @@ function renderBestBallRoster(rows){
 }
 
 function renderBestBallView(){
-  const all=bbRows();
+  const sourceScoring=bbSourceScoring();
+  const scoringLabel=st.bbScoring==="full"?"full PPR":".5 PPR";
+  const all=bbWithDisplayStats(bbRows(),st.bbScoring);
   if(!all.length){
     return `<section><div class="card" style="margin:16px">
       <div class="card-title">No projections yet</div>
@@ -2624,9 +2663,9 @@ function renderBestBallView(){
       return order(a.confidence)-order(b.confidence);
     })
     .slice(0,4);
-  const topVorp=[...filteredRows].sort((a,b)=>b.vorp-a.vorp)[0]||null;
+  const topVorp=[...filteredRows].sort((a,b)=>(b.displayVorp||0)-(a.displayVorp||0))[0]||null;
   const avgProj=filteredRows.length
-    ? filteredRows.reduce((sum,r)=>sum+(r.projPpr||0),0)/filteredRows.length
+    ? filteredRows.reduce((sum,r)=>sum+(r.displayProj||0),0)/filteredRows.length
     : 0;
 
   rows=[...rows].sort((a,b)=>{
@@ -2643,7 +2682,7 @@ function renderBestBallView(){
       const bd=b.ecr&&b.ecr<=BB_DRAFTABLE_ECR?Math.abs(b.delta):-1;
       return bd-ad;
     }
-    return b.vorp-a.vorp;
+    return (b.displayVorp||0)-(a.displayVorp||0);
   });
 
   const body=rows.slice(0,300).map(r=>{
@@ -2659,9 +2698,9 @@ function renderBestBallView(){
       <td><span class="bb-name">${esc(r.name)}</span><span class="draft-pos draft-pos-${esc(r.pos.toLowerCase())}">${esc(r.pos)}</span>${flag}</td>
       <td>${esc(r.team)}</td>
       <td>${r.bye?esc(r.bye):"—"}</td>
-      <td>${r.projPpr?r.projPpr.toFixed(0):"—"}</td>
+      <td>${Number.isFinite(r.displayProj)?r.displayProj.toFixed(0):"—"}</td>
       <td>${r.projGames?r.projGames.toFixed(1):"—"}</td>
-      <td>${r.vorp?r.vorp.toFixed(0):"—"}</td>
+      <td>${Number.isFinite(r.displayVorp)?r.displayVorp.toFixed(0):"—"}</td>
       <td>${r.modelRank?r.modelRank.toFixed(0):"—"}</td>
       <td>${r.ecr?r.ecr.toFixed(1):"—"}</td>
       <td class="${deltaCls}">${deltaTxt}</td>
@@ -2672,14 +2711,13 @@ function renderBestBallView(){
     <div style="padding:12px 16px 4px">
       <div style="color:var(--accent);font-size:var(--t-sm);font-weight:700">Best Ball Draft Board</div>
       <div style="color:var(--ink-muted);font-size:var(--t-xs);line-height:1.5;margin-top:2px">
-${(()=>{const f=String(rowField((st.projections||[])[0]||{},"scoring_format")||"");
-          return f?`<span class="bb-flag">${esc(f)} scoring</span> `:""})()}
+${sourceScoring?`<span class="bb-flag">${esc(scoringLabel)}</span> `:""}
         Model projection and FantasyPros best-ball consensus side by side.
         <strong>Disagreement is a question, not an edge.</strong> Backtested over 7 seasons on a
         model-independent sample, this board beats simple carry-forward on both error and ranking,
         but only by a modest margin. That means the signal is useful, not magical: use it to
         pressure-test consensus, especially when role, availability, and age adjustments disagree
-        with the market. Depth-chart role does most of the heavy lifting.
+        with the market. Depth-chart role does most of the heavy lifting.${sourceScoring!==st.bbScoring?` Display converted from ${esc(sourceScoring)} scoring using projected receptions.`:""}
       </div>
     </div>
     ${renderBestBallRoster(all)}
@@ -2693,7 +2731,7 @@ ${(()=>{const f=String(rowField((st.projections||[])[0]||{},"scoring_format")||"
         <div class="lbl">Drafted in current view</div>
       </div>
       <div class="stat-box">
-        <div class="val">${topVorp?topVorp.vorp.toFixed(0):"—"}</div>
+        <div class="val">${topVorp?topVorp.displayVorp.toFixed(0):"—"}</div>
         <div class="lbl">${topVorp?`${topVorp.name} VORP`:"Top VORP"}</div>
       </div>
       <div class="stat-box">
@@ -2721,8 +2759,8 @@ ${(()=>{const f=String(rowField((st.projections||[])[0]||{},"scoring_format")||"
     </div>
     <div class="bb-insights bb-insights-scarcity">
       ${scarcityRows.map(r=>{
-        const cutoffLabel=r.cutoff?`${r.cutoff.name} · ${r.cutoff.projPpr.toFixed(0)} pts`:"No cutoff yet";
-        const nextLabel=r.nextUp?`${r.nextUp.name} · ${r.nextUp.projPpr.toFixed(0)} pts`:"Pool exhausted";
+        const cutoffLabel=r.cutoff?`${r.cutoff.name} · ${(r.cutoff.displayProj??r.cutoff.projPpr).toFixed(0)} pts`:"No cutoff yet";
+        const nextLabel=r.nextUp?`${r.nextUp.name} · ${(r.nextUp.displayProj??r.nextUp.projPpr).toFixed(0)} pts`:"Pool exhausted";
         return `<div class="card bb-note-card">
           <div class="card-title">${esc(r.pos)} Scarcity</div>
           <div class="bb-note-copy">Starter line at ${r.startersNeeded} drafted. This is the replacement cliff for a 12-team build.</div>
@@ -2761,6 +2799,9 @@ ${(()=>{const f=String(rowField((st.projections||[])[0]||{},"scoring_format")||"
     </div>
     <div class="draft-controls" style="padding:0 16px 8px;display:flex;gap:6px;flex-wrap:wrap;align-items:center">
       ${posChips}<span style="width:10px"></span>${sortChips}
+      <span style="width:10px"></span>
+      <div class="sub-tab ${st.bbScoring==="half"?"active":""}" onclick="bbSetScoring('half')">.5 PPR</div>
+      <div class="sub-tab ${st.bbScoring==="full"?"active":""}" onclick="bbSetScoring('full')">Full PPR</div>
       <div class="sub-tab ${st.bbDraftableOnly?"active":""}" onclick="bbToggleDraftable()">Draftable only</div>
       <div class="sub-tab ${st.bbHideDrafted?"active":""}" onclick="bbToggleHide()">Hide drafted</div>
       <div class="draft-reset" onclick="bbResetDraft()" style="cursor:pointer;color:var(--ink-muted);font-size:var(--t-xs);margin-left:auto">Reset</div>
@@ -2768,9 +2809,9 @@ ${(()=>{const f=String(rowField((st.projections||[])[0]||{},"scoring_format")||"
     <div class="bb-wrap"><table>
       <thead><tr>
         <th></th><th>Player</th><th>Tm</th><th>Bye</th>
-        <th title="Projected season PPR points">Proj</th>
+        <th title="Projected season points in the selected scoring view">Proj</th>
         <th title="Projected games played">G</th>
-        <th title="Points above the last startable player at this position">VORP</th>
+        <th title="Points above the last startable player at this position in the selected scoring view">VORP</th>
         <th title="Model rank by VORP">Mdl</th>
         <th title="FantasyPros best-ball expert consensus rank">ECR</th>
         <th title="ECR minus model rank. Positive = model higher on the player than consensus.">Δ</th>
@@ -3154,7 +3195,7 @@ function render(){
   var picksHTML="";
   const focus=saveFocus();
   const app=document.getElementById("app");
-  if(st.loading){app.innerHTML=`<div class="diamond-loader" role="status" aria-live="polite"><div class="diamond-loader-mark" aria-hidden="true"><div class="diamond-loader-field"></div><span class="diamond-loader-base home"></span><span class="diamond-loader-base first"></span><span class="diamond-loader-base second"></span><span class="diamond-loader-base third"></span><span class="diamond-loader-ball"></span></div><div class="diamond-loader-title">Loading the slate</div><div class="diamond-loader-copy">Finding the signal between the foul lines.</div></div>`;return}
+  if(st.loading){app.innerHTML=`<div class="diamond-loader" role="status" aria-live="polite"><div class="diamond-loader-mark" aria-hidden="true"><div class="diamond-loader-field"></div><span class="diamond-loader-base home"></span><span class="diamond-loader-base first"></span><span class="diamond-loader-base second"></span><span class="diamond-loader-base third"></span><span class="diamond-loader-ball"></span></div><div class="diamond-loader-title">Loading the slate</div><div class="diamond-loader-copy">Scheming up the next Philly Special…</div></div>`;return}
   if(st.error){app.innerHTML=`<div class="error">⚠️ ${st.error}<br><br><span style="color:var(--ink-muted);font-size:var(--t-sm)">Make sure your Google Sheet is set to "Anyone with the link can view"</span></div>`;return}
 
   const isP=st.mode==="qb";
