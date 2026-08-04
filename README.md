@@ -121,7 +121,9 @@ Still a modest edge over a trivial baseline, so treat the board as a cross-check
 
 Confirmed by backtest:
 
-- **Over-projects players who changed teams** by ~+20 points
+- ~~Over-projects players who changed teams by ~+20 points~~ — **fixed**, now +1. The age adjustment took it to +11 and the depth-chart adjustment closed the rest: players who switch teams often land in a different depth role, and the chart captures that directly.
+- **Under-projects tight ends by ~12%** — the TE depth multipliers overcorrected. Current largest positional bias.
+- Under-projects by ~5 points overall (it over-projected by ~9 before the role adjustment)
 - ~~Under-projects players who missed time by ~−17 points~~ — **fixed** by raising `AVAILABILITY_PRIOR_WEIGHT` to 10; now +1 point
 - Mild overall over-projection, ~+9 points
 - Availability rank correlation is only 0.17, but per-player availability still beats a flat league average on MAE (56.2 vs 59.6), so it stays

@@ -2613,10 +2613,13 @@ function renderBestBallView(){
 ${(()=>{const f=String(rowField((st.projections||[])[0]||{},"scoring_format")||"");
           return f?`<span class="bb-flag">${esc(f)} scoring</span> `:""})()}
         Model projection and FantasyPros best-ball consensus side by side.
-        <strong>Disagreement is a question, not an edge.</strong> Backtested over 7 seasons: this model
-        beats a naive carry-forward on point accuracy but <strong>ties it on ranking</strong>, so its draft
-        order has no demonstrated edge over consensus. Known bias: players tagged
-        <span class="bb-flag">new tm</span> are over-projected by roughly 20 points.
+        <strong>Disagreement is a question, not an edge.</strong> Backtested over 7 seasons on a
+        model-independent sample: rank correlation 0.65 vs 0.62 for simply carrying last season
+        forward — a real but modest edge over a trivial baseline, so this is a cross-check on
+        consensus, not an override. Depth-chart role does most of that work; strip it out and the
+        model ranks <em>worse</em> than carry-forward.
+        Current known bias: tight ends run about 12% low, and the board under-projects by ~5 points
+        overall.
       </div>
     </div>
     ${renderBestBallRoster(all)}
