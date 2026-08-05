@@ -2703,6 +2703,72 @@ function bbNextTargets(rows){
   return picks.slice(0,6);
 }
 
+function bbRoundContext(rows){
+  const all=rows||[];
+  const mine=all.filter(r=>st.bbDrafted.has(r.id));
+  const taken=all.filter(r=>st.bbTaken.has(r.id));
+  const available=all.filter(r=>!st.bbDrafted.has(r.id)&&!st.bbTaken.has(r.id));
+  const draftable=available.filter(bbIsDraftable);
+  const scarcityByPos=Object.fromEntries(bbScarcityRows(all).map(item=>[item.pos,item]));
+  const needByPos={};
+  mine.forEach(r=>{needByPos[r.pos]=(needByPos[r.pos]||0)+1});
+  Object.entries(BB_ROSTER_TARGETS).forEach(([pos,target])=>{
+    needByPos[pos]=Math.max(0,target-(needByPos[pos]||0));
+  });
+
+  const currentOverall=mine.length+taken.length+1;
+  const currentRound=Math.max(1,Math.ceil(currentOverall/12));
+  const nextRoomTurn=currentOverall+12;
+  const laterRoomTurn=currentOverall+24;
+
+  function positionalBonus(row){
+    const need=needByPos[row.pos]||0;
+    const cliff=toNum(scarcityByPos[row.pos]?.cliff);
+    return (need*10)+(cliff*2);
+  }
+
+  function valueScore(row){
+    return (toNum(row.displayVorp)*3)+(toNum(row.delta)*0.8)+positionalBonus(row);
+  }
+
+  const bestOverall=[...draftable].sort((a,b)=>
+    valueScore(b)-valueScore(a)||
+    toNum(a.ecr||9999)-toNum(b.ecr||9999)
+  )[0]||null;
+
+  const takeNow=[...draftable].sort((a,b)=>{
+    const aGap=toNum(a.ecr||9999)-currentOverall;
+    const bGap=toNum(b.ecr||9999)-currentOverall;
+    const aUrgency=
+      (aGap<=0?40:Math.max(0,24-aGap))+
+      valueScore(a);
+    const bUrgency=
+      (bGap<=0?40:Math.max(0,24-bGap))+
+      valueScore(b);
+    return bUrgency-aUrgency||valueScore(b)-valueScore(a);
+  }).find(r=>toNum(r.ecr||9999)<=nextRoomTurn+6)||bestOverall;
+
+  const waitWindow=[...draftable]
+    .filter(r=>{
+      const ecr=toNum(r.ecr||9999);
+      return ecr>=nextRoomTurn+6&&ecr<=laterRoomTurn+12;
+    })
+    .sort((a,b)=>valueScore(b)-valueScore(a)||toNum(a.ecr||9999)-toNum(b.ecr||9999));
+  const bestWait=waitWindow[0]||[...draftable]
+    .filter(r=>toNum(r.ecr||9999)>nextRoomTurn)
+    .sort((a,b)=>valueScore(b)-valueScore(a)||toNum(a.ecr||9999)-toNum(b.ecr||9999))[0]||null;
+
+  return {
+    currentOverall,
+    currentRound,
+    nextRoomTurn,
+    laterRoomTurn,
+    bestOverall,
+    takeNow,
+    bestWait
+  };
+}
+
 function bbStackTargets(rows){
   const all=rows||[];
   const mine=all.filter(r=>st.bbDrafted.has(r.id));
@@ -2735,6 +2801,7 @@ function renderBestBallRoster(rows){
   const taken=rows.filter(r=>st.bbTaken.has(r.id));
   const nextTargets=bbNextTargets(rows);
   const stackTargets=bbStackTargets(rows);
+  const roundContext=bbRoundContext(rows);
   const byPos={};
   mine.forEach(r=>{byPos[r.pos]=(byPos[r.pos]||0)+1});
   const pressure=bbRosterPressure(rows);
@@ -2759,6 +2826,17 @@ function renderBestBallRoster(rows){
     : (bestStackedQB
       ? `${esc(bestStackedQB.qb)} already has ${bestStackedQB.count} teammate${bestStackedQB.count===1?"":"s"} attached.`
       : "Draft a QB and we'll start tracking stack pressure.");
+  const bestOverall=roundContext.bestOverall;
+  const takeNow=roundContext.takeNow;
+  const bestWait=roundContext.bestWait;
+
+  function renderRoundTarget(label,row,meta){
+    if(!row)return `<div class="bb-note-row"><span class="bb-note-name">${label}</span><span class="bb-note-meta">No read yet</span></div>`;
+    return `<div class="bb-note-row">
+      <span class="bb-note-name">${label}<br><span class="bb-note-sub">${esc(row.name)} · ${esc(row.team)} · ${esc(row.pos)}</span></span>
+      <span class="bb-note-meta">${meta}<br>${Number.isFinite(row.displayProj)?row.displayProj.toFixed(1):"—"} pts</span>
+    </div>`;
+  }
 
   const slots=Object.entries(BB_ROSTER_TARGETS).map(([pos,target])=>{
     const have=byPos[pos]||0;
@@ -2780,6 +2858,14 @@ function renderBestBallRoster(rows){
   </div>`;
 
   const rail=`<div class="bb-rail-stack">
+    <div class="bb-pressure-card">
+      <div class="bb-pressure-label">Round context</div>
+      <div class="bb-pressure-value">Pick ${roundContext.currentOverall} · Round ${roundContext.currentRound}</div>
+      <div class="bb-pressure-copy">Use consensus like draft gravity: who is pure value, who likely survives a room turn, and who you probably lose if you pass.</div>
+      ${renderRoundTarget("Best overall",bestOverall,bestOverall?`ECR ${bestOverall.ecr?bestOverall.ecr.toFixed(0):"—"} · VORP ${bestOverall.displayVorp?bestOverall.displayVorp.toFixed(0):"—"}`:"")}
+      ${renderRoundTarget("Take now",takeNow,takeNow?`Around pick ${Math.max(1,Math.round(toNum(takeNow.ecr||0)))} · room turns soon`:"")}
+      ${renderRoundTarget("Can wait",bestWait,bestWait?`Around pick ${Math.max(1,Math.round(toNum(bestWait.ecr||0)))} · later window`:"")}
+    </div>
     <div class="bb-pressure-card ${topBye&&topBye.warning?"warn":""}">
       <div class="bb-pressure-label">Bye-week pressure</div>
       <div class="bb-pressure-value">${topBye?`Wk ${esc(topBye.week)} · ${topBye.count}`:"Balanced"}</div>
