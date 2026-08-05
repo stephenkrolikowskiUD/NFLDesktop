@@ -54,6 +54,7 @@ function loadDraftSlate(){
 }
 
 const BEST_BALL_DRAFTED_KEY="nfl-bestball-drafted-v1";
+const BEST_BALL_QUEUE_KEY="nfl-bestball-queue-v1";
 function loadBestBallDrafted(){
   try{
     const parsed=JSON.parse(localStorage.getItem(BEST_BALL_DRAFTED_KEY)||"[]");
@@ -62,6 +63,15 @@ function loadBestBallDrafted(){
 }
 function saveBestBallDrafted(){
   try{localStorage.setItem(BEST_BALL_DRAFTED_KEY,JSON.stringify([...st.bbDrafted]))}catch(e){}
+}
+function loadBestBallQueue(){
+  try{
+    const parsed=JSON.parse(localStorage.getItem(BEST_BALL_QUEUE_KEY)||"[]");
+    return new Set(Array.isArray(parsed)?parsed.map(String):[]);
+  }catch(e){return new Set()}
+}
+function saveBestBallQueue(){
+  try{localStorage.setItem(BEST_BALL_QUEUE_KEY,JSON.stringify([...st.bbQueue]))}catch(e){}
 }
 
 const initialDraftSlate=loadDraftSlate();
@@ -78,7 +88,7 @@ let st={
   picksView:"shortlist",propsMetric:"ALL",propsSearch:"",propsTeam:"ALL",propsSort:"EDGE",propsMinHit:"0",propsMinEdge:"5",
   streakFilter:"all",drafted:new Set(),slipLegs:"3",
   draftSlate:{signature:initialDraftSlate.signature,selectedIds:initialDraftSlate.selectedIds,panelOpen:false},
-  projections:[],bbPos:"ALL",bbSort:"VORP",bbHideDrafted:false,bbDrafted:loadBestBallDrafted(),bbSearch:"",bbTeam:"ALL",bbDraftableOnly:true,bbScoring:"half",
+  projections:[],bbPos:"ALL",bbSort:"VORP",bbHideDrafted:false,bbDrafted:loadBestBallDrafted(),bbQueue:loadBestBallQueue(),bbSearch:"",bbTeam:"ALL",bbDraftableOnly:true,bbScoring:"half",
   vsSP:[],
   lkPlayer:null,lkResults:[],lkQuery:"",lkSubTab:"career",lkPlayerType:"skill",
   lkCareer:null,lkYby:null,lkVsTeamStats:null,lkVsPlayerId:null,
@@ -2579,10 +2589,23 @@ function bbRows(){
 }
 
 function bbToggleDrafted(id){
-  if(st.bbDrafted.has(id))st.bbDrafted.delete(id);else st.bbDrafted.add(id);
+  if(st.bbDrafted.has(id))st.bbDrafted.delete(id);
+  else{
+    st.bbDrafted.add(id);
+    if(st.bbQueue.has(id)){
+      st.bbQueue.delete(id);
+      saveBestBallQueue();
+    }
+  }
   saveBestBallDrafted();render();
 }
 function bbResetDraft(){st.bbDrafted=new Set();saveBestBallDrafted();render()}
+function bbToggleQueue(id){
+  if(st.bbQueue.has(id))st.bbQueue.delete(id);
+  else if(!st.bbDrafted.has(id))st.bbQueue.add(id);
+  saveBestBallQueue();render();
+}
+function bbClearQueue(){st.bbQueue=new Set();saveBestBallQueue();render()}
 function bbSetPos(p){st.bbPos=p;render()}
 function bbSetSort(k){st.bbSort=k;render()}
 function bbToggleHide(){st.bbHideDrafted=!st.bbHideDrafted;render()}
@@ -2591,14 +2614,115 @@ function bbSetTeam(v){st.bbTeam=String(v||"ALL");render()}
 function bbToggleDraftable(){st.bbDraftableOnly=!st.bbDraftableOnly;render()}
 function bbSetScoring(v){st.bbScoring=v==="full"?"full":"half";render()}
 
+function bbRosterPressure(rows){
+  const mine=(rows||[]).filter(r=>st.bbDrafted.has(r.id));
+  const byeCounts={};
+  const teamCounts={};
+  mine.forEach(r=>{
+    if(r.bye)byeCounts[r.bye]=(byeCounts[r.bye]||0)+1;
+    if(r.team)teamCounts[r.team]=(teamCounts[r.team]||0)+1;
+  });
+  const byeStacks=Object.entries(byeCounts)
+    .sort((a,b)=>b[1]-a[1]||String(a[0]).localeCompare(String(b[0])))
+    .map(([week,count])=>({week,count,warning:count>=3}));
+  const teamStacks=Object.entries(teamCounts)
+    .sort((a,b)=>b[1]-a[1]||a[0].localeCompare(b[0]))
+    .map(([team,count])=>({team,count,warning:count>=3}));
+  const qbStacks=mine.filter(r=>r.pos==="QB").map(qb=>{
+    const mates=mine.filter(r=>r.id!==qb.id&&r.team===qb.team&&["WR","TE","RB"].includes(r.pos));
+    return {qb:qb.name,team:qb.team,count:mates.length,mates:mates.map(r=>r.name),warning:mates.length===0};
+  });
+  return {mine,byeStacks,teamStacks,qbStacks};
+}
+
+function bbNextTargets(rows){
+  const all=rows||[];
+  const mine=all.filter(r=>st.bbDrafted.has(r.id));
+  const available=all.filter(r=>!st.bbDrafted.has(r.id));
+  const counts={};
+  mine.forEach(r=>{counts[r.pos]=(counts[r.pos]||0)+1});
+  const scarcityByPos=Object.fromEntries(bbScarcityRows(all).map(item=>[item.pos,item]));
+  const posPriority=Object.entries(BB_ROSTER_TARGETS)
+    .map(([pos,target])=>({
+      pos,
+      have:counts[pos]||0,
+      need:Math.max(0,target-(counts[pos]||0)),
+      cliff:toNum(scarcityByPos[pos]?.cliff)
+    }))
+    .sort((a,b)=>b.need-a.need||b.cliff-a.cliff||a.pos.localeCompare(b.pos));
+
+  const picks=[];
+  const seen=new Set();
+  posPriority.forEach(item=>{
+    if(item.need<=0)return;
+    available
+      .filter(r=>r.pos===item.pos)
+      .sort((a,b)=>(b.displayVorp||0)-(a.displayVorp||0))
+      .slice(0,2)
+      .forEach(r=>{
+        if(seen.has(r.id))return;
+        seen.add(r.id);
+        picks.push({...r,needPos:item.pos,needCount:item.need,needCliff:item.cliff});
+      });
+  });
+  return picks.slice(0,6);
+}
+
+function bbStackTargets(rows){
+  const all=rows||[];
+  const mine=all.filter(r=>st.bbDrafted.has(r.id));
+  const available=all.filter(r=>!st.bbDrafted.has(r.id));
+  const qbs=mine.filter(r=>r.pos==="QB");
+  if(qbs.length){
+    return available
+      .filter(r=>["WR","TE","RB"].includes(r.pos)&&qbs.some(qb=>qb.team===r.team))
+      .sort((a,b)=>(b.displayVorp||0)-(a.displayVorp||0))
+      .slice(0,6)
+      .map(r=>{
+        const qb=qbs.find(item=>item.team===r.team);
+        return {...r,stackType:"qb_mate",stackLabel:qb?`${qb.name} stack`:"QB stack"};
+      });
+  }
+  const passCatcherTeams=[...new Set(mine.filter(r=>["WR","TE","RB"].includes(r.pos)).map(r=>r.team).filter(Boolean))];
+  if(passCatcherTeams.length){
+    return available
+      .filter(r=>r.pos==="QB"&&passCatcherTeams.includes(r.team))
+      .sort((a,b)=>(b.displayVorp||0)-(a.displayVorp||0))
+      .slice(0,6)
+      .map(r=>({...r,stackType:"qb_attach",stackLabel:`Attach to ${r.team} pass-catchers`}));
+  }
+  return [];
+}
+
 function renderBestBallRoster(rows){
   const mine=rows.filter(r=>st.bbDrafted.has(r.id));
+  const queue=rows.filter(r=>st.bbQueue.has(r.id));
+  const nextTargets=bbNextTargets(rows);
+  const stackTargets=bbStackTargets(rows);
   const byPos={};
   mine.forEach(r=>{byPos[r.pos]=(byPos[r.pos]||0)+1});
-  const byeCounts={};
-  mine.forEach(r=>{if(r.bye)byeCounts[r.bye]=(byeCounts[r.bye]||0)+1});
-  const stacked=Object.entries(byeCounts).filter(([,n])=>n>=3)
-    .map(([wk,n])=>`Wk ${esc(wk)} (${n})`);
+  const pressure=bbRosterPressure(rows);
+  const stacked=pressure.byeStacks.filter(item=>item.warning).map(item=>`Wk ${esc(item.week)} (${item.count})`);
+  const topBye=pressure.byeStacks[0]||null;
+  const topTeam=pressure.teamStacks[0]||null;
+  const unstackedQBs=pressure.qbStacks.filter(item=>item.warning);
+  const bestStackedQB=[...pressure.qbStacks].sort((a,b)=>b.count-a.count)[0]||null;
+  const byeAction=topBye
+    ? (topBye.warning
+      ? `Ease off Week ${esc(topBye.week)} unless the value is obvious.`
+      : `Current heaviest cluster is Week ${esc(topBye.week)} with only ${topBye.count}.`)
+    : "No bye clusters yet.";
+  const teamAction=topTeam
+    ? (topTeam.warning
+      ? `You are leaning hard into ${esc(topTeam.team)}. Diversify unless you're making a deliberate bet.`
+      : `${esc(topTeam.team)} is your biggest mini-stack, but it's still under control.`)
+    : "No team concentration yet.";
+  const qbPriority=unstackedQBs[0]||null;
+  const qbAction=qbPriority
+    ? `Add a ${esc(qbPriority.team)} pass-catcher for ${esc(qbPriority.qb)} next if the room lets you.`
+    : (bestStackedQB
+      ? `${esc(bestStackedQB.qb)} already has ${bestStackedQB.count} teammate${bestStackedQB.count===1?"":"s"} attached.`
+      : "Draft a QB and we'll start tracking stack pressure.");
 
   const slots=Object.entries(BB_ROSTER_TARGETS).map(([pos,target])=>{
     const have=byPos[pos]||0;
@@ -2607,8 +2731,60 @@ function renderBestBallRoster(rows){
 
   return `<div class="bb-roster">
     <div class="bb-slot ${mine.length>BB_ROSTER_SIZE?"bb-slot-need":""}">Drafted <strong>${mine.length}</strong>/${BB_ROSTER_SIZE}</div>
+    <div class="bb-slot">Targets <strong>${queue.length}</strong></div>
     ${slots}
     ${stacked.length?`<div class="bb-slot bb-slot-need">Bye stack: ${stacked.join(", ")}</div>`:""}
+    <div class="bb-roster-grid">
+      <div class="bb-pressure-card ${topBye&&topBye.warning?"warn":""}">
+        <div class="bb-pressure-label">Bye-week pressure</div>
+        <div class="bb-pressure-value">${topBye?`Wk ${esc(topBye.week)} · ${topBye.count}`:"Balanced"}</div>
+        <div class="bb-pressure-copy">${pressure.byeStacks.length?pressure.byeStacks.slice(0,3).map(item=>`Wk ${item.week} (${item.count})`).join(" · "):"No bye clusters yet."}</div>
+        <div class="bb-pressure-copy">${byeAction}</div>
+      </div>
+      <div class="bb-pressure-card ${topTeam&&topTeam.warning?"warn":""}">
+        <div class="bb-pressure-label">Team concentration</div>
+        <div class="bb-pressure-value">${topTeam?`${esc(topTeam.team)} · ${topTeam.count}`:"Open board"}</div>
+        <div class="bb-pressure-copy">${pressure.teamStacks.length?pressure.teamStacks.slice(0,3).map(item=>`${item.team} (${item.count})`).join(" · "):"No team stacks yet."}</div>
+        <div class="bb-pressure-copy">${teamAction}</div>
+      </div>
+      <div class="bb-pressure-card ${unstackedQBs.length?"warn":""}">
+        <div class="bb-pressure-label">QB stack pressure</div>
+        <div class="bb-pressure-value">${bestStackedQB?`${esc(bestStackedQB.qb)} +${bestStackedQB.count}`:"No QB yet"}</div>
+        <div class="bb-pressure-copy">${pressure.qbStacks.length?pressure.qbStacks.map(item=>item.count?`${item.qb.split(" ").slice(-1)[0]} +${item.count}`:`${item.qb.split(" ").slice(-1)[0]} unstacked`).join(" · "):"Draft a QB and we’ll track teammates here."}</div>
+        <div class="bb-pressure-copy">${qbAction}</div>
+      </div>
+    </div>
+    <div class="bb-insights" style="padding-top:0">
+      <div class="card bb-note-card">
+        <div class="card-title">Target Queue</div>
+        <div class="bb-note-copy">Your live next-up list. Drafting a player automatically clears him from the queue.</div>
+        ${queue.length?queue.slice(0,8).map(r=>`<div class="bb-note-row"><span class="bb-note-name">${esc(r.name)}</span><span class="bb-note-meta">${esc(r.team)} · ${esc(r.pos)} · bye ${r.bye||"—"} <span class="bb-note-action" onclick="bbToggleQueue('${esc(r.id)}')">remove</span></span></div>`).join(""):`<div class="bb-note-empty">No targets queued yet. Star players in the board to build a real draft list.</div>`}
+        ${queue.length?`<div class="bb-note-actions"><button type="button" class="bb-mini-btn" onclick="bbClearQueue()">Clear queue</button></div>`:""}
+      </div>
+      <div class="card bb-note-card">
+        <div class="card-title">Queue Coach</div>
+        <div class="bb-note-copy">${queue.length?`You have ${queue.length} target${queue.length===1?"":"s"} lined up. Keep it to players you would actually click in the next two rounds.`:"Add 3-5 names you would realistically take next. That’s where this board starts feeling like a real room tool."}</div>
+        <div class="bb-note-row"><span class="bb-note-name">Current mix</span><span class="bb-note-meta">${queue.length?[...new Set(queue.map(r=>r.pos))].join(" · "):"No positions queued"}</span></div>
+        <div class="bb-note-row"><span class="bb-note-name">Stack angle</span><span class="bb-note-meta">${queue.some(r=>["WR","TE","RB"].includes(r.pos)&&mine.some(m=>m.pos==="QB"&&m.team===r.team))?"Live stack in queue":"No active QB pair queued"}</span></div>
+      </div>
+      <div class="card bb-note-card">
+        <div class="card-title">Draft Rhythm</div>
+        <div class="bb-note-copy">The queue separates “take now” from “interesting later.” It should stay sharp, not long.</div>
+        <div class="bb-note-row"><span class="bb-note-name">Drafted</span><span class="bb-note-meta">${mine.length}/${BB_ROSTER_SIZE}</span></div>
+        <div class="bb-note-row"><span class="bb-note-name">Queued</span><span class="bb-note-meta">${queue.length}</span></div>
+        <div class="bb-note-row"><span class="bb-note-name">Visible pool</span><span class="bb-note-meta">${rows.length}</span></div>
+      </div>
+      <div class="card bb-note-card">
+        <div class="card-title">On Deck</div>
+        <div class="bb-note-copy">${nextTargets.length?"Best available names weighted toward your current roster gaps and the live positional cliff.":"No urgent roster gaps yet. Sort by value and keep drafting the board."}</div>
+        ${nextTargets.length?nextTargets.map(r=>`<div class="bb-note-row"><span class="bb-note-name">${esc(r.name)}</span><span class="bb-note-meta">${esc(r.team)} · ${esc(r.pos)} · ${Number.isFinite(r.displayProj)?r.displayProj.toFixed(1):"—"} pts</span></div>`).join(""):`<div class="bb-note-empty">Board looks balanced right now.</div>`}
+      </div>
+      <div class="card bb-note-card">
+        <div class="card-title">Stack Targets</div>
+        <div class="bb-note-copy">${stackTargets.length?"These are the cleanest correlation adds based on what you've already drafted.":"Draft a QB or a few pass-catchers first and the stack board will wake up."}</div>
+        ${stackTargets.length?stackTargets.slice(0,6).map(r=>`<div class="bb-note-row"><span class="bb-note-name">${esc(r.name)}</span><span class="bb-note-meta">${esc(r.stackLabel)} · ${esc(r.team)} · ${esc(r.pos)}</span></div>`).join(""):`<div class="bb-note-empty">No active stack path yet.</div>`}
+      </div>
+    </div>
   </div>`;
 }
 
@@ -2687,6 +2863,7 @@ function renderBestBallView(){
 
   const body=rows.slice(0,300).map(r=>{
     const drafted=st.bbDrafted.has(r.id);
+    const queued=st.bbQueue.has(r.id);
     const deltaCls=r.delta>0?"bb-delta-up":r.delta<0?"bb-delta-dn":"";
     const deltaRounded=Math.round(r.delta);
     const deltaTxt=r.ecr?`${deltaRounded>0?"+":""}${deltaRounded}`:"—";
@@ -2695,6 +2872,7 @@ function renderBestBallView(){
       :r.confidence==="partial season"||r.confidence==="small sample"?`<span class="bb-flag" title="${esc(r.confidence)}">${esc(r.confidence==="small sample"?"sm samp":"part szn")}</span>`:"";
     return `<tr class="${drafted?"bb-row-drafted":""}">
       <td><span class="bb-take" onclick="bbToggleDrafted('${esc(r.id)}')">${drafted?"↺":"+"}</span></td>
+      <td><span class="bb-target ${queued?"active":""}" onclick="bbToggleQueue('${esc(r.id)}')">${queued?"★":"☆"}</span></td>
       <td><span class="bb-name">${esc(r.name)}</span><span class="draft-pos draft-pos-${esc(r.pos.toLowerCase())}">${esc(r.pos)}</span>${flag}</td>
       <td>${esc(r.team)}</td>
       <td>${r.bye?esc(r.bye):"—"}</td>
@@ -2808,7 +2986,7 @@ ${sourceScoring?`<span class="bb-flag">${esc(scoringLabel)}</span> `:""}
     </div>
     <div class="bb-wrap"><table>
       <thead><tr>
-        <th></th><th>Player</th><th>Tm</th><th>Bye</th>
+        <th></th><th></th><th>Player</th><th>Tm</th><th>Bye</th>
         <th title="Projected season points in the selected scoring view">Proj</th>
         <th title="Projected games played">G</th>
         <th title="Points above the last startable player at this position in the selected scoring view">VORP</th>
