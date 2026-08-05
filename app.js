@@ -54,6 +54,7 @@ function loadDraftSlate(){
 }
 
 const BEST_BALL_DRAFTED_KEY="nfl-bestball-drafted-v1";
+const BEST_BALL_TAKEN_KEY="nfl-bestball-taken-v1";
 const BEST_BALL_QUEUE_KEY="nfl-bestball-queue-v1";
 function loadBestBallDrafted(){
   try{
@@ -63,6 +64,15 @@ function loadBestBallDrafted(){
 }
 function saveBestBallDrafted(){
   try{localStorage.setItem(BEST_BALL_DRAFTED_KEY,JSON.stringify([...st.bbDrafted]))}catch(e){}
+}
+function loadBestBallTaken(){
+  try{
+    const parsed=JSON.parse(localStorage.getItem(BEST_BALL_TAKEN_KEY)||"[]");
+    return new Set(Array.isArray(parsed)?parsed.map(String):[]);
+  }catch(e){return new Set()}
+}
+function saveBestBallTaken(){
+  try{localStorage.setItem(BEST_BALL_TAKEN_KEY,JSON.stringify([...st.bbTaken]))}catch(e){}
 }
 function loadBestBallQueue(){
   try{
@@ -88,7 +98,7 @@ let st={
   picksView:"shortlist",propsMetric:"ALL",propsSearch:"",propsTeam:"ALL",propsSort:"EDGE",propsMinHit:"0",propsMinEdge:"5",
   streakFilter:"all",drafted:new Set(),slipLegs:"3",
   draftSlate:{signature:initialDraftSlate.signature,selectedIds:initialDraftSlate.selectedIds,panelOpen:false},
-  projections:[],bbPos:"ALL",bbSort:"VORP",bbHideDrafted:false,bbDrafted:loadBestBallDrafted(),bbQueue:loadBestBallQueue(),bbSearch:"",bbTeam:"ALL",bbDraftableOnly:true,bbScoring:"half",
+  projections:[],bbPos:"ALL",bbSort:"VORP",bbHideDrafted:false,bbDrafted:loadBestBallDrafted(),bbTaken:loadBestBallTaken(),bbQueue:loadBestBallQueue(),bbSearch:"",bbTeam:"ALL",bbDraftableOnly:true,bbScoring:"half",
   vsSP:[],
   lkPlayer:null,lkResults:[],lkQuery:"",lkSubTab:"career",lkPlayerType:"skill",
   lkCareer:null,lkYby:null,lkVsTeamStats:null,lkVsPlayerId:null,
@@ -2592,6 +2602,10 @@ function bbToggleDrafted(id){
   if(st.bbDrafted.has(id))st.bbDrafted.delete(id);
   else{
     st.bbDrafted.add(id);
+    if(st.bbTaken.has(id)){
+      st.bbTaken.delete(id);
+      saveBestBallTaken();
+    }
     if(st.bbQueue.has(id)){
       st.bbQueue.delete(id);
       saveBestBallQueue();
@@ -2599,10 +2613,31 @@ function bbToggleDrafted(id){
   }
   saveBestBallDrafted();render();
 }
-function bbResetDraft(){st.bbDrafted=new Set();saveBestBallDrafted();render()}
+function bbToggleTaken(id){
+  if(st.bbTaken.has(id))st.bbTaken.delete(id);
+  else{
+    st.bbTaken.add(id);
+    if(st.bbDrafted.has(id)){
+      st.bbDrafted.delete(id);
+      saveBestBallDrafted();
+    }
+    if(st.bbQueue.has(id)){
+      st.bbQueue.delete(id);
+      saveBestBallQueue();
+    }
+  }
+  saveBestBallTaken();render();
+}
+function bbResetDraft(){
+  st.bbDrafted=new Set();
+  st.bbTaken=new Set();
+  saveBestBallDrafted();
+  saveBestBallTaken();
+  render();
+}
 function bbToggleQueue(id){
   if(st.bbQueue.has(id))st.bbQueue.delete(id);
-  else if(!st.bbDrafted.has(id))st.bbQueue.add(id);
+  else if(!st.bbDrafted.has(id)&&!st.bbTaken.has(id))st.bbQueue.add(id);
   saveBestBallQueue();render();
 }
 function bbClearQueue(){st.bbQueue=new Set();saveBestBallQueue();render()}
@@ -2638,7 +2673,7 @@ function bbRosterPressure(rows){
 function bbNextTargets(rows){
   const all=rows||[];
   const mine=all.filter(r=>st.bbDrafted.has(r.id));
-  const available=all.filter(r=>!st.bbDrafted.has(r.id));
+  const available=all.filter(r=>!st.bbDrafted.has(r.id)&&!st.bbTaken.has(r.id));
   const counts={};
   mine.forEach(r=>{counts[r.pos]=(counts[r.pos]||0)+1});
   const scarcityByPos=Object.fromEntries(bbScarcityRows(all).map(item=>[item.pos,item]));
@@ -2671,7 +2706,7 @@ function bbNextTargets(rows){
 function bbStackTargets(rows){
   const all=rows||[];
   const mine=all.filter(r=>st.bbDrafted.has(r.id));
-  const available=all.filter(r=>!st.bbDrafted.has(r.id));
+  const available=all.filter(r=>!st.bbDrafted.has(r.id)&&!st.bbTaken.has(r.id));
   const qbs=mine.filter(r=>r.pos==="QB");
   if(qbs.length){
     return available
@@ -2697,6 +2732,7 @@ function bbStackTargets(rows){
 function renderBestBallRoster(rows){
   const mine=rows.filter(r=>st.bbDrafted.has(r.id));
   const queue=rows.filter(r=>st.bbQueue.has(r.id));
+  const taken=rows.filter(r=>st.bbTaken.has(r.id));
   const nextTargets=bbNextTargets(rows);
   const stackTargets=bbStackTargets(rows);
   const byPos={};
@@ -2730,8 +2766,9 @@ function renderBestBallRoster(rows){
   }).join("");
 
   return `<div class="bb-roster">
-    <div class="bb-slot ${mine.length>BB_ROSTER_SIZE?"bb-slot-need":""}">Drafted <strong>${mine.length}</strong>/${BB_ROSTER_SIZE}</div>
+    <div class="bb-slot ${mine.length>BB_ROSTER_SIZE?"bb-slot-need":""}">My roster <strong>${mine.length}</strong>/${BB_ROSTER_SIZE}</div>
     ${slots}
+    ${taken.length?`<div class="bb-slot">Taken <strong>${taken.length}</strong></div>`:""}
     ${stacked.length?`<div class="bb-slot bb-slot-need">Bye stack: ${stacked.join(", ")}</div>`:""}
     <div class="bb-roster-grid">
       <div class="bb-pressure-card ${topBye&&topBye.warning?"warn":""}">
@@ -2757,7 +2794,8 @@ function renderBestBallRoster(rows){
       <div class="card bb-note-card">
         <div class="card-title">Draft Rhythm</div>
         <div class="bb-note-copy">The queue separates “take now” from “interesting later.” It should stay sharp, not long.</div>
-        <div class="bb-note-row"><span class="bb-note-name">Drafted</span><span class="bb-note-meta">${mine.length}/${BB_ROSTER_SIZE}</span></div>
+        <div class="bb-note-row"><span class="bb-note-name">My picks</span><span class="bb-note-meta">${mine.length}/${BB_ROSTER_SIZE}</span></div>
+        <div class="bb-note-row"><span class="bb-note-name">Taken by room</span><span class="bb-note-meta">${taken.length}</span></div>
         <div class="bb-note-row"><span class="bb-note-name">Queued</span><span class="bb-note-meta">${queue.length}</span></div>
         <div class="bb-note-row"><span class="bb-note-name">Visible pool</span><span class="bb-note-meta">${rows.length}</span></div>
       </div>
@@ -2795,7 +2833,7 @@ function renderBestBallView(){
     `<div class="sub-tab ${st.bbSort===k?"active":""}" onclick="bbSetSort('${k}')">${l}</div>`).join("");
   const teams=[...new Set(all.map(r=>r.team).filter(Boolean))].sort();
   const searchNeedle=normalizePlayerName(st.bbSearch);
-  const scarcityPool=(st.bbDraftableOnly?all.filter(bbIsDraftable):all).filter(r=>!st.bbDrafted.has(r.id));
+  const scarcityPool=(st.bbDraftableOnly?all.filter(bbIsDraftable):all).filter(r=>!st.bbDrafted.has(r.id)&&!st.bbTaken.has(r.id));
   const scarcityRows=bbScarcityRows(scarcityPool);
 
   let rows=st.bbPos==="ALL"?all:all.filter(r=>r.pos===st.bbPos);
@@ -2805,10 +2843,11 @@ function renderBestBallView(){
   );
   if(st.bbTeam!=="ALL")rows=rows.filter(r=>r.team===st.bbTeam);
   if(st.bbDraftableOnly)rows=rows.filter(bbIsDraftable);
-  if(st.bbHideDrafted)rows=rows.filter(r=>!st.bbDrafted.has(r.id));
+  if(st.bbHideDrafted)rows=rows.filter(r=>!st.bbDrafted.has(r.id)&&!st.bbTaken.has(r.id));
 
   const filteredRows=[...rows];
   const filteredDrafted=filteredRows.filter(r=>st.bbDrafted.has(r.id)).length;
+  const filteredTaken=filteredRows.filter(r=>st.bbTaken.has(r.id)).length;
   const topDisagreement=[...filteredRows]
     .filter(r=>r.ecr&&r.modelRank)
     .sort((a,b)=>Math.abs(b.delta)-Math.abs(a.delta))[0]||null;
@@ -2851,6 +2890,7 @@ function renderBestBallView(){
 
   const body=rows.slice(0,300).map(r=>{
     const drafted=st.bbDrafted.has(r.id);
+    const taken=st.bbTaken.has(r.id);
     const queued=st.bbQueue.has(r.id);
     const deltaCls=r.delta>0?"bb-delta-up":r.delta<0?"bb-delta-dn":"";
     const deltaRounded=Math.round(r.delta);
@@ -2858,9 +2898,10 @@ function renderBestBallView(){
     const flag=r.source==="ecr_imputed"?`<span class="bb-flag" title="No prior-season usage at all (rookie, or a veteran who did not play); placed from consensus rank">no data</span>`
       :r.confidence==="changed teams"?`<span class="bb-flag" title="Changed teams — prior usage is less predictive">new tm</span>`
       :r.confidence==="partial season"||r.confidence==="small sample"?`<span class="bb-flag" title="${esc(r.confidence)}">${esc(r.confidence==="small sample"?"sm samp":"part szn")}</span>`:"";
-    return `<tr class="${drafted?"bb-row-drafted":""}">
-      <td><span class="bb-take" onclick="bbToggleDrafted('${esc(r.id)}')">${drafted?"↺":"+"}</span></td>
-      <td><span class="bb-target ${queued?"active":""}" onclick="bbToggleQueue('${esc(r.id)}')">${queued?"★":"☆"}</span></td>
+    return `<tr class="${drafted?"bb-row-drafted":""}${taken?" bb-row-taken":""}">
+      <td><span class="bb-take ${drafted?"active":""}" title="${drafted?"Remove from my roster":"I drafted this player"}" onclick="bbToggleDrafted('${esc(r.id)}')">${drafted?"↺":"+"}</span></td>
+      <td><span class="bb-pass ${taken?"active":""}" title="${taken?"Return to available board":"Taken by another team"}" onclick="bbToggleTaken('${esc(r.id)}')">${taken?"↺":"×"}</span></td>
+      <td><span class="bb-target ${queued?"active":""}" title="${queued?"Remove from target queue":"Add to target queue"}" onclick="bbToggleQueue('${esc(r.id)}')">${queued?"★":"☆"}</span></td>
       <td><span class="bb-name">${esc(r.name)}</span><span class="draft-pos draft-pos-${esc(r.pos.toLowerCase())}">${esc(r.pos)}</span>${flag}</td>
       <td>${esc(r.team)}</td>
       <td>${r.bye?esc(r.bye):"—"}</td>
@@ -2894,7 +2935,11 @@ ${sourceScoring?`<span class="bb-flag">${esc(scoringLabel)}</span> `:""}
       </div>
       <div class="stat-box">
         <div class="val">${filteredDrafted}</div>
-        <div class="lbl">Drafted in current view</div>
+        <div class="lbl">My picks in view</div>
+      </div>
+      <div class="stat-box">
+        <div class="val">${filteredTaken}</div>
+        <div class="lbl">Taken in current view</div>
       </div>
       <div class="stat-box">
         <div class="val">${topVorp?topVorp.displayVorp.toFixed(0):"—"}</div>
@@ -2969,7 +3014,7 @@ ${sourceScoring?`<span class="bb-flag">${esc(scoringLabel)}</span> `:""}
       <div class="sub-tab ${st.bbScoring==="half"?"active":""}" onclick="bbSetScoring('half')">.5 PPR</div>
       <div class="sub-tab ${st.bbScoring==="full"?"active":""}" onclick="bbSetScoring('full')">Full PPR</div>
       <div class="sub-tab ${st.bbDraftableOnly?"active":""}" onclick="bbToggleDraftable()">Draftable only</div>
-      <div class="sub-tab ${st.bbHideDrafted?"active":""}" onclick="bbToggleHide()">Hide drafted</div>
+      <div class="sub-tab ${st.bbHideDrafted?"active":""}" onclick="bbToggleHide()">Hide unavailable</div>
       <div class="draft-reset" onclick="bbResetDraft()" style="cursor:pointer;color:var(--ink-muted);font-size:var(--t-xs);margin-left:auto">Reset</div>
     </div>
     <div class="bb-queue-strip">
@@ -2990,7 +3035,7 @@ ${sourceScoring?`<span class="bb-flag">${esc(scoringLabel)}</span> `:""}
     </div>
     <div class="bb-wrap"><table>
       <thead><tr>
-        <th></th><th></th><th>Player</th><th>Tm</th><th>Bye</th>
+        <th title="Add to my roster">Mine</th><th title="Mark as taken by another team">Gone</th><th title="Save as a target">Queue</th><th>Player</th><th>Tm</th><th>Bye</th>
         <th title="Projected season points in the selected scoring view">Proj</th>
         <th title="Projected games played">G</th>
         <th title="Points above the last startable player at this position in the selected scoring view">VORP</th>
