@@ -3521,7 +3521,7 @@ function render(){
   var picksHTML="";
   const focus=saveFocus();
   const app=document.getElementById("app");
-  if(st.loading){app.innerHTML=`<div class="diamond-loader" role="status" aria-live="polite"><div class="diamond-loader-mark" aria-hidden="true"><div class="diamond-loader-field"></div><span class="diamond-loader-base home"></span><span class="diamond-loader-base first"></span><span class="diamond-loader-base second"></span><span class="diamond-loader-base third"></span><span class="diamond-loader-ball"></span></div><div class="diamond-loader-title">Loading the slate</div><div class="diamond-loader-copy">Scheming up the next Philly Special…</div></div>`;return}
+  if(st.loading){app.innerHTML=`<div class="field-loader" role="status" aria-live="polite"><div class="field-loader-mark" aria-hidden="true"><div class="field-loader-grid"></div><div class="field-loader-route"></div><div class="field-loader-spiral"></div><span class="field-loader-pylon left-top"></span><span class="field-loader-pylon left-bottom"></span><span class="field-loader-pylon right-top"></span><span class="field-loader-pylon right-bottom"></span></div><div class="field-loader-title">Loading the slate</div><div class="field-loader-copy">Scheming up the next Philly Special…</div></div>`;return}
   if(st.error){app.innerHTML=`<div class="error">⚠️ ${st.error}<br><br><span style="color:var(--ink-muted);font-size:var(--t-sm)">Make sure your Google Sheet is set to "Anyone with the link can view"</span></div>`;return}
 
   const isP=st.mode==="qb";
