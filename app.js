@@ -2765,58 +2765,60 @@ function renderBestBallRoster(rows){
     return `<div class="bb-slot ${have<target?"bb-slot-need":""}">${pos} <strong>${have}</strong>/${target}</div>`;
   }).join("");
 
-  return `<div class="bb-roster">
+  const summary=`<div class="bb-roster">
     <div class="bb-slot ${mine.length>BB_ROSTER_SIZE?"bb-slot-need":""}">My roster <strong>${mine.length}</strong>/${BB_ROSTER_SIZE}</div>
     ${slots}
     ${taken.length?`<div class="bb-slot">Taken <strong>${taken.length}</strong></div>`:""}
+    <div class="bb-slot ${queue.length?"bb-slot-need":""}">Queue <strong>${queue.length}</strong></div>
     ${stacked.length?`<div class="bb-slot bb-slot-need">Bye stack: ${stacked.join(", ")}</div>`:""}
-    <div class="bb-roster-grid">
-      <div class="bb-pressure-card ${topBye&&topBye.warning?"warn":""}">
-        <div class="bb-pressure-label">Bye-week pressure</div>
-        <div class="bb-pressure-value">${topBye?`Wk ${esc(topBye.week)} · ${topBye.count}`:"Balanced"}</div>
-        <div class="bb-pressure-copy">${pressure.byeStacks.length?pressure.byeStacks.slice(0,3).map(item=>`Wk ${item.week} (${item.count})`).join(" · "):"No bye clusters yet."}</div>
-        <div class="bb-pressure-copy">${byeAction}</div>
-      </div>
-      <div class="bb-pressure-card ${topTeam&&topTeam.warning?"warn":""}">
-        <div class="bb-pressure-label">Team concentration</div>
-        <div class="bb-pressure-value">${topTeam?`${esc(topTeam.team)} · ${topTeam.count}`:"Open board"}</div>
-        <div class="bb-pressure-copy">${pressure.teamStacks.length?pressure.teamStacks.slice(0,3).map(item=>`${item.team} (${item.count})`).join(" · "):"No team stacks yet."}</div>
-        <div class="bb-pressure-copy">${teamAction}</div>
-      </div>
-      <div class="bb-pressure-card ${unstackedQBs.length?"warn":""}">
-        <div class="bb-pressure-label">QB stack pressure</div>
-        <div class="bb-pressure-value">${bestStackedQB?`${esc(bestStackedQB.qb)} +${bestStackedQB.count}`:"No QB yet"}</div>
-        <div class="bb-pressure-copy">${pressure.qbStacks.length?pressure.qbStacks.map(item=>item.count?`${item.qb.split(" ").slice(-1)[0]} +${item.count}`:`${item.qb.split(" ").slice(-1)[0]} unstacked`).join(" · "):"Draft a QB and we’ll track teammates here."}</div>
-        <div class="bb-pressure-copy">${qbAction}</div>
-      </div>
+  </div>`;
+
+  const rail=`<div class="bb-rail-stack">
+    <div class="bb-pressure-card ${topBye&&topBye.warning?"warn":""}">
+      <div class="bb-pressure-label">Bye-week pressure</div>
+      <div class="bb-pressure-value">${topBye?`Wk ${esc(topBye.week)} · ${topBye.count}`:"Balanced"}</div>
+      <div class="bb-pressure-copy">${pressure.byeStacks.length?pressure.byeStacks.slice(0,3).map(item=>`Wk ${item.week} (${item.count})`).join(" · "):"No bye clusters yet."}</div>
+      <div class="bb-pressure-copy">${byeAction}</div>
     </div>
-    <div class="bb-insights" style="padding-top:0">
-      <div class="card bb-note-card">
-        <div class="card-title">Draft Rhythm</div>
-        <div class="bb-note-copy">The queue separates “take now” from “interesting later.” It should stay sharp, not long.</div>
-        <div class="bb-note-row"><span class="bb-note-name">My picks</span><span class="bb-note-meta">${mine.length}/${BB_ROSTER_SIZE}</span></div>
-        <div class="bb-note-row"><span class="bb-note-name">Taken by room</span><span class="bb-note-meta">${taken.length}</span></div>
-        <div class="bb-note-row"><span class="bb-note-name">Queued</span><span class="bb-note-meta">${queue.length}</span></div>
-        <div class="bb-note-row"><span class="bb-note-name">Visible pool</span><span class="bb-note-meta">${rows.length}</span></div>
-      </div>
-      <div class="card bb-note-card">
-        <div class="card-title">On Deck</div>
-        <div class="bb-note-copy">${nextTargets.length?"Best available names weighted toward your current roster gaps and the live positional cliff.":"No urgent roster gaps yet. Sort by value and keep drafting the board."}</div>
-        ${nextTargets.length?nextTargets.map(r=>`<div class="bb-note-row"><span class="bb-note-name">${esc(r.name)}</span><span class="bb-note-meta">${esc(r.team)} · ${esc(r.pos)} · ${Number.isFinite(r.displayProj)?r.displayProj.toFixed(1):"—"} pts</span></div>`).join(""):`<div class="bb-note-empty">Board looks balanced right now.</div>`}
-      </div>
-      <div class="card bb-note-card">
-        <div class="card-title">Stack Targets</div>
-        <div class="bb-note-copy">${stackTargets.length?"These are the cleanest correlation adds based on what you've already drafted.":"Draft a QB or a few pass-catchers first and the stack board will wake up."}</div>
-        ${stackTargets.length?stackTargets.slice(0,6).map(r=>`<div class="bb-note-row"><span class="bb-note-name">${esc(r.name)}</span><span class="bb-note-meta">${esc(r.stackLabel)} · ${esc(r.team)} · ${esc(r.pos)}</span></div>`).join(""):`<div class="bb-note-empty">No active stack path yet.</div>`}
-      </div>
+    <div class="bb-pressure-card ${topTeam&&topTeam.warning?"warn":""}">
+      <div class="bb-pressure-label">Team concentration</div>
+      <div class="bb-pressure-value">${topTeam?`${esc(topTeam.team)} · ${topTeam.count}`:"Open board"}</div>
+      <div class="bb-pressure-copy">${pressure.teamStacks.length?pressure.teamStacks.slice(0,3).map(item=>`${item.team} (${item.count})`).join(" · "):"No team stacks yet."}</div>
+      <div class="bb-pressure-copy">${teamAction}</div>
+    </div>
+    <div class="bb-pressure-card ${unstackedQBs.length?"warn":""}">
+      <div class="bb-pressure-label">QB stack pressure</div>
+      <div class="bb-pressure-value">${bestStackedQB?`${esc(bestStackedQB.qb)} +${bestStackedQB.count}`:"No QB yet"}</div>
+      <div class="bb-pressure-copy">${pressure.qbStacks.length?pressure.qbStacks.map(item=>item.count?`${item.qb.split(" ").slice(-1)[0]} +${item.count}`:`${item.qb.split(" ").slice(-1)[0]} unstacked`).join(" · "):"Draft a QB and we’ll track teammates here."}</div>
+      <div class="bb-pressure-copy">${qbAction}</div>
+    </div>
+    <div class="card bb-note-card">
+      <div class="card-title">Queue Coach</div>
+      <div class="bb-note-copy">${queue.length?`Keep it to players you would actually click in the next two rounds.`:"Star names in the board to build a real next-up list."}</div>
+      <div class="bb-note-row"><span class="bb-note-name">Current mix</span><span class="bb-note-meta">${queue.length?[...new Set(queue.map(r=>r.pos))].join(" · "):"No queue yet"}</span></div>
+      <div class="bb-note-row"><span class="bb-note-name">Stack angle</span><span class="bb-note-meta">${stackTargets.length?"Correlation path live":"No active QB pair yet"}</span></div>
+      <div class="bb-note-row"><span class="bb-note-name">Board status</span><span class="bb-note-meta">${taken.length?taken.length+" gone / "+rows.length+" visible":rows.length+" visible"}</span></div>
+    </div>
+    <div class="card bb-note-card">
+      <div class="card-title">On Deck</div>
+      <div class="bb-note-copy">${nextTargets.length?"Best available names weighted toward your current roster gaps and the live positional cliff.":"No urgent roster gaps yet. Sort by value and keep drafting the board."}</div>
+      ${nextTargets.length?nextTargets.map(r=>`<div class="bb-note-row"><span class="bb-note-name">${esc(r.name)}</span><span class="bb-note-meta">${esc(r.team)} · ${esc(r.pos)} · ${Number.isFinite(r.displayProj)?r.displayProj.toFixed(1):"—"} pts</span></div>`).join(""):`<div class="bb-note-empty">Board looks balanced right now.</div>`}
+    </div>
+    <div class="card bb-note-card">
+      <div class="card-title">Stack Targets</div>
+      <div class="bb-note-copy">${stackTargets.length?"These are the cleanest correlation adds based on what you've already drafted.":"Draft a QB or a few pass-catchers first and the stack board will wake up."}</div>
+      ${stackTargets.length?stackTargets.slice(0,6).map(r=>`<div class="bb-note-row"><span class="bb-note-name">${esc(r.name)}</span><span class="bb-note-meta">${esc(r.stackLabel)} · ${esc(r.team)} · ${esc(r.pos)}</span></div>`).join(""):`<div class="bb-note-empty">No active stack path yet.</div>`}
     </div>
   </div>`;
+
+  return {summary,rail};
 }
 
 function renderBestBallView(){
   const sourceScoring=bbSourceScoring();
   const scoringLabel=st.bbScoring==="full"?"full PPR":".5 PPR";
   const all=bbWithDisplayStats(bbRows(),st.bbScoring);
+  const rosterUI=renderBestBallRoster(all);
   const queue=all.filter(r=>st.bbQueue.has(r.id));
   if(!all.length){
     return `<section><div class="card" style="margin:16px">
@@ -2927,7 +2929,59 @@ ${sourceScoring?`<span class="bb-flag">${esc(scoringLabel)}</span> `:""}
         with the market. Depth-chart role does most of the heavy lifting.${sourceScoring!==st.bbScoring?` Display converted from ${esc(sourceScoring)} scoring using projected receptions.`:""}
       </div>
     </div>
-    ${renderBestBallRoster(all)}
+    ${rosterUI.summary}
+    <div class="bb-toolbar">
+      <div class="props-control props-control-search">
+        <label for="bbSearchInput">Player or team</label>
+        <input type="text" id="bbSearchInput" placeholder="Search Barkley, PHI, QB..." value="${esc(st.bbSearch)}" oninput="bbSetSearch(this.value)"/>
+      </div>
+      <div class="props-control">
+        <label for="bbTeamSelect">Team</label>
+        <select id="bbTeamSelect" onchange="bbSetTeam(this.value)"><option value="ALL">All teams</option>${teams.map(team=>`<option value="${esc(team)}" ${st.bbTeam===team?"selected":""}>${esc(team)}</option>`).join("")}</select>
+      </div>
+    </div>
+    <div class="draft-controls" style="padding:0 16px 8px;display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+      ${posChips}<span style="width:10px"></span>${sortChips}
+      <span style="width:10px"></span>
+      <div class="sub-tab ${st.bbScoring==="half"?"active":""}" onclick="bbSetScoring('half')">.5 PPR</div>
+      <div class="sub-tab ${st.bbScoring==="full"?"active":""}" onclick="bbSetScoring('full')">Full PPR</div>
+      <div class="sub-tab ${st.bbDraftableOnly?"active":""}" onclick="bbToggleDraftable()">Draftable only</div>
+      <div class="sub-tab ${st.bbHideDrafted?"active":""}" onclick="bbToggleHide()">Hide unavailable</div>
+      <div class="draft-reset" onclick="bbResetDraft()" style="cursor:pointer;color:var(--ink-muted);font-size:var(--t-xs);margin-left:auto">Reset</div>
+    </div>
+    <div class="bb-queue-strip">
+      <div class="bb-queue-head">
+        <div>
+          <div class="bb-queue-title">Target Queue</div>
+          <div class="bb-queue-copy">${queue.length?`${queue.length} queued target${queue.length===1?"":"s"} for your next turns.`:"Star names in the board to build a real next-up list."}</div>
+        </div>
+        ${queue.length?`<button type="button" class="bb-mini-btn" onclick="bbClearQueue()">Clear queue</button>`:""}
+      </div>
+      <div class="bb-queue-list">
+        ${queue.length?queue.slice(0,10).map(r=>`<div class="bb-queue-chip">
+          <span class="bb-queue-chip-name">${esc(r.name)}</span>
+          <span class="bb-queue-chip-meta">${esc(r.team)} · ${esc(r.pos)} · bye ${r.bye||"—"}</span>
+          <span class="bb-note-action" onclick="bbToggleQueue('${esc(r.id)}')">remove</span>
+        </div>`).join(""):`<div class="bb-note-empty">No queued targets yet.</div>`}
+      </div>
+    </div>
+    <div class="bb-layout">
+      <div class="bb-main">
+        <div class="bb-wrap"><table>
+          <thead><tr>
+            <th title="Add to my roster">Mine</th><th title="Mark as taken by another team">Gone</th><th title="Save as a target">Queue</th><th>Player</th><th>Tm</th><th>Bye</th>
+            <th title="Projected season points in the selected scoring view">Proj</th>
+            <th title="Projected games played">G</th>
+            <th title="Points above the last startable player at this position in the selected scoring view">VORP</th>
+            <th title="Model rank by VORP">Mdl</th>
+            <th title="FantasyPros best-ball expert consensus rank">ECR</th>
+            <th title="ECR minus model rank. Positive = model higher on the player than consensus.">Δ</th>
+          </tr></thead>
+          <tbody>${body}</tbody>
+        </table></div>
+      </div>
+      <aside class="bb-rail">${rosterUI.rail}</aside>
+    </div>
     <div class="stat-grid">
       <div class="stat-box">
         <div class="val">${filteredRows.length}</div>
@@ -2998,53 +3052,6 @@ ${sourceScoring?`<span class="bb-flag">${esc(scoringLabel)}</span> `:""}
         ${riskRows.length?riskRows.map(r=>`<div class="bb-note-row"><span class="bb-note-name">${esc(r.name)}</span><span class="bb-note-meta">${esc(r.team)} · ${esc(r.pos)} · ${esc(r.source==="ecr_imputed"?"no data":r.confidence||"watch")}</span></div>`).join(""):`<div class="bb-note-empty">No active watchlist flags in this view.</div>`}
       </div>
     </div>
-    <div class="bb-toolbar">
-      <div class="props-control props-control-search">
-        <label for="bbSearchInput">Player or team</label>
-        <input type="text" id="bbSearchInput" placeholder="Search Barkley, PHI, QB..." value="${esc(st.bbSearch)}" oninput="bbSetSearch(this.value)"/>
-      </div>
-      <div class="props-control">
-        <label for="bbTeamSelect">Team</label>
-        <select id="bbTeamSelect" onchange="bbSetTeam(this.value)"><option value="ALL">All teams</option>${teams.map(team=>`<option value="${esc(team)}" ${st.bbTeam===team?"selected":""}>${esc(team)}</option>`).join("")}</select>
-      </div>
-    </div>
-    <div class="draft-controls" style="padding:0 16px 8px;display:flex;gap:6px;flex-wrap:wrap;align-items:center">
-      ${posChips}<span style="width:10px"></span>${sortChips}
-      <span style="width:10px"></span>
-      <div class="sub-tab ${st.bbScoring==="half"?"active":""}" onclick="bbSetScoring('half')">.5 PPR</div>
-      <div class="sub-tab ${st.bbScoring==="full"?"active":""}" onclick="bbSetScoring('full')">Full PPR</div>
-      <div class="sub-tab ${st.bbDraftableOnly?"active":""}" onclick="bbToggleDraftable()">Draftable only</div>
-      <div class="sub-tab ${st.bbHideDrafted?"active":""}" onclick="bbToggleHide()">Hide unavailable</div>
-      <div class="draft-reset" onclick="bbResetDraft()" style="cursor:pointer;color:var(--ink-muted);font-size:var(--t-xs);margin-left:auto">Reset</div>
-    </div>
-    <div class="bb-queue-strip">
-      <div class="bb-queue-head">
-        <div>
-          <div class="bb-queue-title">Target Queue</div>
-          <div class="bb-queue-copy">${queue.length?`${queue.length} queued target${queue.length===1?"":"s"} for your next turns.`:"Star names in the board to build a real next-up list."}</div>
-        </div>
-        ${queue.length?`<button type="button" class="bb-mini-btn" onclick="bbClearQueue()">Clear queue</button>`:""}
-      </div>
-      <div class="bb-queue-list">
-        ${queue.length?queue.slice(0,10).map(r=>`<div class="bb-queue-chip">
-          <span class="bb-queue-chip-name">${esc(r.name)}</span>
-          <span class="bb-queue-chip-meta">${esc(r.team)} · ${esc(r.pos)} · bye ${r.bye||"—"}</span>
-          <span class="bb-note-action" onclick="bbToggleQueue('${esc(r.id)}')">remove</span>
-        </div>`).join(""):`<div class="bb-note-empty">No queued targets yet.</div>`}
-      </div>
-    </div>
-    <div class="bb-wrap"><table>
-      <thead><tr>
-        <th title="Add to my roster">Mine</th><th title="Mark as taken by another team">Gone</th><th title="Save as a target">Queue</th><th>Player</th><th>Tm</th><th>Bye</th>
-        <th title="Projected season points in the selected scoring view">Proj</th>
-        <th title="Projected games played">G</th>
-        <th title="Points above the last startable player at this position in the selected scoring view">VORP</th>
-        <th title="Model rank by VORP">Mdl</th>
-        <th title="FantasyPros best-ball expert consensus rank">ECR</th>
-        <th title="ECR minus model rank. Positive = model higher on the player than consensus.">Δ</th>
-      </tr></thead>
-      <tbody>${body}</tbody>
-    </table></div>
     <div style="padding:0 16px 20px;color:var(--ink-quiet);font-size:var(--t-xs)">
       Showing ${Math.min(rows.length,300)} of ${rows.length}. Draftable pool defaults to the first ${BB_DRAFTABLE_ECR} picks by model rank or consensus rank. Consensus scraped by nflverse from FantasyPros.
     </div>
