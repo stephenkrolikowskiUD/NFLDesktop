@@ -2765,12 +2765,18 @@ function renderBestBallRoster(rows){
     return `<div class="bb-slot ${have<target?"bb-slot-need":""}">${pos} <strong>${have}</strong>/${target}</div>`;
   }).join("");
 
-  const summary=`<div class="bb-roster">
-    <div class="bb-slot ${mine.length>BB_ROSTER_SIZE?"bb-slot-need":""}">My roster <strong>${mine.length}</strong>/${BB_ROSTER_SIZE}</div>
-    ${slots}
-    ${taken.length?`<div class="bb-slot">Taken <strong>${taken.length}</strong></div>`:""}
-    <div class="bb-slot ${queue.length?"bb-slot-need":""}">Queue <strong>${queue.length}</strong></div>
-    ${stacked.length?`<div class="bb-slot bb-slot-need">Bye stack: ${stacked.join(", ")}</div>`:""}
+  const summary=`<div class="bb-summary-bar">
+    <div class="bb-summary-pill ${mine.length>BB_ROSTER_SIZE?"bb-slot-need":""}">
+      <span class="bb-summary-label">Drafted</span>
+      <strong>${mine.length}</strong>/<span>${BB_ROSTER_SIZE}</span>
+    </div>
+    <div class="bb-summary-pill ${queue.length?"bb-slot-need":""}">
+      <span class="bb-summary-label">Targets</span>
+      <strong>${queue.length}</strong>
+    </div>
+    ${slots.replaceAll('bb-slot','bb-summary-pill')}
+    ${taken.length?`<div class="bb-summary-pill"><span class="bb-summary-label">Room</span><strong>${taken.length}</strong></div>`:""}
+    ${stacked.length?`<div class="bb-summary-pill bb-summary-pill-wide bb-slot-need"><span class="bb-summary-label">Bye cluster</span><strong>${stacked.join(" · ")}</strong></div>`:""}
   </div>`;
 
   const rail=`<div class="bb-rail-stack">
@@ -2929,7 +2935,6 @@ ${sourceScoring?`<span class="bb-flag">${esc(scoringLabel)}</span> `:""}
         with the market. Depth-chart role does most of the heavy lifting.${sourceScoring!==st.bbScoring?` Display converted from ${esc(sourceScoring)} scoring using projected receptions.`:""}
       </div>
     </div>
-    ${rosterUI.summary}
     <div class="bb-toolbar">
       <div class="props-control props-control-search">
         <label for="bbSearchInput">Player or team</label>
@@ -2949,24 +2954,25 @@ ${sourceScoring?`<span class="bb-flag">${esc(scoringLabel)}</span> `:""}
       <div class="sub-tab ${st.bbHideDrafted?"active":""}" onclick="bbToggleHide()">Hide unavailable</div>
       <div class="draft-reset" onclick="bbResetDraft()" style="cursor:pointer;color:var(--ink-muted);font-size:var(--t-xs);margin-left:auto">Reset</div>
     </div>
-    <div class="bb-queue-strip">
-      <div class="bb-queue-head">
-        <div>
-          <div class="bb-queue-title">Target Queue</div>
-          <div class="bb-queue-copy">${queue.length?`${queue.length} queued target${queue.length===1?"":"s"} for your next turns.`:"Star names in the board to build a real next-up list."}</div>
-        </div>
-        ${queue.length?`<button type="button" class="bb-mini-btn" onclick="bbClearQueue()">Clear queue</button>`:""}
-      </div>
-      <div class="bb-queue-list">
-        ${queue.length?queue.slice(0,10).map(r=>`<div class="bb-queue-chip">
-          <span class="bb-queue-chip-name">${esc(r.name)}</span>
-          <span class="bb-queue-chip-meta">${esc(r.team)} · ${esc(r.pos)} · bye ${r.bye||"—"}</span>
-          <span class="bb-note-action" onclick="bbToggleQueue('${esc(r.id)}')">remove</span>
-        </div>`).join(""):`<div class="bb-note-empty">No queued targets yet.</div>`}
-      </div>
-    </div>
     <div class="bb-layout">
       <div class="bb-main">
+        ${rosterUI.summary}
+        <div class="bb-queue-strip">
+          <div class="bb-queue-head">
+            <div>
+              <div class="bb-queue-title">Target Queue</div>
+              <div class="bb-queue-copy">${queue.length?`${queue.length} queued target${queue.length===1?"":"s"} for your next turns.`:"Star names in the board to build a real next-up list."}</div>
+            </div>
+            ${queue.length?`<button type="button" class="bb-mini-btn" onclick="bbClearQueue()">Clear queue</button>`:""}
+          </div>
+          <div class="bb-queue-list">
+            ${queue.length?queue.slice(0,10).map(r=>`<div class="bb-queue-chip">
+              <span class="bb-queue-chip-name">${esc(r.name)}</span>
+              <span class="bb-queue-chip-meta">${esc(r.team)} · ${esc(r.pos)} · bye ${r.bye||"—"}</span>
+              <span class="bb-note-action" onclick="bbToggleQueue('${esc(r.id)}')">remove</span>
+            </div>`).join(""):`<div class="bb-note-empty">No queued targets yet.</div>`}
+          </div>
+        </div>
         <div class="bb-wrap"><table>
           <thead><tr>
             <th title="Add to my roster">Mine</th><th title="Mark as taken by another team">Gone</th><th title="Save as a target">Queue</th><th>Player</th><th>Tm</th><th>Bye</th>
