@@ -3295,6 +3295,7 @@ function renderMobileNavigation(activeTab){
     ["picks","picks","Picks"],
     ["leaders","leaders","Leaders"],
     ["entry","entry","Builder"],
+    ["bestball","dash","Best Ball"],
     ["lookup","lookup","Lookup"],
     ["stats","stats","Performance"],
     ["method","info","Info"],

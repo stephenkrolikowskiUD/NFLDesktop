@@ -215,8 +215,9 @@ input::placeholder{color:var(--ink-muted)}
 body.light-theme .bet-card,body.light-theme .pick-card,body.light-theme .slip-card,body.light-theme .streak-card,body.light-theme .draft-card,.light-theme .combo-card,.light-theme .prop-card{background:var(--surface-1);box-shadow:0 1px 2px rgba(15,23,42,.06)}
 body.light-theme .tab-bar{border-top-color:#d8e7db}
 body.light-theme .props-returning td,body.light-theme .muted-risk{opacity:.6}
-.tab-bar{position:fixed;bottom:0;left:0;right:0;max-width:480px;margin:0 auto;background:var(--surface-1);border-top:1px solid var(--border-1);display:flex;z-index:20}
-.tab-btn{flex:1;padding:10px 4px;text-align:center;font-size:var(--t-xs);font-weight:600;color:var(--ink-muted);cursor:pointer;border:none;background:none}
+.tab-bar{position:fixed;bottom:0;left:0;right:0;max-width:480px;margin:0 auto;background:var(--surface-1);border-top:1px solid var(--border-1);display:flex;overflow-x:auto;overflow-y:hidden;-webkit-overflow-scrolling:touch;scrollbar-width:none;z-index:20}
+.tab-bar::-webkit-scrollbar{display:none}
+.tab-btn{flex:0 0 auto;min-width:72px;padding:10px 8px;text-align:center;font-size:var(--t-xs);font-weight:600;color:var(--ink-muted);cursor:pointer;border:none;background:none}
 .tab-btn.active{color:var(--accent);border-top:2px solid var(--accent)}
 .page{display:none}
 .page.active{display:block}
