@@ -2858,6 +2858,22 @@ function renderBestBallRoster(rows){
   </div>`;
 
   const rail=`<div class="bb-rail-stack">
+    <div class="card bb-note-card bb-queue-card">
+      <div class="bb-queue-head">
+        <div>
+          <div class="card-title">Target Queue</div>
+          <div class="bb-note-copy">${queue.length?`${queue.length} queued target${queue.length===1?"":"s"} for your next turns.`:"Star names in the board to build a real next-up list."}</div>
+        </div>
+        ${queue.length?`<button type="button" class="bb-mini-btn" onclick="bbClearQueue()">Clear</button>`:""}
+      </div>
+      <div class="bb-queue-list">
+        ${queue.length?queue.slice(0,6).map(r=>`<div class="bb-queue-chip">
+          <span class="bb-queue-chip-name">${esc(r.name)}</span>
+          <span class="bb-queue-chip-meta">${esc(r.team)} · ${esc(r.pos)} · bye ${r.bye||"—"}</span>
+          <span class="bb-note-action" onclick="bbToggleQueue('${esc(r.id)}')">remove</span>
+        </div>`).join(""):`<div class="bb-note-empty">No queued targets yet.</div>`}
+      </div>
+    </div>
     <div class="bb-pressure-card">
       <div class="bb-pressure-label">Round context</div>
       <div class="bb-pressure-value">Pick ${roundContext.currentOverall} · Round ${roundContext.currentRound}</div>
@@ -2886,7 +2902,7 @@ function renderBestBallRoster(rows){
     </div>
     <div class="card bb-note-card">
       <div class="card-title">Queue Coach</div>
-      <div class="bb-note-copy">${queue.length?`Keep it to players you would actually click in the next two rounds.`:"Star names in the board to build a real next-up list."}</div>
+      <div class="bb-note-copy">${queue.length?`Keep it to players you would actually click in the next two rounds.`:"Keep the queue short so it stays useful when the room speeds up."}</div>
       <div class="bb-note-row"><span class="bb-note-name">Current mix</span><span class="bb-note-meta">${queue.length?[...new Set(queue.map(r=>r.pos))].join(" · "):"No queue yet"}</span></div>
       <div class="bb-note-row"><span class="bb-note-name">Stack angle</span><span class="bb-note-meta">${stackTargets.length?"Correlation path live":"No active QB pair yet"}</span></div>
       <div class="bb-note-row"><span class="bb-note-name">Board status</span><span class="bb-note-meta">${taken.length?taken.length+" gone / "+rows.length+" visible":rows.length+" visible"}</span></div>
@@ -3043,22 +3059,6 @@ ${sourceScoring?`<span class="bb-flag">${esc(scoringLabel)}</span> `:""}
     <div class="bb-layout">
       <div class="bb-main">
         ${rosterUI.summary}
-        <div class="bb-queue-strip">
-          <div class="bb-queue-head">
-            <div>
-              <div class="bb-queue-title">Target Queue</div>
-              <div class="bb-queue-copy">${queue.length?`${queue.length} queued target${queue.length===1?"":"s"} for your next turns.`:"Star names in the board to build a real next-up list."}</div>
-            </div>
-            ${queue.length?`<button type="button" class="bb-mini-btn" onclick="bbClearQueue()">Clear queue</button>`:""}
-          </div>
-          <div class="bb-queue-list">
-            ${queue.length?queue.slice(0,10).map(r=>`<div class="bb-queue-chip">
-              <span class="bb-queue-chip-name">${esc(r.name)}</span>
-              <span class="bb-queue-chip-meta">${esc(r.team)} · ${esc(r.pos)} · bye ${r.bye||"—"}</span>
-              <span class="bb-note-action" onclick="bbToggleQueue('${esc(r.id)}')">remove</span>
-            </div>`).join(""):`<div class="bb-note-empty">No queued targets yet.</div>`}
-          </div>
-        </div>
         <div class="bb-wrap"><table>
           <thead><tr>
             <th title="Add to my roster">Mine</th><th title="Mark as taken by another team">Gone</th><th title="Save as a target">Queue</th><th>Player</th><th>Tm</th><th>Bye</th>
