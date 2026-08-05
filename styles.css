@@ -1015,3 +1015,11 @@ td.push{color:var(--push);font-weight:700}
 .bb-note-action{margin-left:8px;color:var(--accent);cursor:pointer}
 .bb-note-actions{margin-top:10px}
 .bb-mini-btn{font:inherit;border:1px solid var(--border-1);background:var(--surface-2);color:var(--ink-muted);padding:6px 10px;border-radius:999px;cursor:pointer}
+.bb-queue-strip{margin:0 16px 10px;padding:10px 12px;border:1px solid var(--border-1);border-radius:var(--r-md);background:var(--surface-1)}
+.bb-queue-head{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;margin-bottom:8px}
+.bb-queue-title{font-size:var(--t-sm);font-weight:700;color:var(--ink-0)}
+.bb-queue-copy{font-size:var(--t-xs);color:var(--ink-muted);line-height:1.4;margin-top:2px}
+.bb-queue-list{display:flex;flex-wrap:wrap;gap:8px}
+.bb-queue-chip{display:flex;align-items:center;gap:8px;padding:7px 10px;border-radius:999px;background:var(--surface-2);border:1px solid var(--border-1);font-size:var(--t-xs);color:var(--ink-muted)}
+.bb-queue-chip-name{font-size:var(--t-xs);font-weight:700;color:var(--ink-0)}
+.bb-queue-chip-meta{white-space:nowrap}

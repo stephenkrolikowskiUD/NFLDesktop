@@ -2731,7 +2731,6 @@ function renderBestBallRoster(rows){
 
   return `<div class="bb-roster">
     <div class="bb-slot ${mine.length>BB_ROSTER_SIZE?"bb-slot-need":""}">Drafted <strong>${mine.length}</strong>/${BB_ROSTER_SIZE}</div>
-    <div class="bb-slot">Targets <strong>${queue.length}</strong></div>
     ${slots}
     ${stacked.length?`<div class="bb-slot bb-slot-need">Bye stack: ${stacked.join(", ")}</div>`:""}
     <div class="bb-roster-grid">
@@ -2755,18 +2754,6 @@ function renderBestBallRoster(rows){
       </div>
     </div>
     <div class="bb-insights" style="padding-top:0">
-      <div class="card bb-note-card">
-        <div class="card-title">Target Queue</div>
-        <div class="bb-note-copy">Your live next-up list. Drafting a player automatically clears him from the queue.</div>
-        ${queue.length?queue.slice(0,8).map(r=>`<div class="bb-note-row"><span class="bb-note-name">${esc(r.name)}</span><span class="bb-note-meta">${esc(r.team)} · ${esc(r.pos)} · bye ${r.bye||"—"} <span class="bb-note-action" onclick="bbToggleQueue('${esc(r.id)}')">remove</span></span></div>`).join(""):`<div class="bb-note-empty">No targets queued yet. Star players in the board to build a real draft list.</div>`}
-        ${queue.length?`<div class="bb-note-actions"><button type="button" class="bb-mini-btn" onclick="bbClearQueue()">Clear queue</button></div>`:""}
-      </div>
-      <div class="card bb-note-card">
-        <div class="card-title">Queue Coach</div>
-        <div class="bb-note-copy">${queue.length?`You have ${queue.length} target${queue.length===1?"":"s"} lined up. Keep it to players you would actually click in the next two rounds.`:"Add 3-5 names you would realistically take next. That’s where this board starts feeling like a real room tool."}</div>
-        <div class="bb-note-row"><span class="bb-note-name">Current mix</span><span class="bb-note-meta">${queue.length?[...new Set(queue.map(r=>r.pos))].join(" · "):"No positions queued"}</span></div>
-        <div class="bb-note-row"><span class="bb-note-name">Stack angle</span><span class="bb-note-meta">${queue.some(r=>["WR","TE","RB"].includes(r.pos)&&mine.some(m=>m.pos==="QB"&&m.team===r.team))?"Live stack in queue":"No active QB pair queued"}</span></div>
-      </div>
       <div class="card bb-note-card">
         <div class="card-title">Draft Rhythm</div>
         <div class="bb-note-copy">The queue separates “take now” from “interesting later.” It should stay sharp, not long.</div>
@@ -2792,6 +2779,7 @@ function renderBestBallView(){
   const sourceScoring=bbSourceScoring();
   const scoringLabel=st.bbScoring==="full"?"full PPR":".5 PPR";
   const all=bbWithDisplayStats(bbRows(),st.bbScoring);
+  const queue=all.filter(r=>st.bbQueue.has(r.id));
   if(!all.length){
     return `<section><div class="card" style="margin:16px">
       <div class="card-title">No projections yet</div>
@@ -2983,6 +2971,22 @@ ${sourceScoring?`<span class="bb-flag">${esc(scoringLabel)}</span> `:""}
       <div class="sub-tab ${st.bbDraftableOnly?"active":""}" onclick="bbToggleDraftable()">Draftable only</div>
       <div class="sub-tab ${st.bbHideDrafted?"active":""}" onclick="bbToggleHide()">Hide drafted</div>
       <div class="draft-reset" onclick="bbResetDraft()" style="cursor:pointer;color:var(--ink-muted);font-size:var(--t-xs);margin-left:auto">Reset</div>
+    </div>
+    <div class="bb-queue-strip">
+      <div class="bb-queue-head">
+        <div>
+          <div class="bb-queue-title">Target Queue</div>
+          <div class="bb-queue-copy">${queue.length?`${queue.length} queued target${queue.length===1?"":"s"} for your next turns.`:"Star names in the board to build a real next-up list."}</div>
+        </div>
+        ${queue.length?`<button type="button" class="bb-mini-btn" onclick="bbClearQueue()">Clear queue</button>`:""}
+      </div>
+      <div class="bb-queue-list">
+        ${queue.length?queue.slice(0,10).map(r=>`<div class="bb-queue-chip">
+          <span class="bb-queue-chip-name">${esc(r.name)}</span>
+          <span class="bb-queue-chip-meta">${esc(r.team)} · ${esc(r.pos)} · bye ${r.bye||"—"}</span>
+          <span class="bb-note-action" onclick="bbToggleQueue('${esc(r.id)}')">remove</span>
+        </div>`).join(""):`<div class="bb-note-empty">No queued targets yet.</div>`}
+      </div>
     </div>
     <div class="bb-wrap"><table>
       <thead><tr>
