@@ -30,6 +30,8 @@ import projections as pj
 SPORT_LABEL = "NFL"
 SHEET_ID = "1vJvcOsMyBEz1ZMJy6BKapdfG3FlvPIpB0eD_dviQBd0"
 ODDS_SPORT = "americanfootball_nfl"
+MODEL_VERSION = os.getenv("NFL_MODEL_VERSION", "nfl-2026-preseason-v1")
+MODEL_ERA = os.getenv("NFL_MODEL_ERA", MODEL_VERSION)
 QUOTA_FLOOR_THIS_SPORT = int(os.getenv(f"{SPORT_LABEL}_ODDS_CREDIT_FLOOR", "500"))
 
 # Only pay for props on games within this horizon. Books open prop markets
@@ -474,7 +476,15 @@ def build_all_books_props_tab(props: pd.DataFrame) -> pd.DataFrame:
 # GOOGLE SHEETS
 # ============================================================================
 
-def write_to_sheets(client, sheet_id: str, tabs: dict) -> None:
+def write_to_sheets(
+    client,
+    sheet_id: str,
+    tabs: dict,
+    *,
+    generated_at: str,
+    model_version: str,
+    model_era: str,
+) -> None:
     sheet = client.open_by_key(sheet_id)
     for tab_name, df in tabs.items():
         if df is None:
@@ -500,6 +510,9 @@ def write_to_sheets(client, sheet_id: str, tabs: dict) -> None:
         # tab doesn't exist, and column fingerprints can't catch it because
         # Schedule and Games legitimately share columns like game_id.
         clean["_tab"] = tab_name
+        clean["_generated_at"] = generated_at
+        clean["_model_version"] = model_version
+        clean["_model_era"] = model_era
         for col in clean.columns:
             if pd.api.types.is_datetime64_any_dtype(clean[col]):
                 clean[col] = clean[col].astype(str)
@@ -514,7 +527,9 @@ def write_to_sheets(client, sheet_id: str, tabs: dict) -> None:
 
 def main():
     started = datetime.now(eastern)
-    print(f"🏈 {SPORT_LABEL} Engine v1.1 — {started:%Y-%m-%d %H:%M:%S %Z}")
+    generated_at = started.strftime("%Y-%m-%d %H:%M:%S %Z")
+    print(f"🏈 {SPORT_LABEL} Engine v1.1 — {generated_at}")
+    print(f"🧬 model version: {MODEL_VERSION} · era: {MODEL_ERA}")
 
     odds_api_key = load_secret("ODDS_API_KEY", "🔑 Odds API Key: ", allow_missing=True)
 
@@ -633,7 +648,14 @@ def main():
 
     print("\n📝 Writing to Google Sheets")
     sheets = get_gspread_client()
-    write_to_sheets(sheets, SHEET_ID, tabs)
+    write_to_sheets(
+        sheets,
+        SHEET_ID,
+        tabs,
+        generated_at=generated_at,
+        model_version=MODEL_VERSION,
+        model_era=MODEL_ERA,
+    )
 
     elapsed = (datetime.now(eastern) - started).total_seconds()
     print(f"\n✅ Complete in {elapsed:.1f}s")

@@ -8,6 +8,7 @@ class RunLogger:
         'run_id', 'sport', 'kind', 'started_at', 'finished_at', 'duration_sec',
         'status', 'trigger', 'rows_written', 'picks_generated', 'picks_graded',
         'hits', 'misses', 'dnp_count', 'not_found_count', 'warnings', 'error', 'git_sha',
+        'model_version', 'model_era',
         'ODDS_CREDITS_REMAINING',
     ]
 
@@ -32,6 +33,8 @@ class RunLogger:
         self.odds_credits_remaining = ""
         self.error = ""
         self.status = "OK"
+        self.model_version = os.environ.get(f"{sport}_MODEL_VERSION", "")
+        self.model_era = os.environ.get(f"{sport}_MODEL_ERA", self.model_version)
 
     def record_write(self, sheet_name, row_count):
         try:
@@ -65,6 +68,8 @@ class RunLogger:
             "; ".join(self.warnings)[:500],
             self.error,
             os.environ.get('GITHUB_SHA', 'local')[:7],
+            self.model_version,
+            self.model_era,
             self.odds_credits_remaining,
         ]
         try:

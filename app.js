@@ -2716,10 +2716,11 @@ function bbRoundContext(rows){
     needByPos[pos]=Math.max(0,target-(needByPos[pos]||0));
   });
 
+  const ROOM_SIZE=12;
   const currentOverall=mine.length+taken.length+1;
-  const currentRound=Math.max(1,Math.ceil(currentOverall/12));
-  const nextRoomTurn=currentOverall+12;
-  const laterRoomTurn=currentOverall+24;
+  const currentRound=Math.max(1,Math.ceil(currentOverall/ROOM_SIZE));
+  const nextRoomTurn=currentOverall+ROOM_SIZE;
+  const laterRoomTurn=currentOverall+(ROOM_SIZE*2);
 
   function positionalBonus(row){
     const need=needByPos[row.pos]||0;
@@ -2731,32 +2732,51 @@ function bbRoundContext(rows){
     return (toNum(row.displayVorp)*3)+(toNum(row.delta)*0.8)+positionalBonus(row);
   }
 
-  const bestOverall=[...draftable].sort((a,b)=>
+  function marketWindow(row){
+    const center=Math.max(1,Math.round(toNum(row.ecr)||toNum(row.modelRank)||999));
+    const spread=Math.max(
+      toNum(row.ecrSd),
+      Math.abs(center-toNum(row.ecrBest||center)),
+      Math.abs(toNum(row.ecrWorst||center)-center),
+      6
+    );
+    const start=Math.max(1,Math.round(toNum(row.ecrBest||center-spread)));
+    const end=Math.max(start,Math.round(toNum(row.ecrWorst||center+spread)));
+    return {center,start,end};
+  }
+
+  function withTiming(row){
+    const timing=marketWindow(row);
+    return {...row,timing};
+  }
+
+  function urgencyScore(row){
+    const centerGap=row.timing.center-currentOverall;
+    const nextTurnGap=row.timing.start-nextRoomTurn;
+    const immediatePressure=centerGap<=0?26:Math.max(0,16-centerGap);
+    const turnPressure=nextTurnGap<=0?22:Math.max(0,12-nextTurnGap);
+    return valueScore(row)+immediatePressure+turnPressure;
+  }
+
+  function waitScore(row){
+    const cushion=row.timing.start-nextRoomTurn;
+    return valueScore(row)+(Math.max(0,cushion)*0.6);
+  }
+
+  const timedDraftable=draftable.map(withTiming);
+
+  const bestOverall=[...timedDraftable].sort((a,b)=>
     valueScore(b)-valueScore(a)||
-    toNum(a.ecr||9999)-toNum(b.ecr||9999)
+    a.timing.center-b.timing.center
   )[0]||null;
 
-  const takeNow=[...draftable].sort((a,b)=>{
-    const aGap=toNum(a.ecr||9999)-currentOverall;
-    const bGap=toNum(b.ecr||9999)-currentOverall;
-    const aUrgency=
-      (aGap<=0?40:Math.max(0,24-aGap))+
-      valueScore(a);
-    const bUrgency=
-      (bGap<=0?40:Math.max(0,24-bGap))+
-      valueScore(b);
-    return bUrgency-aUrgency||valueScore(b)-valueScore(a);
-  }).find(r=>toNum(r.ecr||9999)<=nextRoomTurn+6)||bestOverall;
+  const takeNowPool=timedDraftable.filter(r=>r.timing.start<=nextRoomTurn+2);
+  const takeNow=(takeNowPool.length?takeNowPool:timedDraftable)
+    .sort((a,b)=>urgencyScore(b)-urgencyScore(a)||valueScore(b)-valueScore(a)||a.timing.center-b.timing.center)[0]||bestOverall;
 
-  const waitWindow=[...draftable]
-    .filter(r=>{
-      const ecr=toNum(r.ecr||9999);
-      return ecr>=nextRoomTurn+6&&ecr<=laterRoomTurn+12;
-    })
-    .sort((a,b)=>valueScore(b)-valueScore(a)||toNum(a.ecr||9999)-toNum(b.ecr||9999));
-  const bestWait=waitWindow[0]||[...draftable]
-    .filter(r=>toNum(r.ecr||9999)>nextRoomTurn)
-    .sort((a,b)=>valueScore(b)-valueScore(a)||toNum(a.ecr||9999)-toNum(b.ecr||9999))[0]||null;
+  const waitPool=timedDraftable.filter(r=>r.timing.start>=nextRoomTurn+3&&r.timing.center<=laterRoomTurn+18);
+  const bestWait=(waitPool.length?waitPool:timedDraftable.filter(r=>r.timing.center>nextRoomTurn))
+    .sort((a,b)=>waitScore(b)-waitScore(a)||valueScore(b)-valueScore(a)||a.timing.center-b.timing.center)[0]||null;
 
   return {
     currentOverall,
@@ -2838,6 +2858,19 @@ function renderBestBallRoster(rows){
     </div>`;
   }
 
+  function timingSummary(row,mode){
+    if(!row||!row.timing)return "";
+    const start=Math.max(1,Math.round(toNum(row.timing.start)));
+    const end=Math.max(start,Math.round(toNum(row.timing.end)));
+    if(mode==="overall")return `ECR ${row.ecr?row.ecr.toFixed(0):"—"} · window ${start}-${end}`;
+    if(mode==="take")return end<=roundContext.nextRoomTurn
+      ? `Likely gone by pick ${roundContext.nextRoomTurn} · window ${start}-${end}`
+      : `Room turns soon · window ${start}-${end}`;
+    return start>roundContext.nextRoomTurn
+      ? `Likely there after pick ${roundContext.nextRoomTurn} · window ${start}-${end}`
+      : `Can survive one turn · window ${start}-${end}`;
+  }
+
   const slots=Object.entries(BB_ROSTER_TARGETS).map(([pos,target])=>{
     const have=byPos[pos]||0;
     return `<div class="bb-slot ${have<target?"bb-slot-need":""}">${pos} <strong>${have}</strong>/${target}</div>`;
@@ -2883,9 +2916,9 @@ function renderBestBallRoster(rows){
       <div class="bb-pressure-label">Round context</div>
       <div class="bb-pressure-value">Pick ${roundContext.currentOverall} · Round ${roundContext.currentRound}</div>
       <div class="bb-pressure-copy">Best value, likely wait, and probably gone by your next turn.</div>
-      ${renderRoundTarget("Best overall",bestOverall,bestOverall?`ECR ${bestOverall.ecr?bestOverall.ecr.toFixed(0):"—"} · VORP ${bestOverall.displayVorp?bestOverall.displayVorp.toFixed(0):"—"}`:"")}
-      ${renderRoundTarget("Take now",takeNow,takeNow?`Around pick ${Math.max(1,Math.round(toNum(takeNow.ecr||0)))} · room turns soon`:"")}
-      ${renderRoundTarget("Can wait",bestWait,bestWait?`Around pick ${Math.max(1,Math.round(toNum(bestWait.ecr||0)))} · later window`:"")}
+      ${renderRoundTarget("Best overall",bestOverall,bestOverall?timingSummary(bestOverall,"overall"):"")}
+      ${renderRoundTarget("Take now",takeNow,takeNow?timingSummary(takeNow,"take"):"")}
+      ${renderRoundTarget("Can wait",bestWait,bestWait?timingSummary(bestWait,"wait"):"")}
     </div>
     <div class="card bb-note-card">
       <div class="card-title">On Deck</div>
