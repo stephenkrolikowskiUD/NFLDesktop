@@ -2850,10 +2850,23 @@ function renderBestBallRoster(rows){
   const takeNow=roundContext.takeNow;
   const bestWait=roundContext.bestWait;
 
-  function renderRoundTarget(label,row,meta){
+  function timingTag(row,mode){
+    if(!row||!row.timing)return "";
+    const start=Math.max(1,Math.round(toNum(row.timing.start)));
+    const end=Math.max(start,Math.round(toNum(row.timing.end)));
+    if(mode==="overall")return `<span class="bb-note-tag">value</span>`;
+    if(mode==="take")return end<=roundContext.nextRoomTurn
+      ? `<span class="bb-note-tag bb-note-tag-warn">now</span>`
+      : `<span class="bb-note-tag">soon</span>`;
+    return start>roundContext.nextRoomTurn
+      ? `<span class="bb-note-tag bb-note-tag-calm">wait</span>`
+      : `<span class="bb-note-tag">one turn</span>`;
+  }
+
+  function renderRoundTarget(label,row,meta,mode){
     if(!row)return `<div class="bb-note-row"><span class="bb-note-name">${label}</span><span class="bb-note-meta">No read yet</span></div>`;
     return `<div class="bb-note-row">
-      <span class="bb-note-name">${label}<br><span class="bb-note-sub">${esc(row.name)} · ${esc(row.team)} · ${esc(row.pos)}</span></span>
+      <span class="bb-note-name">${label} ${timingTag(row,mode)}<br><span class="bb-note-sub">${esc(row.name)} · ${esc(row.team)} · ${esc(row.pos)}</span></span>
       <span class="bb-note-meta">${meta}<br>${Number.isFinite(row.displayProj)?row.displayProj.toFixed(1):"—"} pts</span>
     </div>`;
   }
@@ -2862,13 +2875,13 @@ function renderBestBallRoster(rows){
     if(!row||!row.timing)return "";
     const start=Math.max(1,Math.round(toNum(row.timing.start)));
     const end=Math.max(start,Math.round(toNum(row.timing.end)));
-    if(mode==="overall")return `ECR ${row.ecr?row.ecr.toFixed(0):"—"} · window ${start}-${end}`;
+    if(mode==="overall")return `Consensus window ${start}-${end}`;
     if(mode==="take")return end<=roundContext.nextRoomTurn
-      ? `Likely gone by pick ${roundContext.nextRoomTurn} · window ${start}-${end}`
-      : `Room turns soon · window ${start}-${end}`;
+      ? `Gone by your turn ${roundContext.nextRoomTurn} · window ${start}-${end}`
+      : `Turn pressure building · window ${start}-${end}`;
     return start>roundContext.nextRoomTurn
-      ? `Likely there after pick ${roundContext.nextRoomTurn} · window ${start}-${end}`
-      : `Can survive one turn · window ${start}-${end}`;
+      ? `Likely there after turn ${roundContext.nextRoomTurn} · window ${start}-${end}`
+      : `Can probably survive one turn · window ${start}-${end}`;
   }
 
   const slots=Object.entries(BB_ROSTER_TARGETS).map(([pos,target])=>{
@@ -2890,7 +2903,7 @@ function renderBestBallRoster(rows){
     ${stacked.length?`<div class="bb-summary-pill bb-summary-pill-wide bb-slot-need"><span class="bb-summary-label">Bye cluster</span><strong>${stacked.join(" · ")}</strong></div>`:""}
   </div>`;
 
-  const rail=`<div class="bb-rail-stack">
+  const preboard=`<div class="bb-preboard">
     <div class="card bb-note-card bb-queue-card">
       <div class="bb-queue-head">
         <div>
@@ -2915,11 +2928,14 @@ function renderBestBallRoster(rows){
     <div class="bb-pressure-card">
       <div class="bb-pressure-label">Round context</div>
       <div class="bb-pressure-value">Pick ${roundContext.currentOverall} · Round ${roundContext.currentRound}</div>
-      <div class="bb-pressure-copy">Best value, likely wait, and probably gone by your next turn.</div>
-      ${renderRoundTarget("Best overall",bestOverall,bestOverall?timingSummary(bestOverall,"overall"):"")}
-      ${renderRoundTarget("Take now",takeNow,takeNow?timingSummary(takeNow,"take"):"")}
-      ${renderRoundTarget("Can wait",bestWait,bestWait?timingSummary(bestWait,"wait"):"")}
+      <div class="bb-pressure-copy">Next room turn: pick ${roundContext.nextRoomTurn}. Use this to separate best value from names you can actually wait on.</div>
+      ${renderRoundTarget("Best overall",bestOverall,bestOverall?timingSummary(bestOverall,"overall"):"","overall")}
+      ${renderRoundTarget("Take now",takeNow,takeNow?timingSummary(takeNow,"take"):"","take")}
+      ${renderRoundTarget("Can wait",bestWait,bestWait?timingSummary(bestWait,"wait"):"","wait")}
     </div>
+  </div>`;
+
+  const rail=`<div class="bb-rail-stack">
     <div class="card bb-note-card">
       <div class="card-title">On Deck</div>
       <div class="bb-note-copy">${nextTargets.length?"Best available names weighted toward your current roster gaps and the live positional cliff.":"No urgent roster gaps yet. Sort by value and keep drafting the board."}</div>
@@ -2952,7 +2968,7 @@ function renderBestBallRoster(rows){
     </div>
   </div>`;
 
-  return {summary,rail};
+  return {summary,preboard,rail};
 }
 
 function renderBestBallView(){
@@ -3092,6 +3108,7 @@ ${sourceScoring?`<span class="bb-flag">${esc(scoringLabel)}</span> `:""}
     <div class="bb-layout">
       <div class="bb-main">
         ${rosterUI.summary}
+        ${rosterUI.preboard}
         <div class="bb-wrap"><table>
           <thead><tr>
             <th title="Add to my roster">Mine</th><th title="Mark as taken by another team">Gone</th><th title="Save as a target">Queue</th><th>Player</th><th>Tm</th><th>Bye</th>
