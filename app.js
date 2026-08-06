@@ -2789,6 +2789,24 @@ function bbRoundContext(rows){
   };
 }
 
+function bbTimingState(row,roundContext){
+  if(!row||!row.timing||!roundContext){
+    return {label:"Open board",tone:"open",detail:"No consensus window yet"};
+  }
+  const start=Math.max(1,Math.round(toNum(row.timing.start)));
+  const end=Math.max(start,Math.round(toNum(row.timing.end)));
+  if(end<=roundContext.nextRoomTurn){
+    return {label:"Take now",tone:"now",detail:`Window ${start}-${end}`};
+  }
+  if(start<=roundContext.nextRoomTurn){
+    return {label:"One-turn risk",tone:"soon",detail:`Window ${start}-${end}`};
+  }
+  if(start<=roundContext.laterRoomTurn){
+    return {label:"Can wait",tone:"wait",detail:`Window ${start}-${end}`};
+  }
+  return {label:"Later value",tone:"open",detail:`Window ${start}-${end}`};
+}
+
 function bbStackTargets(rows){
   const all=rows||[];
   const mine=all.filter(r=>st.bbDrafted.has(r.id));
@@ -2815,7 +2833,7 @@ function bbStackTargets(rows){
   return [];
 }
 
-function renderBestBallRoster(rows){
+function renderBestBallRoster(rows,projectionLens=null){
   const mine=rows.filter(r=>st.bbDrafted.has(r.id));
   const queue=rows.filter(r=>st.bbQueue.has(r.id));
   const taken=rows.filter(r=>st.bbTaken.has(r.id));
@@ -2903,6 +2921,28 @@ function renderBestBallRoster(rows){
     ${stacked.length?`<div class="bb-summary-pill bb-summary-pill-wide bb-slot-need"><span class="bb-summary-label">Bye cluster</span><strong>${stacked.join(" · ")}</strong></div>`:""}
   </div>`;
 
+  const lensCard=projectionLens?`<div class="card bb-note-card bb-lens-card">
+      <div class="card-title">Projection Lens</div>
+      <div class="bb-note-copy">How to read this board before we start clicking names.</div>
+      <div class="bb-note-grid">
+        <div class="bb-note-metric"><span class="bb-note-k">View</span><span class="bb-note-v">${esc(projectionLens.viewLabel)}</span></div>
+        <div class="bb-note-metric"><span class="bb-note-k">Projection source</span><span class="bb-note-v">${esc(projectionLens.sourceLabel)}</span></div>
+        <div class="bb-note-metric"><span class="bb-note-k">Context flags</span><span class="bb-note-v">${projectionLens.contextSummary}</span></div>
+      </div>
+      ${projectionLens.bestModel?`<div class="bb-note-row">
+        <span class="bb-note-name">Model favorite<br><span class="bb-note-sub">${esc(projectionLens.bestModel.name)} · ${esc(projectionLens.bestModel.team)} · ${esc(projectionLens.bestModel.pos)}</span></span>
+        <span class="bb-note-meta">${projectionLens.bestModel.delta>0?"+":""}${Math.round(projectionLens.bestModel.delta)} Δ<br>${Number.isFinite(projectionLens.bestModel.displayProj)?projectionLens.bestModel.displayProj.toFixed(1):"—"} pts</span>
+      </div>`:""}
+      ${projectionLens.biggestGap?`<div class="bb-note-row">
+        <span class="bb-note-name">Biggest disagreement<br><span class="bb-note-sub">${esc(projectionLens.biggestGap.name)} · ${esc(projectionLens.biggestGap.team)} · ${esc(projectionLens.biggestGap.pos)}</span></span>
+        <span class="bb-note-meta">${projectionLens.biggestGap.delta>0?"+":""}${Math.round(projectionLens.biggestGap.delta)} Δ<br>ECR ${projectionLens.biggestGap.ecr?projectionLens.biggestGap.ecr.toFixed(0):"—"}</span>
+      </div>`:""}
+      ${projectionLens.watchName?`<div class="bb-note-row">
+        <span class="bb-note-name">Pressure-test first<br><span class="bb-note-sub">${esc(projectionLens.watchName.name)} · ${esc(projectionLens.watchName.team)} · ${esc(projectionLens.watchName.pos)}</span></span>
+        <span class="bb-note-meta">${esc(projectionLens.watchName.source==="ecr_imputed"?"no data":projectionLens.watchName.confidence||"watch")}<br>${projectionLens.watchName.delta>0?"+":""}${Math.round(projectionLens.watchName.delta||0)} Δ</span>
+      </div>`:""}
+    </div>`:"";
+
   const preboard=`<div class="bb-preboard">
     <div class="card bb-note-card bb-queue-card">
       <div class="bb-queue-head">
@@ -2928,11 +2968,12 @@ function renderBestBallRoster(rows){
     <div class="bb-pressure-card">
       <div class="bb-pressure-label">Round context</div>
       <div class="bb-pressure-value">Pick ${roundContext.currentOverall} · Round ${roundContext.currentRound}</div>
-      <div class="bb-pressure-copy">Next room turn: pick ${roundContext.nextRoomTurn}. Use this to separate best value from names you can actually wait on.</div>
+      <div class="bb-pressure-copy">Next room turn: pick ${roundContext.nextRoomTurn}. Timing uses the FantasyPros consensus window we already carry, so this is a room-behavior read rather than a paid ADP feed.</div>
       ${renderRoundTarget("Best overall",bestOverall,bestOverall?timingSummary(bestOverall,"overall"):"","overall")}
       ${renderRoundTarget("Take now",takeNow,takeNow?timingSummary(takeNow,"take"):"","take")}
       ${renderRoundTarget("Can wait",bestWait,bestWait?timingSummary(bestWait,"wait"):"","wait")}
     </div>
+    ${lensCard}
   </div>`;
 
   const rail=`<div class="bb-rail-stack">
@@ -2975,7 +3016,6 @@ function renderBestBallView(){
   const sourceScoring=bbSourceScoring();
   const scoringLabel=st.bbScoring==="full"?"full PPR":".5 PPR";
   const all=bbWithDisplayStats(bbRows(),st.bbScoring);
-  const rosterUI=renderBestBallRoster(all);
   const queue=all.filter(r=>st.bbQueue.has(r.id));
   if(!all.length){
     return `<section><div class="card" style="margin:16px">
@@ -3029,6 +3069,23 @@ function renderBestBallView(){
   const avgProj=filteredRows.length
     ? filteredRows.reduce((sum,r)=>sum+(r.displayProj||0),0)/filteredRows.length
     : 0;
+  const noDataCount=filteredRows.filter(r=>r.source==="ecr_imputed").length;
+  const changedTeamCount=filteredRows.filter(r=>r.confidence==="changed teams").length;
+  const partialSampleCount=filteredRows.filter(r=>r.confidence==="partial season"||r.confidence==="small sample").length;
+  const roundContext=bbRoundContext(all);
+  const projectionLens={
+    viewLabel: scoringLabel,
+    sourceLabel: sourceScoring?`${sourceScoring}${sourceScoring!==st.bbScoring?` -> ${scoringLabel}`:""}`:scoringLabel,
+    contextSummary: [
+      noDataCount?`${noDataCount} no data`:"",
+      changedTeamCount?`${changedTeamCount} changed teams`:"",
+      partialSampleCount?`${partialSampleCount} partial sample`:""
+    ].filter(Boolean).join(" · ")||"clean board",
+    bestModel: modelTargets[0]||topVorp||null,
+    biggestGap: topDisagreement||null,
+    watchName: riskRows[0]||null
+  };
+  const rosterUI=renderBestBallRoster(all,projectionLens);
 
   rows=[...rows].sort((a,b)=>{
     if(st.bbSort==="ECR"){
@@ -3051,6 +3108,7 @@ function renderBestBallView(){
     const drafted=st.bbDrafted.has(r.id);
     const taken=st.bbTaken.has(r.id);
     const queued=st.bbQueue.has(r.id);
+    const timing=bbTimingState(r,roundContext);
     const deltaCls=r.delta>0?"bb-delta-up":r.delta<0?"bb-delta-dn":"";
     const deltaRounded=Math.round(r.delta);
     const deltaTxt=r.ecr?`${deltaRounded>0?"+":""}${deltaRounded}`:"—";
@@ -3061,7 +3119,17 @@ function renderBestBallView(){
       <td><span class="bb-take ${drafted?"active":""}" title="${drafted?"Remove from my roster":"I drafted this player"}" onclick="bbToggleDrafted('${esc(r.id)}')">${drafted?"↺":"+"}</span></td>
       <td><span class="bb-pass ${taken?"active":""}" title="${taken?"Return to available board":"Taken by another team"}" onclick="bbToggleTaken('${esc(r.id)}')">${taken?"↺":"×"}</span></td>
       <td><span class="bb-target ${queued?"active":""}" title="${queued?"Remove from target queue":"Add to target queue"}" onclick="bbToggleQueue('${esc(r.id)}')">${queued?"★":"☆"}</span></td>
-      <td><span class="bb-name">${esc(r.name)}</span><span class="draft-pos draft-pos-${esc(r.pos.toLowerCase())}">${esc(r.pos)}</span>${flag}</td>
+      <td>
+        <div class="bb-name-row">
+          <span class="bb-name">${esc(r.name)}</span>
+          <span class="draft-pos draft-pos-${esc(r.pos.toLowerCase())}">${esc(r.pos)}</span>
+          ${flag}
+        </div>
+        <div class="bb-player-sub">
+          <span class="bb-timing-pill bb-timing-${timing.tone}">${timing.label}</span>
+          <span class="bb-player-window">${timing.detail}</span>
+        </div>
+      </td>
       <td>${esc(r.team)}</td>
       <td>${r.bye?esc(r.bye):"—"}</td>
       <td>${Number.isFinite(r.displayProj)?r.displayProj.toFixed(0):"—"}</td>

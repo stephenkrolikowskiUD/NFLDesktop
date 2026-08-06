@@ -25,6 +25,7 @@ NFL is no longer a greenfield build. The core dashboard, engine, and season-long
 - 🟡 Lookup rebuild on nflverse-native data
 - 🟡 Best Ball board layout polish and mobile compaction
 - 🟡 Game Builder presentation and entry ergonomics
+- 🟡 Season-long projection explainer / trust layer
 
 ## Current Sprint Priorities
 1. **Best Ball draft helper polish**
@@ -35,6 +36,7 @@ NFL is no longer a greenfield build. The core dashboard, engine, and season-long
 2. **Season-long projection helper**
    - Keep projections trustworthy and explain disagreements vs consensus
    - Surface projection context cleanly in the board and related views
+   - Make scoring-source, disagreement, and watchlist context obvious at the top of the board
 
 3. **Lookup rebuild**
    - Replace MLB placeholder assumptions with NFL-native player lookup

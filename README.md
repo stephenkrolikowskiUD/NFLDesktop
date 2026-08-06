@@ -25,6 +25,7 @@ Week 1 kickoff is **2026-09-09** (NE @ SEA).
 - 🟡 Weekly picks board calibration and grading loop
 - 🟡 Lookup rebuild on nflverse-native data
 - 🟡 Best Ball board layout polish and mobile compaction
+- 🟡 Projection explainer layer so disagreements are easier to trust at a glance
 - 🟡 Game Builder presentation and entry ergonomics
 
 See [PLAN.md](./PLAN.md) for the active sprint priorities and Week 1 launch bar.
