@@ -2867,55 +2867,55 @@ function renderBestBallRoster(rows){
         ${queue.length?`<button type="button" class="bb-mini-btn" onclick="bbClearQueue()">Clear</button>`:""}
       </div>
       <div class="bb-queue-list">
-        ${queue.length?queue.slice(0,6).map(r=>`<div class="bb-queue-chip">
+        ${queue.length?queue.slice(0,5).map(r=>`<div class="bb-queue-chip">
           <span class="bb-queue-chip-name">${esc(r.name)}</span>
           <span class="bb-queue-chip-meta">${esc(r.team)} · ${esc(r.pos)} · bye ${r.bye||"—"}</span>
           <span class="bb-note-action" onclick="bbToggleQueue('${esc(r.id)}')">remove</span>
         </div>`).join(""):`<div class="bb-note-empty">No queued targets yet.</div>`}
       </div>
+      <div class="bb-note-grid">
+        <div class="bb-note-metric"><span class="bb-note-k">Current mix</span><span class="bb-note-v">${queue.length?[...new Set(queue.map(r=>r.pos))].join(" · "):"No queue yet"}</span></div>
+        <div class="bb-note-metric"><span class="bb-note-k">Stack angle</span><span class="bb-note-v">${stackTargets.length?"Correlation live":"No QB pair yet"}</span></div>
+        <div class="bb-note-metric"><span class="bb-note-k">Board status</span><span class="bb-note-v">${taken.length?taken.length+" gone / "+rows.length+" visible":rows.length+" visible"}</span></div>
+      </div>
     </div>
     <div class="bb-pressure-card">
       <div class="bb-pressure-label">Round context</div>
       <div class="bb-pressure-value">Pick ${roundContext.currentOverall} · Round ${roundContext.currentRound}</div>
-      <div class="bb-pressure-copy">Use consensus like draft gravity: who is pure value, who likely survives a room turn, and who you probably lose if you pass.</div>
+      <div class="bb-pressure-copy">Best value, likely wait, and probably gone by your next turn.</div>
       ${renderRoundTarget("Best overall",bestOverall,bestOverall?`ECR ${bestOverall.ecr?bestOverall.ecr.toFixed(0):"—"} · VORP ${bestOverall.displayVorp?bestOverall.displayVorp.toFixed(0):"—"}`:"")}
       ${renderRoundTarget("Take now",takeNow,takeNow?`Around pick ${Math.max(1,Math.round(toNum(takeNow.ecr||0)))} · room turns soon`:"")}
       ${renderRoundTarget("Can wait",bestWait,bestWait?`Around pick ${Math.max(1,Math.round(toNum(bestWait.ecr||0)))} · later window`:"")}
-    </div>
-    <div class="bb-pressure-card ${topBye&&topBye.warning?"warn":""}">
-      <div class="bb-pressure-label">Bye-week pressure</div>
-      <div class="bb-pressure-value">${topBye?`Wk ${esc(topBye.week)} · ${topBye.count}`:"Balanced"}</div>
-      <div class="bb-pressure-copy">${pressure.byeStacks.length?pressure.byeStacks.slice(0,3).map(item=>`Wk ${item.week} (${item.count})`).join(" · "):"No bye clusters yet."}</div>
-      <div class="bb-pressure-copy">${byeAction}</div>
-    </div>
-    <div class="bb-pressure-card ${topTeam&&topTeam.warning?"warn":""}">
-      <div class="bb-pressure-label">Team concentration</div>
-      <div class="bb-pressure-value">${topTeam?`${esc(topTeam.team)} · ${topTeam.count}`:"Open board"}</div>
-      <div class="bb-pressure-copy">${pressure.teamStacks.length?pressure.teamStacks.slice(0,3).map(item=>`${item.team} (${item.count})`).join(" · "):"No team stacks yet."}</div>
-      <div class="bb-pressure-copy">${teamAction}</div>
-    </div>
-    <div class="bb-pressure-card ${unstackedQBs.length?"warn":""}">
-      <div class="bb-pressure-label">QB stack pressure</div>
-      <div class="bb-pressure-value">${bestStackedQB?`${esc(bestStackedQB.qb)} +${bestStackedQB.count}`:"No QB yet"}</div>
-      <div class="bb-pressure-copy">${pressure.qbStacks.length?pressure.qbStacks.map(item=>item.count?`${item.qb.split(" ").slice(-1)[0]} +${item.count}`:`${item.qb.split(" ").slice(-1)[0]} unstacked`).join(" · "):"Draft a QB and we’ll track teammates here."}</div>
-      <div class="bb-pressure-copy">${qbAction}</div>
-    </div>
-    <div class="card bb-note-card">
-      <div class="card-title">Queue Coach</div>
-      <div class="bb-note-copy">${queue.length?`Keep it to players you would actually click in the next two rounds.`:"Keep the queue short so it stays useful when the room speeds up."}</div>
-      <div class="bb-note-row"><span class="bb-note-name">Current mix</span><span class="bb-note-meta">${queue.length?[...new Set(queue.map(r=>r.pos))].join(" · "):"No queue yet"}</span></div>
-      <div class="bb-note-row"><span class="bb-note-name">Stack angle</span><span class="bb-note-meta">${stackTargets.length?"Correlation path live":"No active QB pair yet"}</span></div>
-      <div class="bb-note-row"><span class="bb-note-name">Board status</span><span class="bb-note-meta">${taken.length?taken.length+" gone / "+rows.length+" visible":rows.length+" visible"}</span></div>
     </div>
     <div class="card bb-note-card">
       <div class="card-title">On Deck</div>
       <div class="bb-note-copy">${nextTargets.length?"Best available names weighted toward your current roster gaps and the live positional cliff.":"No urgent roster gaps yet. Sort by value and keep drafting the board."}</div>
       ${nextTargets.length?nextTargets.map(r=>`<div class="bb-note-row"><span class="bb-note-name">${esc(r.name)}</span><span class="bb-note-meta">${esc(r.team)} · ${esc(r.pos)} · ${Number.isFinite(r.displayProj)?r.displayProj.toFixed(1):"—"} pts</span></div>`).join(""):`<div class="bb-note-empty">Board looks balanced right now.</div>`}
     </div>
-    <div class="card bb-note-card">
-      <div class="card-title">Stack Targets</div>
-      <div class="bb-note-copy">${stackTargets.length?"These are the cleanest correlation adds based on what you've already drafted.":"Draft a QB or a few pass-catchers first and the stack board will wake up."}</div>
-      ${stackTargets.length?stackTargets.slice(0,6).map(r=>`<div class="bb-note-row"><span class="bb-note-name">${esc(r.name)}</span><span class="bb-note-meta">${esc(r.stackLabel)} · ${esc(r.team)} · ${esc(r.pos)}</span></div>`).join(""):`<div class="bb-note-empty">No active stack path yet.</div>`}
+    <div class="bb-pressure-grid">
+      <div class="bb-pressure-card ${topBye&&topBye.warning?"warn":""}">
+        <div class="bb-pressure-label">Bye-week pressure</div>
+        <div class="bb-pressure-value">${topBye?`Wk ${esc(topBye.week)} · ${topBye.count}`:"Balanced"}</div>
+        <div class="bb-pressure-copy">${pressure.byeStacks.length?pressure.byeStacks.slice(0,3).map(item=>`Wk ${item.week} (${item.count})`).join(" · "):"No bye clusters yet."}</div>
+        <div class="bb-pressure-copy">${byeAction}</div>
+      </div>
+      <div class="bb-pressure-card ${topTeam&&topTeam.warning?"warn":""}">
+        <div class="bb-pressure-label">Team concentration</div>
+        <div class="bb-pressure-value">${topTeam?`${esc(topTeam.team)} · ${topTeam.count}`:"Open board"}</div>
+        <div class="bb-pressure-copy">${pressure.teamStacks.length?pressure.teamStacks.slice(0,3).map(item=>`${item.team} (${item.count})`).join(" · "):"No team stacks yet."}</div>
+        <div class="bb-pressure-copy">${teamAction}</div>
+      </div>
+      <div class="bb-pressure-card ${unstackedQBs.length?"warn":""}">
+        <div class="bb-pressure-label">QB stack pressure</div>
+        <div class="bb-pressure-value">${bestStackedQB?`${esc(bestStackedQB.qb)} +${bestStackedQB.count}`:"No QB yet"}</div>
+        <div class="bb-pressure-copy">${pressure.qbStacks.length?pressure.qbStacks.map(item=>item.count?`${item.qb.split(" ").slice(-1)[0]} +${item.count}`:`${item.qb.split(" ").slice(-1)[0]} unstacked`).join(" · "):"Draft a QB and we’ll track teammates here."}</div>
+        <div class="bb-pressure-copy">${qbAction}</div>
+      </div>
+      <div class="card bb-note-card">
+        <div class="card-title">Stack Targets</div>
+        <div class="bb-note-copy">${stackTargets.length?"These are the cleanest correlation adds based on what you've already drafted.":"Draft a QB or a few pass-catchers first and the stack board will wake up."}</div>
+        ${stackTargets.length?stackTargets.slice(0,4).map(r=>`<div class="bb-note-row"><span class="bb-note-name">${esc(r.name)}</span><span class="bb-note-meta">${esc(r.stackLabel)} · ${esc(r.team)} · ${esc(r.pos)}</span></div>`).join(""):`<div class="bb-note-empty">No active stack path yet.</div>`}
+      </div>
     </div>
   </div>`;
 
