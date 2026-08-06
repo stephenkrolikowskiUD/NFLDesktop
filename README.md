@@ -10,15 +10,24 @@ Week 1 kickoff is **2026-09-09** (NE @ SEA).
 
 - ✅ nflverse data layer with direct-parquet fallback
 - ✅ Schedule, spreads, totals, moneylines, snap counts, injuries, usage shares
-- ✅ Dashboard ported from MLBDesktop (55 renderers, shared design system)
+- ✅ Dashboard shell ported from MLBDesktop and wired for NFL views
 - ✅ Player props with multi-book best-price routing
 - ✅ Season-long projection model, backtested over 7 seasons
 - ✅ Best Ball draft board
+- ✅ 0.5 PPR / full PPR toggle
+- ✅ Queue, drafted, and taken state with persistence
+- ✅ Bye-week pressure, team concentration, and QB stack pressure
+- ✅ Round-context helper (`best overall`, `take now`, `can wait`)
+- ✅ Game Builder foundation with contest-slate filtering
+- ✅ Leaders / Picks / Model Performance / Info surfaces online
+- ✅ Mobile navigation pass, including Best Ball access on phone
 - ✅ Age/decline and depth-chart role adjustment
-- ⬜ Weekly picks (moneyline, spread, player props)
-- ⬜ Team selections / combo builder
-- ⬜ Grader + Pick Performance
-- ⬜ Lookup rebuild on nflverse (was MLB Stats API)
+- 🟡 Weekly picks board calibration and grading loop
+- 🟡 Lookup rebuild on nflverse-native data
+- 🟡 Best Ball board layout polish and mobile compaction
+- 🟡 Game Builder presentation and entry ergonomics
+
+See [PLAN.md](./PLAN.md) for the active sprint priorities and Week 1 launch bar.
 
 ## How It Works
 

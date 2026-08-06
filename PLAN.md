@@ -1,70 +1,76 @@
-# NFLDesktop Build Plan (5 weeks)
+# NFLDesktop Roadmap
 
-## Scope
-Full build (parity with MLBDesktop) + new features:
-- **Team Selections** — select teams for combo picks
-- **Spreads** — surface spread picks alongside moneylines
-- Same data pattern: Python engine → Google Sheets → vanilla HTML/JS dashboard
+_Last updated: 2026-08-06_
 
-## Data Sources
-- **Odds API**: `americanfootball_nfl` for live odds
-- **Big Balls Sports Data API**: schedules, team stats, game state, play-by-play
-- **OpenWeather API**: stadium conditions
-- **Google Sheets**: workbook for dashboard data
+## Where We Are
+NFL is no longer a greenfield build. The core dashboard, engine, and season-long projection layer are live. The remaining work is about sharpening the weekly workflow, finishing lookup, and making the Best Ball board smarter around draft timing.
 
-## Timeline (5 weeks)
+## Shipped
+- ✅ nflverse-first data pipeline (schedule, rosters, weekly stats, snap counts, injuries, depth-chart context)
+- ✅ Odds API integration for NFL lines and player props
+- ✅ Google Sheets pipeline feeding the dashboard
+- ✅ Dashboard shell ported from MLBDesktop with NFL pages wired up
+- ✅ Season-long projection model and 7-season backtest
+- ✅ Best Ball board live
+- ✅ 0.5 PPR / full PPR scoring toggle
+- ✅ Queue, drafted, and taken state with persistence
+- ✅ Bye-week pressure, team concentration, and QB stack pressure
+- ✅ Round-context helper (`best overall`, `take now`, `can wait`)
+- ✅ Game Builder foundation with contest-slate filtering
+- ✅ Leaders / Picks / Model Performance / Info surfaces online
+- ✅ Mobile navigation pass, including Best Ball access on phone
 
-### Week 1 (Aug 2–8): Data Pipeline & Infrastructure
-- [ ] Set up Big Balls API integration (schedules, team roster, game state)
-- [ ] Set up Odds API for NFL (moneylines, spreads, player props)
-- [ ] Create NFLDesktop Google Sheet with base tabs
-- [ ] Python engine scaffold: `NFLEnginev1.py` (data pull, minimal picks logic)
-- [ ] Deploy initial engine run to Sheets
-- First commit: working data pipeline
+## In Progress
+- 🟡 Weekly picks board calibration and grading loop
+- 🟡 Lookup rebuild on nflverse-native data
+- 🟡 Best Ball board layout polish and mobile compaction
+- 🟡 Game Builder presentation and entry ergonomics
 
-### Week 2 (Aug 9–15): Dashboard Skeleton
-- [ ] Dashboard HTML/CSS/JS scaffold (copy MLBDesktop structure)
-- [ ] Load NFL Sheets data into dashboard
-- [ ] Build Dashboard tab (matchups, spreads, team info)
-- [ ] Build basic navigation
-- First visual deploy: dashboard loads data from Sheets
+## Current Sprint Priorities
+1. **Best Ball draft helper polish**
+   - Tighten layout so the board stays primary
+   - Keep queue, round context, and pressure cards useful without wasting space
+   - Add clearer ADP / timing signals so we know who to take now versus who can wait
 
-### Week 3 (Aug 16–22): Picks Logic & Team Selections
-- [ ] Implement picks generation logic (moneyline + spread picks)
-- [ ] Build team selections feature (combo builder for teams)
-- [ ] Build Picks tab with multiple sub-views
-- [ ] Connect picks to Sheets workflow
-- Working picks board with team combos
+2. **Season-long projection helper**
+   - Keep projections trustworthy and explain disagreements vs consensus
+   - Surface projection context cleanly in the board and related views
 
-### Week 4 (Aug 23–29): Remaining Tabs & Polish
-- [ ] Leaders tab (team stats, trending)
-- [ ] Team Builder tab (spread/moneyline combo builder)
-- [ ] Lookup tab (team/player search)
-- [ ] Stats/Performance tracking (minimal; scale post-launch)
-- [ ] Info/Help tab
-- [ ] Style refinement, mobile UX
+3. **Lookup rebuild**
+   - Replace MLB placeholder assumptions with NFL-native player lookup
+   - Support player/team search that matches the rest of the app
 
-### Week 5 (Aug 30–Sep 5): Testing & Launch Prep
-- [ ] End-to-end QA (all tabs, data flow, edge cases)
-- [ ] GitHub Actions setup (engine runs 2×/day during active slates)
-- [ ] Grader logic (basic win/loss tracking)
-- [ ] GitHub Pages deployment
-- [ ] Live with Week 1 kickoff
+4. **Weekly picks + grader loop**
+   - Improve weekly picks presentation
+   - Make grading and model-performance feedback more actionable before kickoff
 
-## Key Design Decisions
-- **Team Selections**: new feature, requires clean data model (teams, rosters, spread tiers)
-- **Spreads**: layer spreads alongside ML in all pick surfaces
-- **No Framework**: vanilla HTML/JS only, reusing MLBDesktop patterns
-- **Stateless Picks**: picks generated server-side in engine, displayed client-side
+## Next Up After This Sprint
+- ADP-aware draft timing layer
+  - Distinguish `best player overall` from `best player you can wait on`
+  - Add room-turn / pick-window pressure
+- Weekly contest workflow
+  - Sharper slate filtering for non-full-slate contests
+  - Better handoff between Game Builder and Picks
+- Lookup expansion
+  - richer team context, matchup context, and role signals
+- Grader maturity
+  - stronger weekly feedback loop before regular season volume ramps
 
-## Known Constraints
-- 1,000 req/day free tier on Big Balls (throttle aggressively during live play; pre-build dashboard)
-- No official NFL API like statsapi.mlb.com; Big Balls is the best option
-- 32 stadiums need hardcoded lat/long for weather lookups
+## Not In Scope Right Now
+- Full framework migration
+- Fancy infra changes before Week 1
+- Cross-sport unification into one app before NFL launch
 
-## Success Criteria
-- Week 1 slates fully populated
-- Moneylines + spreads surfaced
-- Team selections working end-to-end
-- Pick generation running automatically
-- No framework tech debt
+## Week 1 Launch Bar
+By Week 1 kickoff we want:
+- A stable engine run writing clean NFL data to Sheets
+- A usable weekly picks workflow
+- A dependable Best Ball board
+- Lookup good enough for real draft / research use
+- Model-performance feedback that tells us what to trust
+
+## Working Principles
+- Prefer nflverse and owned calculations over fragile paid APIs when possible
+- Keep the dashboard lightweight and deployable on GitHub Pages
+- Ship practical workflow wins first, then polish
+- Use the board daily so the roadmap follows real usage, not theory
