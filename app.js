@@ -2586,6 +2586,8 @@ function bbRows(){
     bye:rowField(r,"bye"),
     ecr:toNum(rowField(r,"ecr")),
     ecrSd:toNum(rowField(r,"ecr_sd")),
+    ecrBest:toNum(rowField(r,"ecr_best")),
+    ecrWorst:toNum(rowField(r,"ecr_worst")),
     projPpr:toNum(rowField(r,"proj_ppr")),
     projReceptions:toNum(rowField(r,"proj_receptions")),
     projGames:toNum(rowField(r,"proj_games")),
@@ -2596,6 +2598,21 @@ function bbRows(){
     confidence:String(rowField(r,"confidence")||""),
     source:String(rowField(r,"proj_source")||"")
   })).filter(r=>r.name&&r.pos);
+}
+
+function bbConsensusWindow(row){
+  const center=Math.max(1,Math.round(toNum(row?.ecr)||toNum(row?.modelRank)||999));
+  const best=toNum(row?.ecrBest)||center;
+  const worst=toNum(row?.ecrWorst)||center;
+  const spread=Math.max(
+    toNum(row?.ecrSd),
+    Math.abs(center-best),
+    Math.abs(worst-center),
+    6
+  );
+  const start=Math.max(1,Math.round(toNum(row?.ecrBest||center-spread)));
+  const end=Math.max(start,Math.round(toNum(row?.ecrWorst||center+spread)));
+  return {center,start,end};
 }
 
 function bbToggleDrafted(id){
@@ -2732,21 +2749,8 @@ function bbRoundContext(rows){
     return (toNum(row.displayVorp)*3)+(toNum(row.delta)*0.8)+positionalBonus(row);
   }
 
-  function marketWindow(row){
-    const center=Math.max(1,Math.round(toNum(row.ecr)||toNum(row.modelRank)||999));
-    const spread=Math.max(
-      toNum(row.ecrSd),
-      Math.abs(center-toNum(row.ecrBest||center)),
-      Math.abs(toNum(row.ecrWorst||center)-center),
-      6
-    );
-    const start=Math.max(1,Math.round(toNum(row.ecrBest||center-spread)));
-    const end=Math.max(start,Math.round(toNum(row.ecrWorst||center+spread)));
-    return {center,start,end};
-  }
-
   function withTiming(row){
-    const timing=marketWindow(row);
+    const timing=bbConsensusWindow(row);
     return {...row,timing};
   }
 
@@ -2790,11 +2794,12 @@ function bbRoundContext(rows){
 }
 
 function bbTimingState(row,roundContext){
-  if(!row||!row.timing||!roundContext){
+  if(!row||!roundContext){
     return {label:"Open board",tone:"open",detail:"No consensus window yet"};
   }
-  const start=Math.max(1,Math.round(toNum(row.timing.start)));
-  const end=Math.max(start,Math.round(toNum(row.timing.end)));
+  const timing=row.timing||bbConsensusWindow(row);
+  const start=Math.max(1,Math.round(toNum(timing.start)));
+  const end=Math.max(start,Math.round(toNum(timing.end)));
   if(end<=roundContext.nextRoomTurn){
     return {label:"Take now",tone:"now",detail:`Window ${start}-${end}`};
   }
