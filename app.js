@@ -3293,11 +3293,11 @@ function renderMobileNavigation(activeTab){
   const items=[
     ["dashboard","dash","Dash"],
     ["picks","picks","Picks"],
-    ["leaders","leaders","Leaders"],
-    ["entry","entry","Builder"],
-    ["bestball","dash","Best Ball"],
+    ["leaders","leaders","Lead"],
+    ["entry","entry","Build"],
+    ["bestball","dash","BB"],
     ["lookup","lookup","Lookup"],
-    ["stats","stats","Performance"],
+    ["stats","stats","Model"],
     ["method","info","Info"],
   ];
   return`<div class="tab-bar">${items.map(([tab,iconName,label])=>`
