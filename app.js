@@ -2795,7 +2795,7 @@ function bbRoundContext(rows){
 
 function bbTimingState(row,roundContext){
   if(!row||!roundContext){
-    return {label:"Open board",tone:"open",detail:"No consensus window yet"};
+    return {label:"Clear board",tone:"open",detail:"No room-pressure read yet"};
   }
   const timing=row.timing||bbConsensusWindow(row);
   const start=Math.max(1,Math.round(toNum(timing.start)));
@@ -2948,8 +2948,7 @@ function renderBestBallRoster(rows,projectionLens=null){
       </div>`:""}
     </div>`:"";
 
-  const preboard=`<div class="bb-preboard">
-    <div class="card bb-note-card bb-queue-card">
+  const queueCard=`<div class="card bb-note-card bb-queue-card">
       <div class="bb-queue-head">
         <div>
           <div class="card-title">Target Queue</div>
@@ -2966,44 +2965,45 @@ function renderBestBallRoster(rows,projectionLens=null){
       </div>
       <div class="bb-note-grid">
         <div class="bb-note-metric"><span class="bb-note-k">Current mix</span><span class="bb-note-v">${queue.length?[...new Set(queue.map(r=>r.pos))].join(" · "):"No queue yet"}</span></div>
-        <div class="bb-note-metric"><span class="bb-note-k">Stack angle</span><span class="bb-note-v">${stackTargets.length?"Correlation live":"No QB pair yet"}</span></div>
-        <div class="bb-note-metric"><span class="bb-note-k">Board status</span><span class="bb-note-v">${taken.length?taken.length+" gone / "+rows.length+" visible":rows.length+" visible"}</span></div>
+        <div class="bb-note-metric"><span class="bb-note-k">Stack angle</span><span class="bb-note-v">${stackTargets.length?"Stack live":"No QB pair yet"}</span></div>
+        <div class="bb-note-metric"><span class="bb-note-k">Board status</span><span class="bb-note-v">${taken.length?taken.length+" gone / "+rows.length+" live":rows.length+" live"}</span></div>
       </div>
-    </div>
-    <div class="bb-pressure-card">
+    </div>`;
+  const roundCard=`<div class="bb-pressure-card bb-round-card">
       <div class="bb-pressure-label">Round context</div>
       <div class="bb-pressure-value">Pick ${roundContext.currentOverall} · Round ${roundContext.currentRound}</div>
       <div class="bb-pressure-copy">Next room turn: pick ${roundContext.nextRoomTurn}. Timing uses the FantasyPros consensus window we already carry, so this is a room-behavior read rather than a paid ADP feed.</div>
       ${renderRoundTarget("Best overall",bestOverall,bestOverall?timingSummary(bestOverall,"overall"):"","overall")}
       ${renderRoundTarget("Take now",takeNow,takeNow?timingSummary(takeNow,"take"):"","take")}
       ${renderRoundTarget("Can wait",bestWait,bestWait?timingSummary(bestWait,"wait"):"","wait")}
-    </div>
-    ${lensCard}
-  </div>`;
+    </div>`;
 
   const rail=`<div class="bb-rail-stack">
+    ${queueCard}
+    ${roundCard}
     <div class="card bb-note-card">
       <div class="card-title">On Deck</div>
       <div class="bb-note-copy">${nextTargets.length?"Best available names weighted toward your current roster gaps and the live positional cliff.":"No urgent roster gaps yet. Sort by value and keep drafting the board."}</div>
       ${nextTargets.length?nextTargets.map(r=>`<div class="bb-note-row"><span class="bb-note-name">${esc(r.name)}</span><span class="bb-note-meta">${esc(r.team)} · ${esc(r.pos)} · ${Number.isFinite(r.displayProj)?r.displayProj.toFixed(1):"—"} pts</span></div>`).join(""):`<div class="bb-note-empty">Board looks balanced right now.</div>`}
     </div>
+    ${lensCard}
     <div class="bb-pressure-grid">
       <div class="bb-pressure-card ${topBye&&topBye.warning?"warn":""}">
         <div class="bb-pressure-label">Bye-week pressure</div>
         <div class="bb-pressure-value">${topBye?`Wk ${esc(topBye.week)} · ${topBye.count}`:"Balanced"}</div>
-        <div class="bb-pressure-copy">${pressure.byeStacks.length?pressure.byeStacks.slice(0,3).map(item=>`Wk ${item.week} (${item.count})`).join(" · "):"No bye clusters yet."}</div>
+        <div class="bb-pressure-copy">${pressure.byeStacks.length?pressure.byeStacks.slice(0,3).map(item=>`Wk ${item.week} (${item.count})`).join(" · "):"No bye-week pileups yet."}</div>
         <div class="bb-pressure-copy">${byeAction}</div>
       </div>
       <div class="bb-pressure-card ${topTeam&&topTeam.warning?"warn":""}">
         <div class="bb-pressure-label">Team concentration</div>
-        <div class="bb-pressure-value">${topTeam?`${esc(topTeam.team)} · ${topTeam.count}`:"Open board"}</div>
-        <div class="bb-pressure-copy">${pressure.teamStacks.length?pressure.teamStacks.slice(0,3).map(item=>`${item.team} (${item.count})`).join(" · "):"No team stacks yet."}</div>
+        <div class="bb-pressure-value">${topTeam?`${esc(topTeam.team)} · ${topTeam.count}`:"No crowding"}</div>
+        <div class="bb-pressure-copy">${pressure.teamStacks.length?pressure.teamStacks.slice(0,3).map(item=>`${item.team} (${item.count})`).join(" · "):"No team bets building yet."}</div>
         <div class="bb-pressure-copy">${teamAction}</div>
       </div>
       <div class="bb-pressure-card ${unstackedQBs.length?"warn":""}">
         <div class="bb-pressure-label">QB stack pressure</div>
         <div class="bb-pressure-value">${bestStackedQB?`${esc(bestStackedQB.qb)} +${bestStackedQB.count}`:"No QB yet"}</div>
-        <div class="bb-pressure-copy">${pressure.qbStacks.length?pressure.qbStacks.map(item=>item.count?`${item.qb.split(" ").slice(-1)[0]} +${item.count}`:`${item.qb.split(" ").slice(-1)[0]} unstacked`).join(" · "):"Draft a QB and we’ll track teammates here."}</div>
+        <div class="bb-pressure-copy">${pressure.qbStacks.length?pressure.qbStacks.map(item=>item.count?`${item.qb.split(" ").slice(-1)[0]} +${item.count}`:`${item.qb.split(" ").slice(-1)[0]} unstacked`).join(" · "):"Draft a QB and we’ll track teammate pressure here."}</div>
         <div class="bb-pressure-copy">${qbAction}</div>
       </div>
       <div class="card bb-note-card">
@@ -3014,7 +3014,7 @@ function renderBestBallRoster(rows,projectionLens=null){
     </div>
   </div>`;
 
-  return {summary,preboard,rail};
+  return {summary,rail};
 }
 
 function renderBestBallView(){
@@ -3181,7 +3181,6 @@ ${sourceScoring?`<span class="bb-flag">${esc(scoringLabel)}</span> `:""}
     <div class="bb-layout">
       <div class="bb-main">
         ${rosterUI.summary}
-        ${rosterUI.preboard}
         <div class="bb-wrap"><table>
           <thead><tr>
             <th title="Add to my roster">Mine</th><th title="Mark as taken by another team">Gone</th><th title="Save as a target">Queue</th><th>Player</th><th>Tm</th><th>Bye</th>
