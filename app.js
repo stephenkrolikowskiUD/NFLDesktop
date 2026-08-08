@@ -2857,18 +2857,18 @@ function renderBestBallRoster(rows,projectionLens=null){
     ? (topBye.warning
       ? `Ease off Week ${esc(topBye.week)} unless the value is obvious.`
       : `Current heaviest cluster is Week ${esc(topBye.week)} with only ${topBye.count}.`)
-    : "No bye clusters yet.";
+    : "No bye-week pileups yet.";
   const teamAction=topTeam
     ? (topTeam.warning
       ? `You are leaning hard into ${esc(topTeam.team)}. Diversify unless you're making a deliberate bet.`
       : `${esc(topTeam.team)} is your biggest mini-stack, but it's still under control.`)
-    : "No team concentration yet.";
+    : "No crowding yet.";
   const qbPriority=unstackedQBs[0]||null;
   const qbAction=qbPriority
     ? `Add a ${esc(qbPriority.team)} pass-catcher for ${esc(qbPriority.qb)} next if the room lets you.`
     : (bestStackedQB
       ? `${esc(bestStackedQB.qb)} already has ${bestStackedQB.count} teammate${bestStackedQB.count===1?"":"s"} attached.`
-      : "Draft a QB and we'll start tracking stack pressure.");
+      : "Draft a QB and we'll start tracking teammate pressure.");
   const bestOverall=roundContext.bestOverall;
   const takeNow=roundContext.takeNow;
   const bestWait=roundContext.bestWait;
@@ -2978,14 +2978,19 @@ function renderBestBallRoster(rows,projectionLens=null){
       ${renderRoundTarget("Can wait",bestWait,bestWait?timingSummary(bestWait,"wait"):"","wait")}
     </div>`;
 
-  const rail=`<div class="bb-rail-stack">
-    ${queueCard}
-    ${roundCard}
-    <div class="card bb-note-card">
+  const onDeckCard=`<div class="card bb-note-card bb-ondeck-card">
       <div class="card-title">On Deck</div>
       <div class="bb-note-copy">${nextTargets.length?"Best available names weighted toward your current roster gaps and the live positional cliff.":"No urgent roster gaps yet. Sort by value and keep drafting the board."}</div>
       ${nextTargets.length?nextTargets.map(r=>`<div class="bb-note-row"><span class="bb-note-name">${esc(r.name)}</span><span class="bb-note-meta">${esc(r.team)} · ${esc(r.pos)} · ${Number.isFinite(r.displayProj)?r.displayProj.toFixed(1):"—"} pts</span></div>`).join(""):`<div class="bb-note-empty">Board looks balanced right now.</div>`}
-    </div>
+    </div>`;
+
+  const topContext=`<div class="bb-top-context">
+    ${queueCard}
+    ${roundCard}
+    ${onDeckCard}
+  </div>`;
+
+  const rail=`<div class="bb-rail-stack">
     ${lensCard}
     <div class="bb-pressure-grid">
       <div class="bb-pressure-card ${topBye&&topBye.warning?"warn":""}">
@@ -3014,7 +3019,7 @@ function renderBestBallRoster(rows,projectionLens=null){
     </div>
   </div>`;
 
-  return {summary,rail};
+  return {summary,topContext,rail};
 }
 
 function renderBestBallView(){
@@ -3181,6 +3186,7 @@ ${sourceScoring?`<span class="bb-flag">${esc(scoringLabel)}</span> `:""}
     <div class="bb-layout">
       <div class="bb-main">
         ${rosterUI.summary}
+        ${rosterUI.topContext}
         <div class="bb-wrap"><table>
           <thead><tr>
             <th title="Add to my roster">Mine</th><th title="Mark as taken by another team">Gone</th><th title="Save as a target">Queue</th><th>Player</th><th>Tm</th><th>Bye</th>
