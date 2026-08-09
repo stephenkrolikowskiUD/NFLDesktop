@@ -2937,6 +2937,17 @@ function bbTimingState(row,roundContext){
   return {label:"Later value",tone:"open",detail:`Window ${start}-${end}`};
 }
 
+function bbTrustSignal(row){
+  if(!row)return {label:"Unknown",tone:"neutral",detail:"No read yet"};
+  if(row.source==="ecr_imputed")return {label:"Consensus only",tone:"warn",detail:"No prior-season usage"};
+  if(row.confidence==="changed teams")return {label:"Role shift",tone:"watch",detail:"New team context"};
+  if(row.confidence==="partial season"||row.confidence==="small sample")return {label:"Thin sample",tone:"watch",detail:"Less stable prior"};
+  const delta=Math.abs(toNum(row.delta));
+  if(delta>=18)return {label:"Big disagreement",tone:"watch",detail:`${Math.round(delta)} rank gap vs ECR`};
+  if(delta>=8)return {label:"Worth pressure test",tone:"neutral",detail:`${Math.round(delta)} rank gap vs ECR`};
+  return {label:"Clean read",tone:"good",detail:"Model and market mostly aligned"};
+}
+
 function bbStackTargets(rows){
   const all=rows||[];
   const mine=all.filter(r=>st.bbDrafted.has(r.id));
@@ -2997,6 +3008,11 @@ function renderBestBallRoster(rows,projectionLens=null){
   const bestOverall=roundContext.bestOverall;
   const takeNow=roundContext.takeNow;
   const bestWait=roundContext.bestWait;
+  const pressureCounts={
+    now:rows.filter(r=>bbTimingState(r,roundContext).tone==="now").length,
+    soon:rows.filter(r=>bbTimingState(r,roundContext).tone==="soon").length,
+    risk:rows.filter(r=>["changed teams","partial season","small sample"].includes(r.confidence)||r.source==="ecr_imputed").length
+  };
 
   function timingTag(row,mode){
     if(!row||!row.timing)return "";
@@ -3049,6 +3065,12 @@ function renderBestBallRoster(rows,projectionLens=null){
     ${slots.replaceAll('bb-slot','bb-summary-pill')}
     ${taken.length?`<div class="bb-summary-pill"><span class="bb-summary-label">Room</span><strong>${taken.length}</strong></div>`:""}
     ${stacked.length?`<div class="bb-summary-pill bb-summary-pill-wide bb-slot-need"><span class="bb-summary-label">Bye cluster</span><strong>${stacked.join(" · ")}</strong></div>`:""}
+  </div>`;
+
+  const priorityStrip=`<div class="bb-priority-strip">
+    <div class="bb-priority-pill bb-priority-now"><span class="bb-summary-label">Take now</span><strong>${pressureCounts.now}</strong></div>
+    <div class="bb-priority-pill bb-priority-soon"><span class="bb-summary-label">One-turn risk</span><strong>${pressureCounts.soon}</strong></div>
+    <div class="bb-priority-pill ${pressureCounts.risk?"bb-priority-watch":""}"><span class="bb-summary-label">Context checks</span><strong>${pressureCounts.risk}</strong></div>
   </div>`;
 
   const lensCard=projectionLens?`<div class="card bb-note-card bb-lens-card">
@@ -3109,7 +3131,7 @@ function renderBestBallRoster(rows,projectionLens=null){
       ${nextTargets.length?nextTargets.map(r=>`<div class="bb-note-row"><span class="bb-note-name">${esc(r.name)}</span><span class="bb-note-meta">${esc(r.team)} · ${esc(r.pos)} · ${Number.isFinite(r.displayProj)?r.displayProj.toFixed(1):"—"} pts</span></div>`).join(""):`<div class="bb-note-empty">Board looks balanced right now.</div>`}
     </div>`;
 
-  const topContext=`<div class="bb-top-context">
+  const topContext=`${priorityStrip}<div class="bb-top-context">
     ${queueCard}
     ${roundCard}
     ${onDeckCard}
@@ -3244,6 +3266,7 @@ function renderBestBallView(){
     const taken=st.bbTaken.has(r.id);
     const queued=st.bbQueue.has(r.id);
     const timing=bbTimingState(r,roundContext);
+    const trust=bbTrustSignal(r);
     const deltaCls=r.delta>0?"bb-delta-up":r.delta<0?"bb-delta-dn":"";
     const deltaRounded=Math.round(r.delta);
     const deltaTxt=r.ecr?`${deltaRounded>0?"+":""}${deltaRounded}`:"—";
@@ -3262,6 +3285,7 @@ function renderBestBallView(){
         </div>
         <div class="bb-player-sub">
           <span class="bb-timing-pill bb-timing-${timing.tone}">${timing.label}</span>
+          <span class="bb-trust-pill bb-trust-${trust.tone}" title="${esc(trust.detail)}">${esc(trust.label)}</span>
           <span class="bb-player-window">${timing.detail}</span>
         </div>
       </td>
