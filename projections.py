@@ -236,6 +236,47 @@ def _norm_name(value) -> str:
     return re.sub(r"\s+", " ", v).strip()
 
 
+def _season_type_order(values: pd.Series) -> pd.Series:
+    """Chronological ordering for season phases when resolving latest team."""
+    order = {"PRE": 0, "REG": 1, "POST": 2}
+    cleaned = values.astype("string").str.upper().str.strip()
+    return cleaned.map(order).fillna(1).astype(int)
+
+
+def latest_team_by_player(played: pd.DataFrame) -> pd.Series:
+    """Most recent team from true chronological order, not week number alone."""
+    if played.empty or "team" not in played.columns:
+        return pd.Series(dtype="object", name="team_prior")
+
+    ordered = played.copy()
+    sort_cols = []
+    ascending = []
+
+    if "season" in ordered.columns:
+        ordered["__season_order"] = pd.to_numeric(ordered["season"], errors="coerce")
+        sort_cols.append("__season_order")
+        ascending.append(True)
+    if "season_type" in ordered.columns:
+        ordered["__season_type_order"] = _season_type_order(ordered["season_type"])
+        sort_cols.append("__season_type_order")
+        ascending.append(True)
+    if "week" in ordered.columns:
+        ordered["__week_order"] = pd.to_numeric(ordered["week"], errors="coerce")
+        sort_cols.append("__week_order")
+        ascending.append(True)
+    if "game_id" in ordered.columns:
+        ordered["__game_id_order"] = ordered["game_id"].astype("string")
+        sort_cols.append("__game_id_order")
+        ascending.append(True)
+
+    if sort_cols:
+        ordered = ordered.sort_values(sort_cols, ascending=ascending, na_position="last")
+
+    return (ordered.groupby("player_id", dropna=False)["team"]
+                  .last()
+                  .rename("team_prior"))
+
+
 # ---------------------------------------------------------------------------
 # per-game rates
 # ---------------------------------------------------------------------------
@@ -268,8 +309,7 @@ def per_game_rates(stats: pd.DataFrame, scoring: str = "ppr") -> pd.DataFrame:
         if col in played.columns:
             out[col] = grouped[col].mean()
 
-    last_team = (played.sort_values("week").groupby("player_id").last()["team"]
-                 .rename("team_prior"))
+    last_team = latest_team_by_player(played)
     return out.reset_index().merge(last_team.reset_index(), how="left", on="player_id")
 
 

@@ -96,6 +96,7 @@ let st={
   playerSearch:"",playerSuggestions:[],showPlayerSugs:false,
   loading:true,error:null,dataWarnings:[],lookupError:"",loadedAt:null,latestPickDate:"",pickGuard:null,
   picksView:"shortlist",propsMetric:"ALL",propsSearch:"",propsTeam:"ALL",propsSort:"EDGE",propsMinHit:"0",propsMinEdge:"5",
+  weeklyProjPos:"ALL",weeklyProjTeam:"ALL",
   streakFilter:"all",drafted:new Set(),slipLegs:"3",
   draftSlate:{signature:initialDraftSlate.signature,selectedIds:initialDraftSlate.selectedIds,panelOpen:false},
   projections:[],bbPos:"ALL",bbSort:"VORP",bbHideDrafted:false,bbDrafted:loadBestBallDrafted(),bbTaken:loadBestBallTaken(),bbQueue:loadBestBallQueue(),bbSearch:"",bbTeam:"ALL",bbDraftableOnly:true,bbScoring:"half",
@@ -614,6 +615,8 @@ function setPropsTeam(v){st.propsTeam=v;render()}
 function setPropsSort(v){st.propsSort=v;render()}
 function setPropsMinHit(v){st.propsMinHit=v;render()}
 function setPropsMinEdge(v){st.propsMinEdge=v;render()}
+function setWeeklyProjPos(v){st.weeklyProjPos=v;render()}
+function setWeeklyProjTeam(v){st.weeklyProjTeam=String(v||"ALL");render()}
 function getTeamRanking(teamAbbr){
   const target=String(teamAbbr||"").trim().toUpperCase();
   if(!target)return null;
@@ -1576,7 +1579,113 @@ function renderDraftSlateSelector(){
   const range=starts.length?starts.length===1?draftDisplayTime(starts[0]):`${draftDisplayTime(starts[0])}–${draftDisplayTime(starts[starts.length-1])}`:"No start window";
   const preset=draftSlatePreset();
   const summary=selectedGames.length?`${selectedGames.length} of ${games.length} games · ${range}`:`0 of ${games.length} games selected`;
-  return`<section class="draft-slate"><div class="draft-slate-head"><div><div class="draft-slate-title">Contest slate</div><div class="draft-slate-summary">${summary}</div></div><button class="draft-slate-toggle" onclick="toggleDraftSlatePanel()">${st.draftSlate.panelOpen?"Done":"Choose games"}</button></div>${selectedGames.length?`<div class="draft-slate-games">${selectedGames.map(game=>`<span class="draft-slate-chip">${esc(game.label)} · ${draftDisplayTime(game.startMs)||"Time TBD"}</span>`).join("")}</div>`:""}${st.draftSlate.panelOpen?`<div class="draft-slate-panel"><div class="draft-slate-presets"><button class="draft-slate-preset${preset==="all"?" active":""}" onclick="setDraftSlatePreset('all')">Full slate</button><button class="draft-slate-preset${preset==="open"?" active":""}" onclick="setDraftSlatePreset('open')">Open games</button><button class="draft-slate-preset${preset==="after7"?" active":""}" onclick="setDraftSlatePreset('after7')">7 PM+</button><button class="draft-slate-preset${preset==="after9"?" active":""}" onclick="setDraftSlatePreset('after9')">9 PM+</button><button class="draft-slate-preset${preset==="clear"?" active":""}" onclick="setDraftSlatePreset('clear')">Clear</button></div><div class="draft-game-grid">${games.map(game=>`<button class="draft-game-option${selected.has(game.id)?" selected":""}" onclick="toggleDraftSlateGame('${esc(game.id)}')"><span class="draft-game-check">✓</span><span><span class="draft-game-matchup">${esc(game.label)}</span><span class="draft-game-status">${game.started?"Started / locked":"Available"}</span></span><span class="draft-game-time">${draftDisplayTime(game.startMs)||"TBD"}</span></button>`).join("")}</div><div class="draft-slate-note">Changing games resets drafted marks so the board stays aligned with this contest.</div></div>`:""}</section>`;
+  return`<section class="draft-slate"><div class="draft-slate-head"><div><div class="draft-slate-title">Contest slate</div><div class="draft-slate-summary">${summary}</div></div><button class="draft-slate-toggle" onclick="toggleDraftSlatePanel()">${st.draftSlate.panelOpen?"Done":"Choose games"}</button></div>${selectedGames.length?`<div class="draft-slate-games">${selectedGames.map(game=>`<span class="draft-slate-chip">${esc(game.label)} · ${draftDisplayTime(game.startMs)||"Time TBD"}</span>`).join("")}</div>`:""}${st.draftSlate.panelOpen?`<div class="draft-slate-panel"><div class="draft-slate-presets"><button class="draft-slate-preset${preset==="all"?" active":""}" onclick="setDraftSlatePreset('all')">Full slate</button><button class="draft-slate-preset${preset==="open"?" active":""}" onclick="setDraftSlatePreset('open')">Open games</button><button class="draft-slate-preset${preset==="after7"?" active":""}" onclick="setDraftSlatePreset('after7')">7 PM+</button><button class="draft-slate-preset${preset==="after9"?" active":""}" onclick="setDraftSlatePreset('after9')">9 PM+</button><button class="draft-slate-preset${preset==="clear"?" active":""}" onclick="setDraftSlatePreset('clear')">Clear</button></div><div class="draft-game-grid">${games.map(game=>`<button class="draft-game-option${selected.has(game.id)?" selected":""}" onclick="toggleDraftSlateGame('${esc(game.id)}')"><span class="draft-game-check">✓</span><span><span class="draft-game-matchup">${esc(game.label)}</span><span class="draft-game-status">${game.started?"Started / locked":"Available"}</span></span><span class="draft-game-time">${draftDisplayTime(game.startMs)||"TBD"}</span></button>`).join("")}</div><div class="draft-slate-note">Use this to narrow the board to TNF, SNF, MNF, showdown, or any custom contest slice.</div></div>`:""}</section>`;
+}
+
+function nflMetricLabel(metric){
+  const key=normalizePropMetric(metric);
+  const labels={
+    REC:"Receptions",REC_YDS:"Receiving yards",REC_TDS:"Receiving TDs",
+    RUSH_YDS:"Rushing yards",RUSH_TDS:"Rushing TDs",CARRIES:"Carries",
+    TGT:"Targets",ANY_TD:"Anytime TD",UD_FP:"UD fantasy points",
+    PASS_YDS:"Passing yards",PASS_TDS:"Passing TDs",COMP:"Completions",
+    ATT:"Attempts",INT:"Interceptions"
+  };
+  return labels[key]||key.replace(/_/g," ");
+}
+
+function nflPlayerProps(name){
+  const key=normalizePlayerName(name);
+  return (st.props||[]).filter(row=>normalizePlayerName(rowField(row,"PLAYER_NAME"))===key);
+}
+
+function nflPrimaryMarket(props,isQb){
+  const order=isQb
+    ?["UD_FP","PASS_YDS","PASS_TDS","COMP","ATT","INT","RUSH_YDS"]
+    :["UD_FP","REC_YDS","REC","TGT","RUSH_YDS","CARRIES","ANY_TD","REC_TDS","RUSH_TDS"];
+  for(const metric of order){
+    const hit=props.find(row=>normalizePropMetric(rowField(row,"METRIC"))===metric);
+    if(hit)return hit;
+  }
+  return props[0]||null;
+}
+
+function nflWeeklyProjectionValue(row,isQb){
+  const rec=toNum(rowField(row,"receptions","REC","Seas_REC","L5_REC"));
+  const recYds=toNum(rowField(row,"receiving_yards","REC_YDS","Seas_REC_YDS","L5_REC_YDS"));
+  const recTds=toNum(rowField(row,"receiving_tds","REC_TDS","Seas_REC_TDS","L5_REC_TDS"));
+  const rushYds=toNum(rowField(row,"rushing_yards","RUSH_YDS","Seas_RUSH_YDS","L5_RUSH_YDS"));
+  const rushTds=toNum(rowField(row,"rushing_tds","RUSH_TDS","Seas_RUSH_TDS","L5_RUSH_TDS"));
+  const passYds=toNum(rowField(row,"passing_yards","PASS_YDS","Seas_PASS_YDS","L5_PASS_YDS"));
+  const passTds=toNum(rowField(row,"passing_tds","PASS_TDS","Seas_PASS_TDS","L5_PASS_TDS"));
+  const passInts=toNum(rowField(row,"passing_interceptions","INT","Seas_INT","L5_INT"));
+  const seasonPpr=toNum(rowField(row,"fantasy_points_ppr","FANTASY_POINTS_PPR","Seas_UD_FP"));
+  let points=0;
+  if(isQb){
+    points=(passYds*0.04)+(passTds*4)-(passInts)+(rushYds*0.1)+(rushTds*6);
+  }else{
+    points=(rec*0.5)+(recYds*0.1)+(recTds*6)+(rushYds*0.1)+(rushTds*6);
+  }
+  return points>0?points:seasonPpr;
+}
+
+function nflWeeklyUsageSummary(row,isQb){
+  if(isQb){
+    const att=toNum(rowField(row,"attempts","ATT","Seas_ATT","L5_ATT"));
+    const py=toNum(rowField(row,"passing_yards","PASS_YDS","Seas_PASS_YDS","L5_PASS_YDS"));
+    const td=toNum(rowField(row,"passing_tds","PASS_TDS","Seas_PASS_TDS","L5_PASS_TDS"));
+    const ry=toNum(rowField(row,"rushing_yards","RUSH_YDS","Seas_RUSH_YDS","L5_RUSH_YDS"));
+    const bits=[];
+    if(att)bits.push(`${att.toFixed(1)} att`);
+    if(py)bits.push(`${py.toFixed(0)} pass yds`);
+    if(td)bits.push(`${td.toFixed(1)} pass TD`);
+    if(ry)bits.push(`${ry.toFixed(0)} rush yds`);
+    return bits.join(" · ");
+  }
+  const targets=toNum(rowField(row,"targets","TGT","Seas_TGT","L5_TGT"));
+  const carries=toNum(rowField(row,"carries","CARRIES","Seas_CARRIES","L5_CARRIES"));
+  const share=toNum(rowField(row,"target_share","TARGET_SHARE"))*100;
+  const snap=toNum(rowField(row,"snap_pct","SNAP_PCT","offense_pct"))*100;
+  const bits=[];
+  if(targets)bits.push(`${targets.toFixed(1)} tgt`);
+  if(carries)bits.push(`${carries.toFixed(1)} car`);
+  if(share)bits.push(`${share.toFixed(0)}% share`);
+  if(snap)bits.push(`${snap.toFixed(0)}% snap`);
+  return bits.join(" · ");
+}
+
+function getWeeklyProjectionBoard(){
+  return getMemo(`weeklyProjectionBoard:${draftSlateMemoKey()}`,()=>{
+    const rows=[];
+    const addRow=(row,isQb)=>{
+      const name=cleanName(rowField(row,"player_name","PLAYER_NAME"));
+      const team=String(rowField(row,"team_abbr","TEAM_ABBR")).trim().toUpperCase();
+      const opp=String(rowField(row,"opp_abbr_tonight","opp_abbr","OPP_ABBR")).trim().toUpperCase();
+      const pos=String(rowField(row,"pos","position","POS")||(isQb?"QB":"")).trim().toUpperCase();
+      if(!name||!team||!opp||!pos)return;
+      const props=nflPlayerProps(name);
+      const market=nflPrimaryMarket(props,isQb);
+      const flags=getSampleFlags(name,isQb);
+      const lock=getLockInfo(name,isQb);
+      rows.push({
+        id:`${normalizePlayerName(name)}|${pos}`,
+        name,team,opp,pos,isQb,
+        projection:nflWeeklyProjectionValue(row,isQb),
+        usage:nflWeeklyUsageSummary(row,isQb),
+        propsCount:props.length,
+        marketMetric:market?normalizePropMetric(rowField(market,"METRIC")):"",
+        marketLine:market?rowField(market,"DK_LINE"):"",
+        pick:getPick(name),
+        returning:flags.returning,
+        limited:flags.limited,
+        started:lock.started,
+        startText:gameStartTimeForTeams(team,opp),
+      });
+    };
+    (st.tonight||[]).forEach(row=>{if(draftRowInSlate(row))addRow(row,false)});
+    (st.pTonight||[]).forEach(row=>{if(draftRowInSlate(row))addRow(row,true)});
+    return rows.sort((a,b)=>(b.projection||0)-(a.projection||0)||a.name.localeCompare(b.name));
+  });
 }
 
 function getDraftBoard(){
@@ -2300,60 +2409,76 @@ function renderStreaksBoardView(convergenceHTML){
 }
 
 function renderDraftBoardView(convergenceHTML){
-  let html="";
-      const board=getDraftBoard();
-      const slateGames=getDraftSlateGames();
-      const selectedGames=draftSlateSelection();
-      const available=board.filter(p=>!st.drafted.has(p.name));
-      const stacks=getDraftStacks().slice(0,5);
-      const stackTags=getDraftStackTagMap();
-      const draftedCount=st.drafted.size;
-      function getTier(proj,isP){const v=parseFloat(proj);if(isP){if(v>=8)return{label:"TIER 1 — Ace",cls:"tier1",color:"var(--accent)"};if(v>=5)return{label:"TIER 2 — Solid SP",cls:"tier2",color:"var(--strong)"};return{label:"TIER 3 — Spot Start",cls:"tier3",color:"#8b5cf6"}}if(v>=12)return{label:"TIER 1 — Elite",cls:"tier1",color:"var(--accent)"};if(v>=9)return{label:"TIER 2 — Strong",cls:"tier2",color:"var(--strong)"};if(v>=6)return{label:"TIER 3 — Solid",cls:"tier3",color:"#8b5cf6"};if(v>=4)return{label:"TIER 4 — Role Player",cls:"",color:"var(--accent-soft)"};return{label:"TIER 5 — Dart Throw",cls:"",color:"var(--ink-muted)"}}
-      function getPosClass(pos){if(pos==="P")return"draft-pos-p";if(pos==="IF")return"draft-pos-if";if(pos==="OF")return"draft-pos-of";return"draft-pos-flex"}
-      const draftHeader=convergenceHTML+`<div style="padding:12px 16px 4px;color:var(--accent);font-size:var(--t-sm);font-weight:700">Draft Cheat Sheet</div>
-        <div style="padding:0 16px 4px;color:var(--ink-muted);font-size:var(--t-xs)">Underdog scoring: 1B×3 2B×6 3B×8 HR×10 BB×3 HBP×3 RBI×2 R×2 SB×4 | P: W×5 QS×5 K×3 IP×3 ER×-3</div>
-        <div style="padding:0 16px 4px;color:var(--ink-muted);font-size:var(--t-xs)">Roster: P×1 · IF×2 · OF×2 · FLEX×1 — Tap to mark as drafted.</div>
-        ${renderDraftSlateSelector()}`;
-      if(!board.length){
-        const emptyMessage=slateGames.length&&!selectedGames.size
-          ?"No contest games selected. Choose the games included in this UD contest."
-          :"No draftable players loaded for the selected games.";
-        html=draftHeader+`<div class="empty" style="padding:40px">${emptyMessage}</div>`;
-      }
-      else{
-        html=draftHeader+`<div class="draft-controls"><button class="draft-reset" onclick="resetDrafted()">Reset Board</button><div class="draft-count">${draftedCount} drafted · ${available.length} available</div></div>`;
-        html+=`<div class="cards-grid draft-board">`;
-        let lastTier="";
-        board.forEach((p,i)=>{
-          const tier=getTier(p.projUD,p.isPitcher);const isDrafted=st.drafted.has(p.name);
-          const tierChanged=tier.label!==lastTier;lastTier=tier.label;
-          let tags=[];
-          if(p.isSmash)tags.push(`<span class="draft-tag" style="background:var(--smash-soft);color:var(--smash)">SMASH</span>`);
-          if(p.isPitcher){if(p.qsRate>=0.6)tags.push(`<span class="draft-tag" style="background:color-mix(in srgb, var(--strong) 13%, transparent);color:var(--strong)">QS ${(p.qsRate*100).toFixed(0)}%</span>`);if(p.sSO>=6)tags.push(`<span class="draft-tag" style="background:var(--under-soft);color:var(--under)">🔥 ${p.sSO.toFixed(1)} K/GS</span>`)}
-          else{if(p.sHR>=0.3)tags.push(`<span class="draft-tag" style="background:var(--under-soft);color:var(--under)">💣 POWER</span>`);if(p.sSB>=0.3)tags.push(`<span class="draft-tag" style="background:var(--over-soft);color:var(--over)">💨 SPEED</span>`);if(p.sBB>=0.5)tags.push(`<span class="draft-tag" style="background:color-mix(in srgb, var(--strong) 13%, transparent);color:var(--strong)">👁️ PATIENT</span>`)}
-          if(p.returning)tags.push(`<span class="draft-tag" style="background:var(--warn-soft);color:var(--warn)">${icon('warn')}RETURNING</span>`);
-          if(p.limitedSample)tags.push(`<span class="draft-tag" style="background:var(--ink-quiet);color:var(--ink-1)">${icon('warn')}LIMITED SAMPLE</span>`);
-          const l7v=parseFloat(p.l7UD),projv=parseFloat(p.projUD);
-          if(l7v>projv*1.15)tags.push(`<span class="draft-tag" style="background:var(--over-soft);color:var(--over)">📈 HOT</span>`);
-          if(l7v<projv*0.8&&l7v>0)tags.push(`<span class="draft-tag" style="background:var(--under-soft);color:var(--under)">📉 COLD</span>`);
-          (stackTags.get(normalizePlayerName(p.name))||new Set()).forEach(tag=>{const clr=tag.includes("CORRELATED")?"#60a5fa":tag.includes("HIGH TOTAL")?"var(--warn)":"#34d399";tags.push(`<span class="draft-tag" style="background:${clr}22;color:${clr}">${tag}</span>`);});
-          const metaLine=p.isPitcher?`${esc(p.team)} vs ${esc(p.opp)} · ${p.sSO.toFixed(1)}K · ${p.sIP.toFixed(1)}IP · ${p.sER.toFixed(1)}ER`:`${esc(p.team)} vs ${esc(p.pitcher)} (${p.hand}HP) · ${p.sH.toFixed(0)}h/${p.sHR.toFixed(1)}hr/${p.sRBI.toFixed(1)}rbi/${p.sR.toFixed(1)}r`;
-          const locked=getLockInfo(p.name,p.isPitcher).started;
-          const cardCls=`draft-card${isDrafted?" drafted":""}${p.isSmash&&!isDrafted?" smash":!isDrafted?" "+tier.cls:""}${p.isPitcher&&!isDrafted?" pitcher":""}${locked?" locked-card":""}`;
-          html+=`${tierChanged?`<div class="draft-tier-label" style="color:${tier.color}">${tier.label}</div>`:""}
-          <div class="${cardCls}" onclick="toggleDrafted('${esc(p.name)}')">
-            <div class="draft-rank" style="color:${isDrafted?"var(--border-1)":tier.color}">${i+1}</div>
-            <div class="draft-main"><div class="draft-name">${playerLink(p.name)}${lockBadge(p.name,p.isPitcher)}<span class="draft-pos ${getPosClass(p.pos)}">${p.pos}</span><span style="margin-left:6px;cursor:pointer;opacity:.6" onclick="event.stopPropagation();streakToDash('${esc(p.name)}')">${icon('stats')}</span></div><div class="draft-meta">${metaLine}</div>${p.returning?`<div class="risk-subnote">Returning from absence — season averages may not reflect current form.</div>`:""}${tags.length?`<div class="draft-tags">${tags.join("")}</div>`:""}</div>
-            <div class="draft-fp"><div class="draft-fp-val" style="color:${isDrafted?"var(--border-1)":tier.color}">${p.projUD}</div><div class="draft-fp-lbl">${locked?"STARTED":"UD FP"}</div>${l7v!==projv?`<div style="font-size:var(--t-xs);color:${l7v>projv?"var(--over)":"var(--under)"};margin-top:1px">L7: ${p.l7UD}</div>`:""}</div>
-          </div>`;
-        });
-        html+=`</div>`;
-        if(stacks.length){
-          html+=`<div style="padding:14px 16px 4px;color:var(--accent);font-size:var(--t-sm);font-weight:700">⚡ Stacks</div><div style="padding:0 16px 6px;color:var(--ink-muted);font-size:var(--t-xs)">Top 2-player stacks ranked by combined UD projection, weak-pitcher targets, and Coors boosts.</div><div class="cards-grid">`;
-          html+=stacks.map((s,i)=>`<div class="bet-card ${i===0?"elite":"mid"}" style="cursor:default"><div class="bet-left"><div class="bet-name">${playerLink(s.players[0].name)} + ${playerLink(s.players[1].name)}</div><div class="bet-meta">${esc(s.team)} vs ${esc(s.pitcher)}${s.era?` · ERA ${s.era.toFixed(2)}`:""}${s.venue?` · ${esc(s.venue)}`:""}</div><div class="draft-tags" style="margin-top:6px">${s.tags.map(tag=>`<span class="draft-tag" style="background:${tag.includes("CORRELATED")?"#60a5fa22":tag.includes("HIGH TOTAL")?"var(--warn-soft)":"#34d39922"};color:${tag.includes("CORRELATED")?"#60a5fa":tag.includes("HIGH TOTAL")?"var(--warn)":"#34d399"}">${tag}</span>`).join("")}</div></div><div class="bet-right"><div class="bet-edge pos">${s.combinedProj}</div><div class="bet-sub">UD FP</div></div></div>`).join("");
-          html+=`</div>`;
-        }
-      }
+  const board=getWeeklyProjectionBoard();
+  const teams=[...new Set(board.map(row=>row.team).filter(Boolean))].sort((a,b)=>teamDisplayName(a).localeCompare(teamDisplayName(b)));
+  const filtered=board.filter(row=>(st.weeklyProjPos==="ALL"||row.pos===st.weeklyProjPos)&&(st.weeklyProjTeam==="ALL"||row.team===st.weeklyProjTeam));
+  const activePicks=filtered.filter(row=>row.pick);
+  const withMarkets=filtered.filter(row=>row.propsCount>0);
+  const topProjection=filtered[0]||null;
+  const draftHeader=convergenceHTML+`<div style="padding:12px 16px 4px;color:var(--accent);font-size:var(--t-sm);font-weight:700">Weekly Projection Board</div>
+    <div style="padding:0 16px 4px;color:var(--ink-muted);font-size:var(--t-xs)">Week 1 decision support for live NFL slates. Baseline projection uses the current nflverse player row, then keeps model picks, prop markets, and role context visible in the same card.</div>
+    ${renderDraftSlateSelector()}`;
+  if(!board.length){
+    const noGames=getDraftSlateGames().length&&!draftSlateSelection().size;
+    return draftHeader+`<div class="empty" style="padding:40px">${noGames?"No contest games selected. Choose the games in this slate first.":"No weekly projection rows are available from the latest engine snapshot."}</div>`;
+  }
+
+  const posChips=["ALL","QB","RB","WR","TE"].map(pos=>`<div class="sub-tab ${st.weeklyProjPos===pos?"active":""}" onclick="setWeeklyProjPos('${pos}')">${pos}</div>`).join("");
+  let html=draftHeader+`<div class="bb-toolbar">
+    <div class="props-control props-control-search">
+      <label>Position focus</label>
+      <div class="draft-controls" style="padding:0;gap:6px">${posChips}</div>
+    </div>
+    <div class="props-control">
+      <label for="weeklyProjTeam">Team</label>
+      <select id="weeklyProjTeam" onchange="setWeeklyProjTeam(this.value)"><option value="ALL">All teams</option>${teams.map(team=>`<option value="${esc(team)}" ${st.weeklyProjTeam===team?"selected":""}>${esc(teamDisplayName(team))} (${esc(team)})</option>`).join("")}</select>
+    </div>
+  </div>`;
+
+  html+=`<div class="stat-grid">
+    <div class="stat-box"><div class="val">${filtered.length}</div><div class="lbl">Players in view</div></div>
+    <div class="stat-box"><div class="val">${activePicks.length}</div><div class="lbl">With model pick</div></div>
+    <div class="stat-box"><div class="val">${withMarkets.length}</div><div class="lbl">With prop market</div></div>
+    <div class="stat-box"><div class="val">${topProjection?topProjection.projection.toFixed(1):"—"}</div><div class="lbl">${topProjection?`${topProjection.name} top baseline`:"Top baseline"}</div></div>
+  </div>`;
+
+  if(!filtered.length){
+    html+=`<div class="empty" style="padding:40px">No players match this contest and team filter.</div>`;
+    html+=`<div style="padding:0 16px 20px;color:var(--ink-quiet);font-size:var(--t-xs)">This board is the Week 1 bridge between the draft freeze and the fuller weekly product layer. It is optimized for contest selection, role/context reads, and quick player-level triage ahead of props.</div>`;
+    return html;
+  }
+
+  html+=`<div class="cards-grid draft-board">`;
+  filtered.forEach((row,index)=>{
+    const pick=row.pick;
+    const pickLean=pick?normalizeLeanText(rowField(pick,"lean")):"";
+    const pickConf=pick?normalizeConfidence(rowField(pick,"confidence")):"";
+    const marketLine=row.marketMetric&&row.marketLine!==""?`${nflMetricLabel(row.marketMetric)} ${esc(String(row.marketLine))}`:"No prop posted yet";
+    const marketSummary=row.propsCount?`${row.propsCount} market${row.propsCount===1?"":"s"} · ${marketLine}`:marketLine;
+    const tags=[
+      row.returning?`<span class="draft-tag" style="background:var(--warn-soft);color:var(--warn)">${icon('warn')}RETURNING</span>`:"",
+      row.limited?`<span class="draft-tag" style="background:var(--ink-quiet);color:var(--ink-1)">${icon('warn')}LIMITED SAMPLE</span>`:"",
+      pick?`<span class="draft-tag" style="background:${pickConf==="SMASH"?"var(--smash-soft)":pickConf==="STRONG"?"color-mix(in srgb, var(--strong) 13%, transparent)":"var(--surface-2)"};color:${pickConf==="SMASH"?"var(--smash)":pickConf==="STRONG"?"var(--strong)":"var(--ink-1)"}">${esc(pickConf)} ${esc(nflMetricLabel(rowField(pick,"prop_type")))} ${esc(pickLean)} ${esc(rowField(pick,"line"))}</span>`:"",
+      row.started?`<span class="draft-tag" style="background:var(--surface-2);color:var(--ink-muted)">${icon('lock')}STARTED</span>`:""
+    ].filter(Boolean).join("");
+    html+=`<div class="draft-card${pickConf==="SMASH"?" smash":""}${row.started?" locked-card":""}">
+      <div class="draft-rank">${index+1}</div>
+      <div class="draft-main">
+        <div class="draft-name">${playerLink(row.name)}${lockBadge(row.name,row.isQb)}<span class="draft-pos draft-pos-${esc(row.pos.toLowerCase())}">${esc(row.pos)}</span></div>
+        <div class="draft-meta">${esc(row.team)} vs ${esc(row.opp)}${row.startText?` · ${esc(row.startText)}`:""}</div>
+        <div class="draft-meta">${row.usage?esc(row.usage):"Usage context unavailable from the latest row."}</div>
+        <div class="draft-meta">${marketSummary}</div>
+        ${pick?`<div class="pick-why" style="margin-top:6px"><strong>Model:</strong> ${esc(rowField(pick,"rationale","reasoning")||"Current playable pick for this player.")}</div>`:""}
+        ${tags?`<div class="draft-tags">${tags}</div>`:""}
+      </div>
+      <div class="draft-fp">
+        <div class="draft-fp-val">${row.projection.toFixed(1)}</div>
+        <div class="draft-fp-lbl">Weekly base</div>
+      </div>
+    </div>`;
+  });
+  html+=`</div>`;
+  html+=`<div style="padding:0 16px 20px;color:var(--ink-quiet);font-size:var(--t-xs)">This board is the Week 1 bridge between the draft freeze and the fuller weekly product layer. It is optimized for contest selection, role/context reads, and quick player-level triage ahead of props.</div>`;
   return html;
 }
 
@@ -3153,10 +3278,10 @@ function renderBestBallView(){
 
   return `<section>
     <div style="padding:12px 16px 4px">
-      <div style="color:var(--accent);font-size:var(--t-sm);font-weight:700">Best Ball Draft Board</div>
+      <div style="color:var(--accent);font-size:var(--t-sm);font-weight:700">Best Ball Draft Board <span class="bb-flag">Week 1 freeze point</span></div>
       <div style="color:var(--ink-muted);font-size:var(--t-xs);line-height:1.5;margin-top:2px">
 ${sourceScoring?`<span class="bb-flag">${esc(scoringLabel)}</span> `:""}
-        Model projection and FantasyPros best-ball consensus side by side.
+        Draft surface is stable enough for Week 1. Model projection and FantasyPros best-ball consensus stay side by side here.
         <strong>Disagreement is a question, not an edge.</strong> Backtested over 7 seasons on a
         model-independent sample, this board beats simple carry-forward on both error and ranking,
         but only by a modest margin. That means the signal is useful, not magical: use it to
@@ -3349,8 +3474,8 @@ function renderLookupPage(activeTab){
         <p style="color:var(--ink-1);line-height:1.5">This page was powered by the MLB Stats API — career splits,
         year-by-year, and head-to-head — which has no football equivalent, so it needs a rebuild rather than a rename.</p>
         <p style="color:var(--ink-muted);line-height:1.5">It will be rebuilt on nflverse, which carries roughly 25,000 players
-        with a full ID crosswalk. In the meantime, <strong>Dash</strong> and <strong>Player Form</strong> cover
-        per-player usage and game logs.</p>
+        with a full ID crosswalk. In the meantime, <strong>Dash</strong>, <strong>Weekly Projection Board</strong>, and <strong>Best Ball</strong> cover
+        player usage, contest context, and season-long reads.</p>
       </div></div>`;
   }
   const lk=st.lkPlayer;
