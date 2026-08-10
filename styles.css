@@ -476,6 +476,17 @@ td.push{color:var(--push);font-weight:700}
 .lookup-search-wrap{margin-top:16px}
 .lookup-search-wrap input{height:48px;padding:0 15px;font-size:var(--t-md);border-color:var(--accent-line);background:var(--surface-1)}
 .lookup-search-wrap input:focus{border-color:var(--accent);box-shadow:0 0 0 2px color-mix(in srgb,var(--accent) 16%,transparent)}
+.lookup-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;padding:0 16px 16px}
+.lookup-avatar{display:flex;align-items:center;justify-content:center;width:100%;height:100%;background:linear-gradient(135deg,color-mix(in srgb,var(--accent) 28%, var(--surface-2)),color-mix(in srgb,var(--accent-2) 18%, var(--surface-2)));color:var(--ink-0);font-weight:900;font-size:var(--t-md)}
+.lookup-chip-row{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+.lookup-chip{display:inline-flex;align-items:center;padding:3px 8px;border-radius:999px;border:1px solid var(--border-1);background:var(--surface-2);color:var(--ink-muted);font-size:10px;font-weight:800;letter-spacing:.04em;text-transform:uppercase}
+.lookup-chip-good{border-color:color-mix(in srgb,var(--over) 40%, var(--border-1));background:color-mix(in srgb,var(--over) 12%, var(--surface-2));color:var(--over)}
+.lookup-chip-warn{border-color:var(--warn-line);background:color-mix(in srgb,var(--warn-soft) 55%, var(--surface-2));color:var(--warn)}
+.lookup-mini-list{display:grid;gap:8px}
+.lookup-mini-row{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding:10px 0;border-bottom:1px solid var(--border-1)}
+.lookup-mini-row:last-child{border-bottom:0}
+.lookup-mini-meta{color:var(--ink-muted);font-size:var(--t-xs);margin-top:3px}
+.lookup-mini-odds{color:var(--accent);font-size:var(--t-sm);font-weight:700;text-align:right}
 .lookup-empty{padding:42px 20px;text-align:center;color:var(--ink-muted);font-size:var(--t-sm)}
 .empty{color:var(--ink-muted);font-size:var(--t-sm);padding:20px;text-align:center}
 .loading-sm{color:var(--ink-muted);font-size:var(--t-sm);padding:20px;text-align:center}
@@ -1105,4 +1116,5 @@ td.push{color:var(--push);font-weight:700}
   .bb-rail{order:2;position:static}
   .bb-main{order:1}
   .bb-player-window{white-space:normal}
+  .lookup-grid{grid-template-columns:1fr}
 }

@@ -101,7 +101,7 @@ let st={
   draftSlate:{signature:initialDraftSlate.signature,selectedIds:initialDraftSlate.selectedIds,panelOpen:false},
   projections:[],bbPos:"ALL",bbSort:"VORP",bbHideDrafted:false,bbDrafted:loadBestBallDrafted(),bbTaken:loadBestBallTaken(),bbQueue:loadBestBallQueue(),bbSearch:"",bbTeam:"ALL",bbDraftableOnly:true,bbScoring:"half",
   vsSP:[],
-  lkPlayer:null,lkResults:[],lkQuery:"",lkSubTab:"career",lkPlayerType:"skill",
+  lkPlayer:null,lkTeam:null,lkSelectionType:"",lkResults:[],lkQuery:"",lkSubTab:"career",lkPlayerType:"skill",
   lkCareer:null,lkYby:null,lkVsTeamStats:null,lkVsPlayerId:null,
   lkVsPlayerName:"",lkVsPlayerResults:[],lkVsPlayerStats:null,
   lkVsTeamId:null,lkLoading:{},lkTeamList:[],
@@ -590,7 +590,7 @@ function saveFocus(){const el=document.activeElement;if(el&&el.id)return{id:el.i
 function restoreFocus(f){if(!f)return;const el=document.getElementById(f.id);if(el){_restoring=true;el.focus();if(f.val!==undefined)el.value=f.val;if(el.setSelectionRange&&f.pos!==undefined)try{el.setSelectionRange(f.pos,f.pos)}catch(e){}_restoring=false}}
 
 let useProxy=false;
-const LOOKUP_PORTED=false; // flip when Lookup is rebuilt on nflverse
+const LOOKUP_PORTED=true;
 async function mlbFetch(url){
   // Deliberately inert. This called statsapi.mlb.com, which has no NFL data;
   // leaving it live would search baseball players for football names.
@@ -647,6 +647,184 @@ function optionalRowNumber(row,key){
   if(raw===null||raw===undefined||raw==="")return null;
   const value=Number(raw);
   return Number.isFinite(value)?value:null;
+}
+
+function compactPct(value,{digits=0,signed=false}={}){
+  const n=Number(value);
+  if(!Number.isFinite(n))return "—";
+  const shown=(n*100).toFixed(digits);
+  return `${signed&&n>0?"+":""}${shown}%`;
+}
+function compactSignedNumber(value,{digits=1}={}){
+  const n=Number(value);
+  if(!Number.isFinite(n))return "—";
+  return `${n>0?"+":""}${n.toFixed(digits)}`;
+}
+function formatLookupStat(value,{digits=1,suffix=""}={}){
+  const n=Number(value);
+  if(!Number.isFinite(n))return "—";
+  return `${n.toFixed(digits)}${suffix}`;
+}
+function formatLookupDate(value){
+  const normalized=normalizeDate(value);
+  if(!normalized)return "Upcoming";
+  const parsed=new Date(`${normalized}T12:00:00`);
+  return Number.isNaN(parsed.getTime())
+    ? normalized
+    : parsed.toLocaleDateString("en-US",{month:"short",day:"numeric"});
+}
+function formatLookupGame(team,opp){
+  const t=String(team||"").trim().toUpperCase();
+  const o=String(opp||"").trim().toUpperCase();
+  if(!t&&!o)return "No matchup loaded";
+  return o?`${t} vs ${o}`:t;
+}
+function lookupTeamMap(){
+  return getMemo("lookupTeamMap",()=>{
+    const map=new Map();
+    const add=(abbr,name,row=null)=>{
+      const key=String(abbr||"").trim().toUpperCase();
+      if(!key)return;
+      const current=map.get(key)||{abbr:key,name:key,row:null};
+      if(name&&(!current.name||current.name===current.abbr))current.name=String(name).trim();
+      if(row&&!current.row)current.row=row;
+      map.set(key,current);
+    };
+    (st.teamRankings||[]).forEach(row=>{
+      add(rowField(row,"TEAM_ABBR","team_abbr"),
+          rowField(row,"TEAM","TEAM_NAME","team_name"),
+          row);
+    });
+    (st.schedule||[]).forEach(row=>{
+      add(rowField(row,"home_abbr","home_team","home_team_abbr"),
+          rowField(row,"home_team_name","home_team_full_name","home_team"));
+      add(rowField(row,"away_abbr","away_team","away_team_abbr"),
+          rowField(row,"away_team_name","away_team_full_name","away_team"));
+    });
+    (st.projections||[]).forEach(row=>{
+      add(rowField(row,"team_now","team"),rowField(row,"team_now","team"));
+    });
+    return map;
+  });
+}
+function lookupTeams(){
+  return [...lookupTeamMap().values()].sort((a,b)=>a.abbr.localeCompare(b.abbr));
+}
+function lookupPlayers(){
+  return getMemo("lookupPlayers",()=>{
+    const map=new Map();
+    const touch=(name,patch={})=>{
+      const clean=cleanName(name);
+      const key=normalizePlayerName(clean);
+      if(!key)return null;
+      const current=map.get(key)||{key,name:clean,team:"",pos:"",projection:null,slate:null,qbSlate:null,pick:null,propsCount:0};
+      if(clean&&!current.name)current.name=clean;
+      Object.assign(current,patch);
+      if(!current.team)current.team=patch.team||"";
+      if(!current.pos)current.pos=patch.pos||"";
+      map.set(key,current);
+      return current;
+    };
+    (st.projections||[]).forEach(row=>{
+      touch(rowField(row,"player_display_name"),{
+        projection:row,
+        team:String(rowField(row,"team_now","team_prior")||""),
+        pos:String(rowField(row,"position")||"")
+      });
+    });
+    (st.tonight||[]).forEach(row=>{
+      touch(rowField(row,"player_name"),{
+        slate:row,
+        team:String(rowField(row,"team_abbr")||""),
+        pos:String(rowField(row,"pos","position")||"")
+      });
+    });
+    (st.pTonight||[]).forEach(row=>{
+      touch(rowField(row,"player_name"),{
+        qbSlate:row,
+        team:String(rowField(row,"team_abbr")||""),
+        pos:String(rowField(row,"pos","position")||"QB")
+      });
+    });
+    (st.props||[]).forEach(row=>{
+      const entry=touch(rowField(row,"PLAYER_NAME"));
+      if(entry)entry.propsCount=(entry.propsCount||0)+1;
+    });
+    (st.picks||[]).forEach(row=>{
+      touch(rowField(row,"player"),{pick:row});
+    });
+    return [...map.values()]
+      .filter(player=>player.name)
+      .sort((a,b)=>{
+        const aProj=toNum(rowField(a.projection,"vorp","proj_ppr"));
+        const bProj=toNum(rowField(b.projection,"vorp","proj_ppr"));
+        if(aProj!==bProj)return bProj-aProj;
+        return a.name.localeCompare(b.name);
+      });
+  });
+}
+function lookupPlayerByName(name){
+  const key=normalizePlayerName(name);
+  return lookupPlayers().find(player=>player.key===key)||null;
+}
+function lookupRecentLogs(name,isQb){
+  return [...getPlayerLogs(name,!!isQb)].sort((a,b)=>{
+    const seasonDiff=toNum(rowField(b,"season"))-toNum(rowField(a,"season"));
+    if(seasonDiff)return seasonDiff;
+    return toNum(rowField(b,"week"))-toNum(rowField(a,"week"));
+  });
+}
+function lookupSearchResults(query){
+  const q=normalizePlayerName(query);
+  if(q.length<2)return [];
+  const players=lookupPlayers().map(player=>{
+    const name=normalizePlayerName(player.name);
+    const team=normalizePlayerName(player.team);
+    const pos=normalizePlayerName(player.pos);
+    let score=0;
+    if(name===q)score+=120;
+    else if(name.startsWith(q))score+=80;
+    else if(name.includes(q))score+=55;
+    if(team===q)score+=28;
+    else if(team.startsWith(q))score+=18;
+    if(pos===q)score+=10;
+    score+=Math.min(20,toNum(rowField(player.projection,"vorp")));
+    return {...player,kind:"player",score};
+  }).filter(result=>result.score>0);
+  const teams=lookupTeams().map(team=>{
+    const abbr=normalizePlayerName(team.abbr);
+    const name=normalizePlayerName(team.name);
+    let score=0;
+    if(abbr===q)score+=110;
+    else if(name.startsWith(q))score+=75;
+    else if(name.includes(q)||abbr.startsWith(q))score+=50;
+    return {...team,kind:"team",score};
+  }).filter(result=>result.score>0);
+  return [...players,...teams]
+    .sort((a,b)=>b.score-a.score||String(a.name||a.abbr).localeCompare(String(b.name||b.abbr)))
+    .slice(0,10);
+}
+function lookupTeamPlayers(teamAbbr){
+  const target=String(teamAbbr||"").trim().toUpperCase();
+  if(!target)return [];
+  return lookupPlayers()
+    .filter(player=>String(player.team||"").trim().toUpperCase()===target)
+    .sort((a,b)=>toNum(rowField(b.projection,"proj_ppr","vorp"))-toNum(rowField(a.projection,"proj_ppr","vorp")))
+    .slice(0,8);
+}
+function lookupNextGame(teamAbbr){
+  const target=String(teamAbbr||"").trim().toUpperCase();
+  if(!target)return null;
+  const games=(st.schedule||[]).filter(row=>{
+    const home=String(rowField(row,"home_abbr")).trim().toUpperCase();
+    const away=String(rowField(row,"away_abbr")).trim().toUpperCase();
+    return home===target||away===target;
+  }).sort((a,b)=>{
+    const aDate=parseStartMs(rowField(a,"game_date","gameday","game_time","gametime"))||0;
+    const bDate=parseStartMs(rowField(b,"game_date","gameday","game_time","gametime"))||0;
+    return aDate-bDate;
+  });
+  return games[0]||null;
 }
 
 function getDingerBoard(){
@@ -3489,65 +3667,172 @@ function renderPicksPage(activeTab,picksHTML){
 }
 
 function renderLookupPage(activeTab){
-  if(!LOOKUP_PORTED){
-    // Must be a #pg-lookup page div like every other page — render() emits the
-    // header once at the top, so rendering it again here duplicated the nav.
-    return`<div id="pg-lookup" class="page ${activeTab==="lookup"?"active":""}">
-      <div class="card" style="margin:16px">
-        <div class="card-title">Lookup is being rebuilt</div>
-        <p style="color:var(--ink-1);line-height:1.5">This page was powered by the MLB Stats API — career splits,
-        year-by-year, and head-to-head — which has no football equivalent, so it needs a rebuild rather than a rename.</p>
-        <p style="color:var(--ink-muted);line-height:1.5">It will be rebuilt on nflverse, which carries roughly 25,000 players
-        with a full ID crosswalk. In the meantime, <strong>Dash</strong>, <strong>Weekly Projection Board</strong>, and <strong>Best Ball</strong> cover
-        player usage, contest context, and season-long reads.</p>
-      </div></div>`;
+  const results=st.lkResults.length?`<div class="suggestions" style="display:block">${st.lkResults.map((r,i)=>`
+    <div class="sug-item" onclick="pickLkPlayer(${i})">
+      <div class="sug-name">${esc(r.kind==="team"?r.name:r.name)}</div>
+      <div class="sug-meta">${r.kind==="team"?`TEAM · ${esc(r.abbr)}`:`${esc(r.team||"FA")} · ${esc(r.pos||"")}`}</div>
+    </div>`).join("")}</div>`:"";
+  const statCard=(value,label,sub="")=>`<div class="stat-box"><div class="val">${value}</div><div class="lbl">${label}</div>${sub?`<div style="margin-top:4px;color:var(--ink-muted);font-size:var(--t-xs)">${sub}</div>`:""}</div>`;
+  const notePill=(label,cls="")=>`<span class="lookup-chip ${cls}">${esc(label)}</span>`;
+  const renderPropRows=name=>{
+    const props=getProps(name).slice(0,6);
+    if(!props.length)return `<div class="empty" style="padding:22px">No player props loaded for this player yet.</div>`;
+    return `<div class="lookup-mini-list">${props.map(prop=>{
+      const metric=entryPropLabel(mbField(prop,"METRIC"));
+      const line=mbField(prop,"DK_LINE");
+      const over=fmtOdds(mbField(prop,"OVER_ODDS"));
+      const under=fmtOdds(mbField(prop,"UNDER_ODDS"));
+      return `<div class="lookup-mini-row">
+        <div><strong>${esc(metric)}</strong><div class="lookup-mini-meta">Line ${esc(line)}</div></div>
+        <div class="lookup-mini-odds">O ${esc(over)} · U ${esc(under)}</div>
+      </div>`;
+    }).join("")}</div>`;
+  };
+  const renderPlayerProfile=player=>{
+    const projection=player.projection||{};
+    const isQb=String(player.pos||"").toUpperCase()==="QB";
+    const slate=isQb?(player.qbSlate||{}):(player.slate||{});
+    const logs=lookupRecentLogs(player.name,isQb).slice(0,6);
+    const team=String(player.team||rowField(projection,"team_now")||"").trim().toUpperCase();
+    const opp=String(rowField(slate,"opp_abbr_tonight","opp_abbr","opponent_team")||"").trim().toUpperCase();
+    const teamRow=getTeamRanking(team);
+    const oppRow=getTeamRanking(opp);
+    const nextGame=getScheduleRow(team,opp)||lookupNextGame(team)||{};
+    const confidence=String(rowField(projection,"confidence")||"").trim();
+    const source=String(rowField(projection,"proj_source")||"").trim();
+    const pick=player.pick||getPick(player.name);
+    const summaryPills=[
+      rowField(projection,"proj_source")?notePill(source==="ecr_imputed"?"Consensus-imputed":"Projection model",source==="ecr_imputed"?"lookup-chip-warn":""): "",
+      confidence?notePill(confidence,confidence.includes("changed")||confidence.includes("small")?"lookup-chip-warn":""): "",
+      pick?notePill(`Pick board: ${normalizeConfidence(rowField(pick,"confidence"))}`,"lookup-chip-good"): "",
+      rowField(projection,"bye")?notePill(`Bye ${rowField(projection,"bye")}`): ""
+    ].filter(Boolean).join("");
+    const topStats=isQb?[
+      statCard(formatLookupStat(rowField(projection,"proj_ppr"),{digits:1}),"Proj PPR",`VORP ${formatLookupStat(rowField(projection,"vorp"),{digits:1})}`),
+      statCard(formatLookupStat(rowField(slate,"passing_yards"),{digits:0}),"Pass Yds","season-to-date"),
+      statCard(formatLookupStat(rowField(slate,"passing_tds"),{digits:0}),"Pass TD","season-to-date"),
+      statCard(formatLookupStat(rowField(slate,"fantasy_points_ppr"),{digits:1}),"Fantasy Pts","season-to-date"),
+    ]:[
+      statCard(formatLookupStat(rowField(projection,"proj_ppr"),{digits:1}),"Proj PPR",`VORP ${formatLookupStat(rowField(projection,"vorp"),{digits:1})}`),
+      statCard(compactPct(rowField(slate,"target_share"),{digits:1}),"Target Share","season average"),
+      statCard(formatLookupStat(rowField(slate,"wopr"),{digits:2}),"WOPR","season average"),
+      statCard(formatLookupStat(rowField(slate,"fantasy_points_ppr"),{digits:1}),"Fantasy Pts","season-to-date"),
+    ];
+    const contextCards=[
+      statCard(rowField(projection,"ecr")?`#${Math.round(toNum(rowField(projection,"ecr")))}`:"—","Consensus ECR",`delta ${compactSignedNumber(rowField(projection,"ecr_vs_model"))}`),
+      statCard(rowField(projection,"games_played")?Math.round(toNum(rowField(projection,"games_played"))):"—","Games Played",`proj ${formatLookupStat(rowField(projection,"proj_games"),{digits:1})}`),
+      statCard(rowField(projection,"depth_rank")?`${esc(player.pos||"")}${Math.round(toNum(rowField(projection,"depth_rank")))}`:"—","Depth Rank",`mult ${formatLookupStat(rowField(projection,"depth_mult"),{digits:2})}`),
+      statCard(opp?opp:"—","Opponent",teamRankValue(oppRow,isQb?"passing_yards":"rushing_yards",isQb?"passing_yards_rank":"rushing_yards_rank",{digits:1,direction:"allowed"})),
+    ];
+    const logHeaders=isQb
+      ?["Week","Opp","Pass Yds","Pass TD","INT","Rush Yds","PPR"]
+      :["Week","Opp","Targets","Rec","Rec Yds","Rush Yds","PPR"];
+    const logRows=logs.length?logs.map(log=>`<tr>
+      <td>${rowField(log,"week")||"—"}</td>
+      <td>${esc(rowField(log,"opponent_team","opp_abbr")||"—")}</td>
+      <td>${isQb?formatLookupStat(rowField(log,"passing_yards"),{digits:0}):formatLookupStat(rowField(log,"targets"),{digits:0})}</td>
+      <td>${isQb?formatLookupStat(rowField(log,"passing_tds"),{digits:0}):formatLookupStat(rowField(log,"receptions"),{digits:0})}</td>
+      <td>${isQb?formatLookupStat(rowField(log,"passing_interceptions"),{digits:0}):formatLookupStat(rowField(log,"receiving_yards"),{digits:0})}</td>
+      <td>${formatLookupStat(rowField(log,"rushing_yards"),{digits:0})}</td>
+      <td>${formatLookupStat(rowField(log,"fantasy_points_ppr"),{digits:1})}</td>
+    </tr>`).join(""):`<tr><td colspan="7" style="text-align:center;color:var(--ink-muted)">No weekly game logs loaded yet.</td></tr>`;
+    return `
+      <div class="profile">
+        <div class="profile-img"><div class="lookup-avatar">${esc((player.pos||"?").slice(0,2))}</div></div>
+        <div class="profile-info">
+          <h2>${esc(player.name)}</h2>
+          <p>${esc(team||"FA")} · ${esc(player.pos||"")}${opp?` · vs ${esc(opp)}`:""}${rowField(nextGame,"game_date")?` · ${esc(formatLookupDate(rowField(nextGame,"game_date")))} ${esc(rowField(nextGame,"game_time")||"")}`:""}</p>
+          <div class="lookup-chip-row">${summaryPills||notePill("Season-long + weekly context")}</div>
+        </div>
+      </div>
+      <div class="stat-grid">${topStats.join("")}</div>
+      <div class="lookup-grid">
+        <div class="card">
+          <div class="card-title">Projection Context</div>
+          <div class="stat-grid" style="margin:0">${contextCards.join("")}</div>
+        </div>
+        <div class="card">
+          <div class="card-title">Team Context</div>
+          <div class="lookup-mini-list">
+            <div class="lookup-mini-row"><div><strong>Next game</strong><div class="lookup-mini-meta">${esc(formatLookupGame(team,opp))}</div></div><div class="lookup-mini-odds">${rowField(nextGame,"spread_line")!==""?`Spread ${rowField(nextGame,"spread_line")}`:""} ${rowField(nextGame,"total_line")!==""?`· Total ${rowField(nextGame,"total_line")}`:""}</div></div>
+            <div class="lookup-mini-row"><div><strong>Offense</strong><div class="lookup-mini-meta">${esc(teamDisplayName(team))}</div></div><div class="lookup-mini-odds">${teamRankValue(teamRow,isQb?"passing_yards":"rushing_yards",isQb?"passing_yards_rank":"rushing_yards_rank",{digits:1,direction:"in NFL"})}</div></div>
+            <div class="lookup-mini-row"><div><strong>Opponent defense</strong><div class="lookup-mini-meta">${esc(teamDisplayName(opp))}</div></div><div class="lookup-mini-odds">${teamRankValue(oppRow,isQb?"passing_yards":"rushing_yards",isQb?"passing_yards_rank":"rushing_yards_rank",{digits:1,direction:"allowed"})}</div></div>
+          </div>
+        </div>
+      </div>
+      <div class="lookup-grid">
+        <div class="card">
+          <div class="card-title">Props Board</div>
+          ${renderPropRows(player.name)}
+        </div>
+        <div class="card">
+          <div class="card-title">Recent Logs</div>
+          <div class="lk-tbl-wrap">
+            <table>
+              <thead><tr>${logHeaders.map(header=>`<th>${header}</th>`).join("")}</tr></thead>
+              <tbody>${logRows}</tbody>
+            </table>
+          </div>
+        </div>
+      </div>`;
+  };
+  const renderTeamProfile=team=>{
+    const row=getTeamRanking(team.abbr);
+    const nextGame=lookupNextGame(team.abbr)||{};
+    const players=lookupTeamPlayers(team.abbr);
+    const topCards=[
+      statCard(teamRankValue(row,"passing_yards","passing_yards_rank",{digits:1,direction:"in NFL"}),"Pass Yds"),
+      statCard(teamRankValue(row,"rushing_yards","rushing_yards_rank",{digits:1,direction:"in NFL"}),"Rush Yds"),
+      statCard(teamRankValue(row,"passing_tds","passing_tds_rank",{digits:1,direction:"in NFL"}),"Pass TD"),
+      statCard(teamRankValue(row,"rushing_tds","rushing_tds_rank",{digits:1,direction:"in NFL"}),"Rush TD"),
+    ];
+    return `
+      <div class="profile">
+        <div class="profile-img"><div class="lookup-avatar">${esc(team.abbr)}</div></div>
+        <div class="profile-info">
+          <h2>${esc(team.name)}</h2>
+          <p>${esc(team.abbr)}${rowField(nextGame,"home_abbr")?` · Next ${esc(rowField(nextGame,"away_abbr"))} @ ${esc(rowField(nextGame,"home_abbr"))}`:""}</p>
+          <div class="lookup-chip-row">${notePill("Team lookup", "lookup-chip-good")}${rowField(nextGame,"game_date")?notePill(`${formatLookupDate(rowField(nextGame,"game_date"))} ${rowField(nextGame,"game_time")||""}`):""}</div>
+        </div>
+      </div>
+      <div class="stat-grid">${topCards.join("")}</div>
+      <div class="lookup-grid">
+        <div class="card">
+          <div class="card-title">Upcoming Context</div>
+          <div class="lookup-mini-list">
+            <div class="lookup-mini-row"><div><strong>Matchup</strong><div class="lookup-mini-meta">${esc(rowField(nextGame,"away_abbr")&&rowField(nextGame,"home_abbr")?`${rowField(nextGame,"away_abbr")} @ ${rowField(nextGame,"home_abbr")}`:"Schedule not loaded")}</div></div><div class="lookup-mini-odds">${rowField(nextGame,"spread_line")!==""?`Spread ${rowField(nextGame,"spread_line")}`:""} ${rowField(nextGame,"total_line")!==""?`· Total ${rowField(nextGame,"total_line")}`:""}</div></div>
+            <div class="lookup-mini-row"><div><strong>Conference</strong><div class="lookup-mini-meta">${esc(rowField(row,"team_conf","conference")||"—")}</div></div><div class="lookup-mini-odds">${esc(rowField(row,"team_division","division")||"")}</div></div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-title">Top Projected Players</div>
+          ${players.length?`<div class="lookup-mini-list">${players.map(player=>`<div class="lookup-mini-row"><div><strong>${esc(player.name)}</strong><div class="lookup-mini-meta">${esc(player.pos||"")}</div></div><div class="lookup-mini-odds">${formatLookupStat(rowField(player.projection,"proj_ppr"),{digits:1})} pts</div></div>`).join("")}</div>`:`<div class="empty" style="padding:22px">No projected players loaded for this team yet.</div>`}
+        </div>
+      </div>`;
+  };
+  let body=`<div class="lookup-empty">Search by player or team to begin. Try <strong>McBride</strong>, <strong>Allen</strong>, or <strong>ARI</strong>.</div>`;
+  if(st.lkSelectionType==="player"&&st.lkPlayer)body=renderPlayerProfile(st.lkPlayer);
+  else if(st.lkSelectionType==="team"&&st.lkTeam)body=renderTeamProfile(st.lkTeam);
+  else{
+    const featuredPlayers=lookupPlayers().slice(0,6);
+    const featuredTeams=lookupTeams().slice(0,6);
+    body=`<div class="lookup-grid">
+      <div class="card">
+        <div class="card-title">Top Projection Checks</div>
+        <div class="lookup-mini-list">${featuredPlayers.map(player=>`<div class="lookup-mini-row"><div><strong>${esc(player.name)}</strong><div class="lookup-mini-meta">${esc(player.team||"FA")} · ${esc(player.pos||"")}</div></div><div class="lookup-mini-odds">${formatLookupStat(rowField(player.projection,"proj_ppr"),{digits:1})} pts</div></div>`).join("")}</div>
+      </div>
+      <div class="card">
+        <div class="card-title">Team Shortcuts</div>
+        <div class="lookup-mini-list">${featuredTeams.map(team=>`<div class="lookup-mini-row"><div><strong>${esc(team.abbr)}</strong><div class="lookup-mini-meta">${esc(team.name)}</div></div><div class="lookup-mini-odds">${teamRankValue(team.row,"passing_yards","passing_yards_rank",{digits:1,direction:"in NFL"})}</div></div>`).join("")}</div>
+      </div>
+    </div>`;
   }
-  const lk=st.lkPlayer;
-  const lkC=st.lkPlayerType==="qb"?[{k:"gamesPlayed",l:"G"},{k:"gamesStarted",l:"GS"},{k:"wins",l:"W"},{k:"losses",l:"L"},{k:"era",l:"ERA"},{k:"inningsPitched",l:"IP"},{k:"strikeOuts",l:"SO"},{k:"baseOnBalls",l:"BB"},{k:"whip",l:"WHIP"},{k:"avg",l:"BAA"}]:[{k:"gamesPlayed",l:"G"},{k:"atBats",l:"AB"},{k:"hits",l:"H"},{k:"homeRuns",l:"HR"},{k:"rbi",l:"RBI"},{k:"runs",l:"R"},{k:"stolenBases",l:"SB"},{k:"baseOnBalls",l:"BB"},{k:"strikeOuts",l:"SO"},{k:"avg",l:"AVG"},{k:"obp",l:"OBP"},{k:"slg",l:"SLG"},{k:"ops",l:"OPS"}];
-  const fv=(s,k)=>{if(!s)return"—";const v=s[k];return v===undefined||v===null?"—":v};
-  const mkT=(h,r)=>{if(!r||!r.length)return`<div class="empty">No data</div>`;return`<div class="lk-tbl-wrap"><table><thead><tr>${r[0].label?`<th></th>`:""}${h.map(x=>`<th>${x.l}</th>`).join("")}</tr></thead><tbody>${r.map(x=>`<tr>${x.label?`<td class="hl">${x.label}</td>`:""}${h.map(c=>`<td>${fv(x.stat||x,c.k)}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`};
-
-  let lkSum="",lkBody="";
-  if(lk&&st.lkCareer){
-    const cs=st.lkCareer;
-    const bx=st.lkPlayerType==="qb"?[{v:cs.era||"—",l:"ERA"},{v:cs.wins||"—",l:"W"},{v:cs.strikeOuts||"—",l:"K"},{v:cs.whip||"—",l:"WHIP"}]:[{v:cs.avg||"—",l:"AVG"},{v:cs.homeRuns||"—",l:"HR"},{v:cs.hits||"—",l:"H"},{v:cs.ops||"—",l:"OPS"}];
-    lkSum=`<div class="stat-grid">${bx.map(b=>`<div class="stat-box"><div class="val">${b.v}</div><div class="lbl">${b.l}</div></div>`).join("")}</div>`;
-  }
-  if(st.lkSubTab==="career"){
-    if(st.lkYby){const rows=st.lkYby.map(y=>({label:`${y.season} ${y.team}`,stat:y.stat}));if(st.lkCareer)rows.push({label:"CAREER",stat:st.lkCareer});lkBody=mkT(lkC,rows)}
-    else if(st.lkLoading.career)lkBody=`<div class="loading-sm">Loading...</div>`;
-  }
-  if(st.lkSubTab==="vsTeam"){
-    const tO=st.lkTeamList.map(t=>`<option value="${t.id}" ${t.id===st.lkVsTeamId?"selected":""}>${t.abbr} — ${t.name}</option>`).join("");
-    let tbl=`<div class="empty">Select a team</div>`;
-    if(st.lkLoading.vsTeam)tbl=`<div class="loading-sm">Loading...</div>`;
-    else if(st.lkVsTeamStats){const rows=st.lkVsTeamStats.map(t=>({label:st.lkTeamList.find(x=>x.id===t.teamId)?.abbr||t.team,stat:t.stat}));tbl=rows.length?mkT(lkC,rows):`<div class="empty">No data</div>`}
-    lkBody=`<div class="lk-section"><select id="vsTeamSel"><option value="">All Teams</option>${tO}</select></div><div style="margin-top:8px">${tbl}</div>`;
-  }
-  if(st.lkSubTab==="vsPlayer"){
-    const sugs=st.lkVsPlayerResults.length?`<div class="suggestions" style="display:block;position:relative;margin:8px 16px">${st.lkVsPlayerResults.map(r=>`<div class="sug-item" onclick="pickVsP(${r.id},'${r.name.replace(/'/g,"\\'")}')"><span class="sug-name">${r.name}</span> <span class="sug-meta">${r.team} · ${r.pos}</span></div>`).join("")}</div>`:"";
-    let res=`<div class="empty">Search for a ${st.lkPlayerType==="qb"?"skill player":"quarterback"}</div>`;
-    if(st.lkLoading.vsPlayer)res=`<div class="loading-sm">Loading...</div>`;
-    else if(st.lkVsPlayerStats){const s=st.lkVsPlayerStats;const bx=st.lkPlayerType==="qb"?[{v:s.era||"—",l:"ERA"},{v:s.inningsPitched||"—",l:"IP"},{v:s.strikeOuts||"—",l:"K"},{v:s.avg||"—",l:"BAA"}]:[{v:s.avg||"—",l:"AVG"},{v:s.homeRuns||"—",l:"HR"},{v:s.atBats||"—",l:"AB"},{v:s.ops||"—",l:"OPS"}];res=`<div style="padding:0 16px"><div class="card"><div class="card-title">${lk.name} vs ${st.lkVsPlayerName}</div><div class="stat-grid" style="margin:0">${bx.map(b=>`<div class="stat-box"><div class="val">${b.v}</div><div class="lbl">${b.l}</div></div>`).join("")}</div></div></div>${mkT(lkC,[{stat:s}])}`}
-    else if(st.lkVsPlayerId)res=`<div class="empty">No head-to-head data</div>`;
-    lkBody=`<div class="lk-section"><input type="text" id="vsPlayerInput" placeholder="Search ${st.lkPlayerType==="qb"?"skill player":"quarterback"}..."/></div>${sugs}${res}`;
-  }
-  const lkSugs=st.lkResults.length?`<div class="suggestions" style="display:block">${st.lkResults.map((r,i)=>`<div class="sug-item" onclick="pickLkPlayer(${i})"><div class="sug-name">${r.name}</div><div class="sug-meta">${r.team} · ${r.pos} · #${r.number}</div></div>`).join("")}</div>`:"";
-  const profile=lk?`
-    <div class="profile"><div class="profile-img"><img src="${lk.img}" onerror="this.style.display='none'"/></div><div class="profile-info"><h2>${lk.name}</h2><p>${lk.team} · ${lk.pos} · #${lk.number} · B:${lk.bats} T:${lk.throws}</p></div></div>
-    ${lkSum}
-    <div class="sub-tabs">
-      <div class="sub-tab ${st.lkSubTab==="career"?"active":""}" onclick="switchLkSub('career')">Career</div>
-      <div class="sub-tab ${st.lkSubTab==="vsTeam"?"active":""}" onclick="switchLkSub('vsTeam')">vs Team</div>
-      <div class="sub-tab ${st.lkSubTab==="vsPlayer"?"active":""}" onclick="switchLkSub('vsPlayer')">vs Player</div>
-    </div>
-    ${lkBody}`:`<div class="lookup-empty">Search by player name to begin.</div>`;
   return`
     <div id="pg-lookup" class="page ${activeTab==="lookup"?"active":""}">
-      <section class="lookup-search-shell"><div class="lookup-search-inner"><div class="lookup-search-kicker">MLB player database</div><div class="lookup-search-title">Player lookup</div><div class="search-wrap lookup-search-wrap"><input type="search" id="lkSearch" placeholder="Search any active MLB player" value="${esc(st.lkQuery)}" autocomplete="off"/>${lkSugs}</div></div></section>
+      <section class="lookup-search-shell"><div class="lookup-search-inner"><div class="lookup-search-kicker">NFL player and team lookup</div><div class="lookup-search-title">Lookup</div><div class="search-wrap lookup-search-wrap"><input type="search" id="lkSearch" placeholder="Search players or teams" value="${esc(st.lkQuery)}" autocomplete="off"/>${results}</div></div></section>
       ${st.lookupError?`<div class="lookup-warning" role="status">${esc(st.lookupError)}</div>`:""}
-      ${profile}
-      <div class="timestamp">Data from nflverse · Live</div>
+      ${body}
+      <div class="timestamp">Data from nflverse, projections, props, and team aggregates loaded in this dashboard snapshot.</div>
     </div>`;
 }
 
@@ -3857,60 +4142,52 @@ function render(){
 }
 
 async function searchLkPlayers(q){
-  st.lkQuery=q;st.lookupError="";
-  if(q.length<2){st.lkResults=[];render();return}
-  try{const d=await mlbFetch(`${MLB_API}/people/search?names=${encodeURIComponent(q)}&sportId=1&hydrate=currentTeam&limit=10`);st.lkResults=(d.people||[]).filter(p=>p.active).map(p=>({id:p.id,name:p.fullName,team:p.currentTeam?.abbreviation||"",pos:p.primaryPosition?.abbreviation||"",number:p.primaryNumber||"",bats:p.batSide?.code||"",throws:p.pitchHand?.code||"",img:`https://img.mlbstatic.com/mlb-photos/image/upload/d_people:generic:headshot:67:current.png/w_120,q_auto:best/v1/people/${p.id}/headshot/67/current`}));render()}catch(e){st.lkResults=[];st.lookupError="Player search is temporarily unavailable.";reportNonFatal("Lookup player search failed.",e);render()}
+  st.lkQuery=q;
+  st.lookupError="";
+  st.lkResults=lookupSearchResults(q);
+  render();
 }
 function pickLkPlayer(i){
-  const p=st.lkResults[i];st.lkPlayer=p;st.lkQuery=p.name;st.lkResults=[];st.lkSubTab="career";
-  st.lkCareer=null;st.lkYby=null;st.lkVsTeamStats=null;st.lkVsPlayerStats=null;st.lkVsPlayerId=null;st.lkVsPlayerName="";st.lkVsTeamId=null;
-  st.lkPlayerType=p.pos==="QB"?"qb":"skill";
-  const isP=["P","TWP"].includes(p.pos);
-  const src=isP?st.pTonight:st.tonight;
-  const match=src.find(t=>normalizePlayerName(t.player_name)===normalizePlayerName(p.name));
-  if(match){st.player=match.player_name;if(isP&&st.mode!=="qb"){st.mode="qb";st.metric="PASS_YDS"}if(!isP&&st.mode!=="skill"){st.mode="skill";st.metric="H"}}
-  render();fetchLkCareer(p.id);
+  const result=st.lkResults[i];
+  if(!result)return;
+  st.lkQuery=result.kind==="team"?result.abbr:result.name;
+  st.lkResults=[];
+  st.lkSubTab="career";
+  st.lkCareer=null;
+  st.lkYby=null;
+  st.lkVsTeamStats=null;
+  st.lkVsPlayerStats=null;
+  st.lkVsPlayerId=null;
+  st.lkVsPlayerName="";
+  st.lkVsTeamId=null;
+  if(result.kind==="team"){
+    st.lkSelectionType="team";
+    st.lkTeam=result;
+    st.lkPlayer=null;
+  }else{
+    st.lkSelectionType="player";
+    st.lkPlayer=result;
+    st.lkTeam=null;
+    st.lkPlayerType=String(result.pos||"").toUpperCase()==="QB"?"qb":"skill";
+    if(st.lkPlayerType==="qb"){
+      st.mode="qb";
+      st.metric="PASS_YDS";
+    }else{
+      st.mode="skill";
+      st.metric="REC";
+    }
+    st.player=result.name;
+  }
+  render();
 }
 async function fetchLkCareer(id){
-  st.lkLoading.career=true;st.lookupError="";render();
-  try{const g=st.lkPlayerType==="qb"?"pitching":"hitting";const[cr,yby]=await Promise.all([mlbFetch(`${MLB_API}/people/${id}/stats?stats=career&group=${g}`),mlbFetch(`${MLB_API}/people/${id}/stats?stats=yearByYear&group=${g}&sportId=1`)]);st.lkCareer=(cr.stats||[])[0]?.splits?.[0]?.stat||null;st.lkYby=((yby.stats||[])[0]?.splits||[]).filter(s=>s.sport?.id===1).map(s=>({season:s.season,team:s.team?.abbreviation||"",stat:s.stat}))}catch(e){st.lkCareer=null;st.lkYby=null;st.lookupError="Career stats are temporarily unavailable.";reportNonFatal("Lookup career request failed.",e)}
-  st.lkLoading.career=false;render();
+  st.lkLoading.career=false;
+  st.lkCareer=null;
+  st.lkYby=null;
 }
 async function fetchLkVsTeam(id,teamId){
-  st.lkLoading.vsTeam=true;st.lookupError="";render();
-  try{
-    const g=st.lkPlayerType==="qb"?"pitching":"hitting";
-    if(teamId){
-      const d=await mlbFetch(`${MLB_API}/people/${id}/stats?stats=vsTeam&group=${g}&opposingTeamId=${teamId}&sportId=1`);
-      const sp=(d.stats||[])[0]?.splits||[];
-      const tm=st.lkTeamList.find(t=>t.id===teamId);
-      st.lkVsTeamStats=sp.length?[{teamId,team:tm?.abbr||"",stat:sp.length===1?sp[0].stat:combSplits(sp)}]:[];
-    }else{
-      const results=[];
-      const failedTeams=[];
-      for(let i=0;i<st.lkTeamList.length;i+=10){
-        const batch=st.lkTeamList.slice(i,i+10);
-        const requests=batch.map(async tm=>{
-          try{
-            const d=await mlbFetch(`${MLB_API}/people/${id}/stats?stats=vsTeam&group=${g}&opposingTeamId=${tm.id}&sportId=1`);
-            const sp=(d.stats||[])[0]?.splits||[];
-            if(sp.length)return{teamId:tm.id,team:tm.abbr,stat:sp.length===1?sp[0].stat:combSplits(sp)};
-          }catch(error){failedTeams.push(tm.abbr||String(tm.id))}
-          return null;
-        });
-        results.push(...(await Promise.all(requests)).filter(Boolean));
-        if(i+10<st.lkTeamList.length)await new Promise(resolve=>setTimeout(resolve,500));
-      }
-      if(failedTeams.length)console.warn(`⚠️ Lookup vs-team stats unavailable for ${failedTeams.length} team(s): ${failedTeams.join(", ")}`);
-      st.lkVsTeamStats=results;
-    }
-    st.lkVsTeamStats.sort((a,b)=>(parseInt(b.stat?.gamesPlayed)||0)-(parseInt(a.stat?.gamesPlayed)||0));
-  }catch(e){
-    st.lkVsTeamStats=[];
-    st.lookupError="Team matchup stats are temporarily unavailable.";
-    reportNonFatal("Lookup vs-team request failed.",e);
-  }
-  st.lkLoading.vsTeam=false;render();
+  st.lkLoading.vsTeam=false;
+  st.lkVsTeamStats=[];
 }
 function combSplits(splits){
   const t={};const keys=["gamesPlayed","atBats","hits","doubles","triples","homeRuns","rbi","runs","stolenBases","baseOnBalls","strikeOuts","totalBases","plateAppearances","hitByPitch","sacFlies","wins","losses","gamesStarted","inningsPitched"];
@@ -3920,12 +4197,12 @@ function combSplits(splits){
   if(pa>0){t.obp=((t.hits+(t.baseOnBalls||0)+(t.hitByPitch||0))/pa).toFixed(3);t.ops=(parseFloat(t.obp||0)+parseFloat(t.slg||0)).toFixed(3)}
   return t;
 }
-async function searchVsP(q){if(q.length<2){st.lkVsPlayerResults=[];render();return}try{const d=await mlbFetch(`${MLB_API}/people/search?names=${encodeURIComponent(q)}&sportId=1&limit=8`);st.lkVsPlayerResults=(d.people||[]).map(p=>({id:p.id,name:p.fullName,pos:p.primaryPosition?.abbreviation||"",team:p.currentTeam?.abbreviation||""}));render()}catch(e){console.error(e)}}
-function pickVsP(id,name){st.lkVsPlayerId=id;st.lkVsPlayerName=name;st.lkVsPlayerResults=[];fetchLkVsPlayer(st.lkPlayer.id,id)}
-async function fetchLkVsPlayer(pid,oid){st.lkLoading.vsPlayer=true;st.lkVsPlayerResults=[];st.lookupError="";render();try{const g=st.lkPlayerType==="qb"?"pitching":"hitting";const d=await mlbFetch(`${MLB_API}/people/${pid}/stats?stats=vsPlayer&group=${g}&opposingPlayerId=${oid}`);const sp=(d.stats||[])[0]?.splits||[];st.lkVsPlayerStats=sp.length?sp[0].stat:null}catch(e){st.lkVsPlayerStats=null;st.lookupError="Head-to-head stats are temporarily unavailable.";reportNonFatal("Lookup head-to-head request failed.",e)}st.lkLoading.vsPlayer=false;render()}
+async function searchVsP(q){st.lkVsPlayerResults=[];render()}
+function pickVsP(id,name){st.lkVsPlayerId=null;st.lkVsPlayerName="";st.lkVsPlayerResults=[]}
+async function fetchLkVsPlayer(pid,oid){st.lkLoading.vsPlayer=false;st.lkVsPlayerStats=null}
 function switchLkSub(t){st.lkSubTab=t;if(t==="vsTeam")st.lkVsTeamStats=null;render()}
 
-async function loadTeams(){const yr=new Date().getMonth()>=3?new Date().getFullYear():new Date().getFullYear()-1;try{const d=await mlbFetch(`${MLB_API}/teams?sportId=1&season=${yr}`);st.lkTeamList=(d.teams||[]).map(t=>({id:t.id,name:t.name,abbr:t.abbreviation}))}catch(e){reportNonFatal("MLB team directory unavailable; Lookup team splits may be limited.",e)}}
+async function loadTeams(){st.lkTeamList=[]}
 
 function loadAllData(){
   st.loading=true;st.error=null;st.dataWarnings=[];st.lookupError="";resetDerived();render();
