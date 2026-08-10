@@ -405,10 +405,34 @@ function normalizePropMetric(metric){
   const m=String(metric||"").trim().toUpperCase().replace(/\s+/g,"");
   return m==="BATTER_SO"?"SO":m;
 }
+function isQuarterbackProp(metric,name=""){
+  const key=normalizePropMetric(metric);
+  if(["PASS_YDS","PASS_TDS","COMP","ATT","INT"].includes(key))return true;
+  if(["P_SO","P_ER","P_BB","P_H","P_OUTS","SO","ER","IP","IP_OUTS"].includes(key))return true;
+  if(!name)return false;
+  const hasQb=!!getTonightPlayerRow(name,true);
+  const hasSkill=!!getTonightPlayerRow(name,false);
+  return hasQb&&!hasSkill;
+}
 function propTypeLabel(metric){
-  const m=String(metric||"").trim().toUpperCase();
-  const labels={H:"hits",R:"runs",P_SO:"strikeouts",P_ER:"earned runs",P_BB:"walks"};
-  return labels[m]||m.toLowerCase();
+  const m=normalizePropMetric(metric);
+  const labels={
+    REC:"Receptions",
+    REC_YDS:"Receiving Yards",
+    REC_TDS:"Receiving Touchdowns",
+    RUSH_YDS:"Rushing Yards",
+    RUSH_TDS:"Rushing Touchdowns",
+    CARRIES:"Carries",
+    TGT:"Targets",
+    ANY_TD:"Anytime Touchdown",
+    UD_FP:"Underdog Fantasy Points",
+    PASS_YDS:"Passing Yards",
+    PASS_TDS:"Passing Touchdowns",
+    COMP:"Completions",
+    ATT:"Attempts",
+    INT:"Interceptions"
+  };
+  return labels[m]||m.replace(/_/g," ");
 }
 function normalizeLeanText(lean){
   const l=String(lean||"").trim().toUpperCase();
@@ -996,7 +1020,7 @@ function propToLogCol(metric){
   return map[metric]||metric;
 }
 
-function isPitcherProp(metric){return(metric||"").startsWith("P_")}
+function isPitcherProp(metric,name=""){return isQuarterbackProp(metric,name)}
 function isActionableMarketEdgeSide(metric,lean,odds){
   if(metric==="HR"&&lean!=="OVER")return false;
   const price=Number(odds);
@@ -1016,7 +1040,7 @@ function getMarketEdges(){
     if(isNaN(overOdds)&&isNaN(underOdds))continue;
 
     const logCol=propToLogCol(metric);
-    const isP=isPitcherProp(metric);
+    const isP=isPitcherProp(metric,name);
     const hr=getHitRate(name,logCol,line,isP);
     if(!hr||hr.total<3||!hr.nonPush)continue;
 
@@ -1217,7 +1241,7 @@ function clearShortlistTray(){st.shortlistTray=[];st.shortlistTrayNotice="";pers
 function shortlistTrayCopyText(items){
   const math=calculateParlayMath(items);
   const combined=math.american>0?`+${math.american}`:`${math.american}`;
-  return`MLB Shortlist Entry — ${items.length} legs\n${items.map((item,index)=>`${index+1}. ${item.name} — ${item.metric} ${item.lean} ${item.dkLine} (${fmtOdds(item.odds)}, ${item.book})`).join("\n")}\nCombined ${combined} | $10 → $${math.return10.toFixed(2)}\nBuilt ${new Date().toLocaleString()}`;
+  return`NFL Shortlist Entry — ${items.length} legs\n${items.map((item,index)=>`${index+1}. ${item.name} — ${item.metric} ${item.lean} ${item.dkLine} (${fmtOdds(item.odds)}, ${item.book})`).join("\n")}\nCombined ${combined} | $10 → $${math.return10.toFixed(2)}\nBuilt ${new Date().toLocaleString()}`;
 }
 function copyShortlistTray(){
   const items=getActiveShortlistTray();if(!items.length)return;
@@ -1350,12 +1374,12 @@ function toggleDrafted(name){if(st.drafted.has(name))st.drafted.delete(name);els
 function resetDrafted(){st.drafted.clear();render()}
 function streakToDash(name,metric,line){
   const metricKey=String(metric||"").toUpperCase();
-  const pitcherMetric=metricKey.startsWith("P_")||["SO","ER","IP","IP_OUTS"].includes(metricKey);
+  const pitcherMetric=isQuarterbackProp(metricKey,name);
   const b=st.tonight.find(t=>normalizePlayerName(t.player_name)===normalizePlayerName(name));
   const p=st.pTonight.find(t=>normalizePlayerName(t.player_name)===normalizePlayerName(name));
   if(pitcherMetric){
     st.mode="qb";
-    st.metric=metricKey==="P_SO"?"SO":metricKey.replace(/^P_/,"")||"SO";
+    st.metric=metricKey==="P_SO"?"SO":metricKey||"PASS_YDS";
     st.player=p?.player_name||name;
   }else if(b){
     st.mode="skill";st.metric=metric||"REC";st.player=b.player_name;
@@ -1483,12 +1507,12 @@ function getPropOpponentAdjustment(player,metric){
 function getStatParlayBoard(stat){
   return getMemo(`statParlay:${stat}`,()=>{
   const rows=[];
-  const isPS=stat.startsWith("P_");
   const logCol=propToLogCol(stat);
-  const src=isPS?st.pTonight:st.tonight;
+  const src=[...st.tonight,...st.pTonight];
 
   for(const p of src){
     const name=p.player_name;if(!name)continue;
+    const isPS=isQuarterbackProp(stat,name);
     const logs=getPlayerLogs(name,isPS);
     if(logs.length<3)continue;
     const most=logs[0]||{};
@@ -1504,8 +1528,10 @@ function getStatParlayBoard(stat){
     // Hit rate over the line
     const combo=COMBO_STATS[logCol];
     const hitsOver=combo
-      ?logs.filter(g=>combo.reduce((s,k)=>s+toNum(g[k]),0)>dkLine).length
-      :logs.filter(g=>toNum(g[logCol])>dkLine).length;
+      ?logs.filter(g=>combo.reduce((s,k)=>s+toNum(rowField(g,k,propToLogCol(k))),0)>dkLine).length
+      :stat==="ANY_TD"
+        ?logs.filter(g=>(toNum(rowField(g,"rushing_tds","RUSH_TDS"))+toNum(rowField(g,"receiving_tds","REC_TDS")))>dkLine).length
+        :logs.filter(g=>toNum(rowField(g,logCol,stat,propToLogCol(stat)))>dkLine).length;
     const hitRate=hitsOver/logs.length;
 
     // EV edge
@@ -1560,7 +1586,7 @@ function getRankedPropsBoard(){
       metricBoards.set(metric,byPlayer);
     });
     return st.props.map((prop,index)=>{
-      const isP=isPitcherProp(prop.METRIC);
+      const isP=isPitcherProp(prop.METRIC,prop.PLAYER_NAME);
       const source=isP?st.pTonight:st.tonight;
       const playerKey=normalizePlayerName(prop.PLAYER_NAME);
       const player=source.find(row=>normalizePlayerName(row.player_name)===playerKey)||{};
@@ -1599,14 +1625,18 @@ function renderPropsTeamBoard(team,rows){
   const teamRows=rows.filter(row=>row.team===team&&row.side);
   const context=teamRows[0]?.player||st.tonight.find(row=>String(row.team_abbr||"").toUpperCase()===team)||{};
   const opp=String(context.opp_abbr_tonight||teamRows[0]?.opp||"").toUpperCase();
-  const opponent=getTeamRanking(opp);
-  const pitcher=context.opp_pitcher_name||context.opp_starter||"TBD";
-  const markets=[{key:"H",label:"Hits"},{key:"HR",label:"Home Runs"},{key:"SB",label:"Stolen Bases"},{key:"TB",label:"Total Bases"},{key:"BB",label:"Walks"}];
+  const markets=[
+    {key:"REC",label:"Receptions"},
+    {key:"REC_YDS",label:"Receiving Yards"},
+    {key:"RUSH_YDS",label:"Rushing Yards"},
+    {key:"PASS_YDS",label:"Passing Yards"},
+    {key:"ANY_TD",label:"Anytime Touchdown"}
+  ];
   const cards=markets.map(market=>{
     const picks=teamRows.filter(row=>row.prop.METRIC===market.key).sort((a,b)=>b.score-a.score).slice(0,3);
     return `<div class="team-market-card"><div class="team-market-title"><span>${market.label}</span><span>${picks.length}</span></div>${picks.length?picks.map(row=>`<div class="team-market-row" onclick="streakToDash('${esc(row.prop.PLAYER_NAME)}','${propToLogCol(row.prop.METRIC)}','${row.prop.DK_LINE}')"><div class="team-market-player">${esc(row.prop.PLAYER_NAME)}</div><div class="team-market-call"><span class="props-side ${row.side.toLowerCase()}">${row.side} ${esc(row.prop.DK_LINE)}</span><span>${(row.hitRate*100).toFixed(0)}% · ${row.score.toFixed(1)}</span></div></div>`).join(""):`<div style="padding-top:8px;color:var(--ink-muted);font-size:var(--t-xs)">No market</div>`}</div>`;
   }).join("");
-  return `<section class="team-props-board"><div class="team-props-head"><div><div class="analysis-eyebrow">Team matchup board</div><div class="team-props-name">${esc(teamDisplayName(team))}</div><div class="team-props-context">${esc(team)} vs ${esc(opp||"TBD")} · opposing starter ${esc(pitcher)}</div></div>${opponent?`<div class="team-props-staff"><span>${teamRankValue(opponent,"PIT_ERA","PIT_ERA_BEST_RANK",{digits:2,direction:"best"})} ERA</span><span>${teamRankValue(opponent,"PIT_WHIP","PIT_WHIP_BEST_RANK",{digits:2,direction:"best"})} WHIP</span><span>${teamRankValue(opponent,"PIT_HR9","PIT_HR9_MOST_RANK",{digits:2,suffix:" HR/9",direction:"most"})}</span></div>`:""}</div><div class="team-market-grid">${cards}</div></section>`;
+  return `<section class="team-props-board"><div class="team-props-head"><div><div class="analysis-eyebrow">Team matchup board</div><div class="team-props-name">${esc(teamDisplayName(team))}</div><div class="team-props-context">${esc(team)} vs ${esc(opp||"TBD")} · best current NFL prop spots</div></div></div><div class="team-market-grid">${cards}</div></section>`;
 }
 
 function getStatParlayCombos(board,legs){
@@ -2028,7 +2058,7 @@ const STATS_BREAK_EVEN=0.524;
 
 function entryField(row,keys){for(const k of keys){if(row&&row[k]!==undefined&&row[k]!==null&&String(row[k]).trim()!=='')return row[k]}return ''}
 function entryMetric(m){return typeof normalizePropMetric==='function'?normalizePropMetric(m):(typeof normalizePropName==='function'?normalizePropName(m):String(m||'').trim().toUpperCase())}
-function entryPropLabel(metric){const key=entryMetric(metric);const labels={P_SO:"Passing yards",P_H:"Hits allowed",P_BB:"Walks allowed",P_ER:"Earned runs allowed",P_OUTS:"Pitching outs"};return labels[key]||propTypeLabel(key)}
+function entryPropLabel(metric){const key=entryMetric(metric);return propTypeLabel(key)}
 function entryTeam(row){return String(entryField(row,['team_abbr','TEAM_ABBREVIATION','TEAM','team','teamAbbr','TEAM_ABBR'])||'').trim().toUpperCase()}
 function entryOpp(row){return String(entryField(row,['opp_abbr_tonight','TONIGHT_OPP','OPP','opponent','OPPONENT','opp'])||'').trim().toUpperCase()}
 function entryPlayer(row){return cleanName(entryField(row,['player_name','PLAYER_NAME','PLAYER','player','Player']))}
@@ -2459,11 +2489,12 @@ function renderCurrentClvLine(prop,lean){
   const label=Math.abs(delta)<=0.1?"Flat since open":`${delta>0?"+":""}${delta.toFixed(1)}pp vs open`;
   return `<div class="best-book-line" style="margin-top:4px;font-size:var(--t-xs);color:${tone};font-weight:700">CLV: ${label} · open ${formatBookName(openBook||"first seen")} ${fmtOdds(openOdds)}</div>`;
 }
-function pickLogMetric(metric){return {P_SO:"SO",P_ER:"ER",P_BB:"BB",P_H:"H"}[String(metric||"").toUpperCase()]||String(metric||"").toUpperCase()}
+function pickLogMetric(metric){return propToLogCol(normalizePropMetric(metric))}
 function getPickRecentForm(pk){
-  const isP=String(pk.prop_type||"").startsWith("P_");
-  const field=pickLogMetric(pk.prop_type),line=Number(pk.line),lean=normalizeLeanText(pk.lean);
-  const values=getPlayerLogs(pk.player,isP).slice(0,10).reverse().map(g=>toNum(rowField(g,field)));
+  const metric=normalizePropMetric(pk.prop_type);
+  const isP=isQuarterbackProp(metric,pk.player);
+  const field=pickLogMetric(metric),line=Number(pk.line),lean=normalizeLeanText(pk.lean);
+  const values=getPlayerLogs(pk.player,isP).slice(0,10).reverse().map(g=>metric==="ANY_TD"?getMetricVal(g,"ANY_TD"):toNum(rowField(g,field,metric)));
   const decisive=values.filter(v=>Number.isFinite(v)&&Number.isFinite(line)&&v!==line);
   const hits=decisive.filter(v=>lean==="UNDER"?v<line:v>line).length;
   const avg=values.length?values.reduce((s,v)=>s+v,0)/values.length:null;
@@ -2515,7 +2546,7 @@ function getPickDisplayModel(pk){
   const calibration=calibratedConfidenceForPick(pk);
   const confidence=calibration.confidence,rawConfidence=calibration.raw,tierClass=confidence==="SMASH"?"smash":confidence==="STRONG"?"strong":"lean";
   const leanText=normalizeLeanText(pk.lean),leanClass=leanText==="UNDER"?"under":"over";
-  const isPitch=String(pk.prop_type||"").startsWith("P_");
+  const isPitch=isQuarterbackProp(pk.prop_type,pk.player);
   const flags=getSampleFlags(pk.player,isPitch),locked=getLockInfo(pk.player,isPitch).started;
   const hit=String(rowField(pk,"HIT")).toUpperCase(),actual=rowField(pk,"ACTUAL_STAT");
   const hasActual=actual!=null&&actual!==""&&!isNaN(actual),pending=!!hit&&!["YES","TRUE","NO","FALSE"].includes(hit)&&!hasActual;
