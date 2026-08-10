@@ -35,6 +35,10 @@ const P_METRICS=["PASS_YDS","PASS_TDS","COMP","ATT","INT","RUSH_YDS","UD_FP"];
 const MLB_API="https://statsapi.mlb.com/api/v1";
 const SHORTLIST_TRAY_KEY="nfl-shortlist-tray";
 const DRAFT_SLATE_KEY="nfl-draft-slate-v1";
+const CALIBRATED_TIER_FLOORS = {
+  SMASH: { wlb: 0.57, roi: 0.04 },
+  STRONG:{ wlb: 0.54, roi: 0.00 },
+};
 
 function loadShortlistTray(){
   try{
@@ -2069,7 +2073,7 @@ function entryBestBook(prop,lean){if(!prop)return null;const side=String(lean||'
 function renderEntryBestBookLine(prop,lean){const b=entryBestBook(prop,lean);if(!b)return '';const color=b.isDK?'var(--push)':'var(--accent)';const delta=b.delta!==null&&!b.isDK&&Math.abs(b.delta)>0.05?` (${b.delta>0?'+':''}${b.delta.toFixed(1)}pp${b.delta>=3?' ⭐':''})`:'';return `<div style="font-size:var(--t-xs);color:${color};font-weight:800;margin-top:3px">🏪 Best @ ${entryBookName(b.book)} ${entryFmtOdds(b.odds)}${delta}</div>`}
 function entryBestBookKey(leg){const b=entryBestBook(leg.prop,leg.lean);return b?entryBookName(b.book):''}
 function entryPerfWLB(metric){const mn=entryMetric(metric);const row=(st.pickPerformance||[]).find(r=>String(rowField(r,"DIMENSION_TYPE")).toLowerCase()==='prop_type_norm'&&entryMetric(rowField(r,"DIMENSION_VALUE"))===mn&&String(rowField(r,"TIME_WINDOW"))==='all_time'&&String(rowField(r,"MIN_SAMPLE_FLAG")).toUpperCase()==='TRUE');const v=row?Number(rowField(row,"WILSON_LOWER_95")):NaN;return Number.isFinite(v)?v:GAME_ENTRY_DEFAULT_WLB}
-function buildCandidatePool(gameId){const games=getEntryGames();const game=games.find(g=>g.id===gameId);if(!game)return {game:null,candidates:[]};const roster=entryRosterRows().filter(r=>r.id===gameId);const playerNames=new Set(roster.map(r=>normalizePlayerName(r.player)));const candidates=[];const seenAI=new Set();entryLatestPicks().forEach(p=>{const player=rowField(p,"player","PLAYER_NAME"),propType=rowField(p,"prop_type","METRIC"),line=rowField(p,"line","DK_LINE"),conf=rowField(p,"confidence"),g=entryGameFromText(rowField(p,"game","matchup"));let inGame=g&&g.id===gameId;if(!inGame&&playerNames.has(normalizePlayerName(player)))inGame=true;if(!inGame)return;const prop=entryFindProp(player,propType,line);if(!prop)return;const lean=String(rowField(p,"lean")||'OVER').toUpperCase()==='UNDER'?'UNDER':'OVER';const odds=lean==='OVER'?prop.OVER_ODDS:prop.UNDER_ODDS;if(!odds)return;const key=`${normalizePlayerName(player)}|${entryMetric(propType)}|${lean}`;seenAI.add(key);candidates.push({player,prop_type:entryMetric(propType),line:line||prop.DK_LINE,lean,odds,ai_tier:normalizeConfidence(conf),source:'AI',prop})});(st.props||[]).forEach(prop=>{if(!playerNames.has(normalizePlayerName(prop.PLAYER_NAME)))return;['OVER','UNDER'].forEach(lean=>{const odds=lean==='OVER'?prop.OVER_ODDS:prop.UNDER_ODDS;if(!odds)return;const key=`${normalizePlayerName(prop.PLAYER_NAME)}|${entryMetric(prop.METRIC)}|${lean}`;if(seenAI.has(key))return;candidates.push({player:prop.PLAYER_NAME,prop_type:entryMetric(prop.METRIC),line:prop.DK_LINE,lean,odds,ai_tier:'LEAN',source:'DK',prop})})});return {game,candidates}}
+function buildCandidatePool(gameId){const games=getEntryGames();const game=games.find(g=>g.id===gameId);if(!game)return {game:null,candidates:[]};const roster=entryRosterRows().filter(r=>r.id===gameId);const playerNames=new Set(roster.map(r=>normalizePlayerName(r.player)));const candidates=[];const seenAI=new Set();entryLatestPicks().forEach(p=>{const player=rowField(p,"player","PLAYER_NAME"),propType=rowField(p,"prop_type","METRIC"),line=rowField(p,"line","DK_LINE"),g=entryGameFromText(rowField(p,"game","matchup"));let inGame=g&&g.id===gameId;if(!inGame&&playerNames.has(normalizePlayerName(player)))inGame=true;if(!inGame)return;const prop=entryFindProp(player,propType,line);if(!prop)return;const lean=String(rowField(p,"lean")||'OVER').toUpperCase()==='UNDER'?'UNDER':'OVER';const odds=lean==='OVER'?prop.OVER_ODDS:prop.UNDER_ODDS;if(!odds)return;const key=`${normalizePlayerName(player)}|${entryMetric(propType)}|${lean}`;seenAI.add(key);const calibration=calibratedConfidenceForPick(p);candidates.push({player,prop_type:entryMetric(propType),line:line||prop.DK_LINE,lean,odds,ai_tier:calibration.confidence,raw_ai_tier:calibration.raw,source:'AI',prop})});(st.props||[]).forEach(prop=>{if(!playerNames.has(normalizePlayerName(prop.PLAYER_NAME)))return;['OVER','UNDER'].forEach(lean=>{const odds=lean==='OVER'?prop.OVER_ODDS:prop.UNDER_ODDS;if(!odds)return;const key=`${normalizePlayerName(prop.PLAYER_NAME)}|${entryMetric(prop.METRIC)}|${lean}`;if(seenAI.has(key))return;candidates.push({player:prop.PLAYER_NAME,prop_type:entryMetric(prop.METRIC),line:prop.DK_LINE,lean,odds,ai_tier:'LEAN',raw_ai_tier:'LEAN',source:'DK',prop})})});return {game,candidates}}
 function scoreCandidate(c){const tier=normalizeConfidence(c.ai_tier||'LEAN');const tierWeight=GAME_ENTRY_TIER_WEIGHTS[tier]||GAME_ENTRY_TIER_WEIGHTS.LEAN;const wlb=entryPerfWLB(c.prop_type);return {...c,ai_tier:tier,tier_weight:tierWeight,wlb,leg_score:tierWeight*wlb}}
 function selectTopN(candidates,n){const sorted=candidates.map(scoreCandidate).sort((a,b)=>b.leg_score-a.leg_score);const used=new Set(),perPlayer=new Map(),out=[];for(const c of sorted){const playerKey=normalizePlayerName(c.player),key=`${playerKey}|${entryMetric(c.prop_type)}`;if(used.has(key))continue;if((perPlayer.get(playerKey)||0)>=GAME_ENTRY_MAX_LEGS_PER_PLAYER)continue;used.add(key);perPlayer.set(playerKey,(perPlayer.get(playerKey)||0)+1);out.push(c);if(out.length>=n)break}return out}
 function entryAmericanToDecimal(odds){const o=Number(String(odds).replace(/[^0-9+\-.]/g,''));if(!Number.isFinite(o)||o===0)return 1;return o>0?1+o/100:1+100/Math.abs(o)}
@@ -2167,6 +2171,13 @@ function statPct0(v){const n=Number(v);return Number.isFinite(n)?Math.round(n*10
 function statSigned(v){const n=Number(v);if(!Number.isFinite(n))return '—';return (n>0?'+':'')+n.toFixed(3)}
 function statRoiPct(v){const n=Number(v);if(!Number.isFinite(n))return '—';return `${n>0?'+':''}${(n*100).toFixed(1)}%`}
 function statRoiSummary(r){const n=Math.round(statNum(r,'N_PRICED')),actual=statNum(r,'ACTUAL_ROI_PER_PICK');return n>0&&Number.isFinite(actual)?`actual ${statRoiPct(actual)} on ${n} · flat ${statSigned(statNum(r,'ROI_PER_PICK'))}`:`flat ${statSigned(statNum(r,'ROI_PER_PICK'))}`}
+function statRoiValue(r){
+  const nPriced=Math.round(statNum(r,'N_PRICED'));
+  const actual=statNum(r,'ACTUAL_ROI_PER_PICK');
+  if(nPriced>0&&Number.isFinite(actual))return actual;
+  const flat=statNum(r,'ROI_PER_PICK');
+  return Number.isFinite(flat)?flat:NaN;
+}
 function priceDisciplineOddsValue(v){const n=Number(v);return Number.isFinite(n)&&n!==0?n:null}
 function priceDisciplineCurrentPrice(pick){
   const captured=priceDisciplineOddsValue(rowField(pick,'PICK_ODDS'));
@@ -2291,6 +2302,57 @@ function renderEraCohortAudit(rows,w){
   return `<section style="padding:0 16px 10px"><div style="margin-bottom:7px"><div style="color:var(--accent);font-size:var(--t-sm);font-weight:800">Era & Cohort Audit</div><div style="color:var(--push);font-size:var(--t-xs);margin-top:2px">Historical systems are separated instead of treating every pick as one model. Lower 95% is the conservative hit-rate bound.</div></div><div style="display:grid;gap:10px">${era}${cohort}${odds}</div></section>`;
 }
 function hitBar(rate){const r=Math.max(0,Math.min(1,Number(rate)||0));const w=Math.round(r*100);const good=r>=STATS_BREAK_EVEN;return `<div style="height:7px;background:#26313a;border-radius:999px;overflow:hidden;margin-top:5px"><div style="height:100%;width:${w}%;background:${good?'var(--over)':'var(--under)'}"></div></div><div style="font-size:var(--t-xs);color:var(--push);margin-top:2px">break-even 52.4%</div>`}
+function confidenceCalibrationRows(pick){
+  const method=String(rowField(pick,'SELECTION_METHOD')).trim().toUpperCase();
+  const raw=normalizeConfidence(rowField(pick,'confidence'));
+  const prop=normalizePropMetric(rowField(pick,'prop_type'));
+  const rows=[
+    method&&getMetricsForSlice(st.pickPerformance||[],'selection_method_norm',method,'all_time'),
+    raw&&getMetricsForSlice(st.pickPerformance||[],'confidence_norm',raw,'all_time'),
+    prop&&getMetricsForSlice(st.pickPerformance||[],'prop_type_norm',prop,'all_time'),
+  ].filter(r=>r&&statBool(r,'MIN_SAMPLE_FLAG')&&statNum(r,'WILSON_LOWER_95')>0);
+  return [...new Map(rows.map(r=>[`${statField(r,'DIMENSION_TYPE')}|${statField(r,'DIMENSION_VALUE')}`,r])).values()];
+}
+function meetsTierFloor(summary,tier){
+  const floor=CALIBRATED_TIER_FLOORS[tier];
+  if(!floor||!summary)return true;
+  return Number.isFinite(summary.wlb)&&summary.wlb>=floor.wlb
+    && Number.isFinite(summary.roi)&&summary.roi>=floor.roi;
+}
+function calibratedConfidenceForPick(pick){
+  const method=String(rowField(pick,'SELECTION_METHOD')).trim().toUpperCase();
+  const raw=method==='VALIDATED_MODEL'?'VALIDATED':normalizeConfidence(rowField(pick,'confidence'));
+  if(raw==='VALIDATED')return{raw,confidence:'VALIDATED',rows:[],summary:null,demoted:false,reason:''};
+  const rows=confidenceCalibrationRows(pick);
+  if(!rows.length)return{raw,confidence:raw,rows,summary:null,demoted:false,reason:'No qualified historical cohort yet'};
+  const summary={
+    wlb:Math.min(...rows.map(r=>statNum(r,'WILSON_LOWER_95')).filter(Number.isFinite)),
+    roi:Math.min(...rows.map(statRoiValue).filter(Number.isFinite)),
+    sample:Math.min(...rows.map(r=>statNum(r,'N_PICKS_DECISIVE')).filter(Number.isFinite)),
+  };
+  let confidence=raw;
+  if(raw==='SMASH'&&!meetsTierFloor(summary,'SMASH')){
+    confidence=meetsTierFloor(summary,'STRONG')?'STRONG':'LEAN';
+  }else if(raw==='STRONG'&&!meetsTierFloor(summary,'STRONG')){
+    confidence='LEAN';
+  }
+  const demoted=confidence!==raw;
+  const reason=demoted
+    ?`Raw ${raw} demoted to ${confidence}: WLB ${statPct(summary.wlb)} · ROI ${statRoiPct(summary.roi)}`
+    :'';
+  return{raw,confidence,rows,summary,demoted,reason};
+}
+function renderCalibrationPolicy(){
+  return `<div class="card" style="margin:0 16px 10px;border-color:color-mix(in srgb, var(--accent) 24%, transparent)">
+    <div class="card-title">Tier Floors</div>
+    <div style="font-size:var(--t-xs);color:var(--ink-1);line-height:1.6">
+      Displayed AI tiers now respect historical floors instead of raw labels alone:
+      <strong>SMASH</strong> requires at least ${statPct(CALIBRATED_TIER_FLOORS.SMASH.wlb)} conservative hit rate and ${statRoiPct(CALIBRATED_TIER_FLOORS.SMASH.roi)} ROI,
+      while <strong>STRONG</strong> requires at least ${statPct(CALIBRATED_TIER_FLOORS.STRONG.wlb)} and non-negative ROI.
+      Anything below those floors is shown as a lower tier.
+    </div>
+  </div>`;
+}
 function renderTierBreakdown(rows,w){const tiers=['VALIDATED','SMASH','STRONG','LEAN'];const found=tiers.map(t=>getMetricsForSlice(rows,'confidence_norm',t,w)).filter(Boolean);if(!found.length)return '';const aiRows=found.filter(r=>statField(r,'DIMENSION_VALUE')!=='VALIDATED');const rates=aiRows.map(r=>statNum(r,'HIT_RATE'));const collapse=aiRows.length>=2&&rates.some((a,i)=>rates.some((b,j)=>j>i&&Math.abs(a-b)<=0.01));return `<div style="padding:0 16px 10px"><div style="color:var(--accent);font-size:var(--t-sm);font-weight:800;margin-bottom:6px">Selection Calibration ${collapse?'<span style="color:var(--warn);font-size:var(--t-xs)">⚠️ AI tier collapse</span>':''}</div><div style="font-size:var(--t-xs);color:var(--push);margin:-1px 0 7px">VALIDATED is the deterministic market model. SMASH / STRONG / LEAN are Gemini confidence labels.</div>${tiers.map(t=>{const r=getMetricsForSlice(rows,'confidence_norm',t,w);if(!r)return '';const rate=statNum(r,'HIT_RATE');const color=t==='VALIDATED'?'var(--over)':t==='SMASH'?'var(--smash)':t==='STRONG'?'var(--warn)':'var(--push)';return `<div class="card" style="margin-bottom:6px"><div style="display:flex;justify-content:space-between;gap:10px"><div><span style="background:${color}22;color:${color};border:1px solid ${color}55;border-radius:999px;padding:2px 7px;font-size:var(--t-xs);font-weight:800">${t}</span><div style="font-size:var(--t-xs);color:var(--push);margin-top:5px">n=${Math.round(statNum(r,'N_PICKS_DECISIVE'))} · ROI ${statRoiSummary(r)}</div></div><div style="font-size:var(--t-lg);font-weight:900;color:${color}">${statPct(rate)}</div></div>${hitBar(rate)}</div>`}).join('')}</div>`}
 function renderLeanBreakdown(rows,w){const over=getMetricsForSlice(rows,'lean_norm','OVER',w),under=getMetricsForSlice(rows,'lean_norm','UNDER',w);if(!over&&!under)return '';let call='';if(over&&under&&statBool(over,'MIN_SAMPLE_FLAG')&&statBool(under,'MIN_SAMPLE_FLAG')){const diff=statNum(under,'HIT_RATE')-statNum(over,'HIT_RATE');if(Math.abs(diff)>=0.05)call=`<div class="card" style="border-color:#60a5fa55;margin-bottom:6px;color:#bfdbfe;font-size:var(--t-xs)">💡 ${diff>0?'UNDERs':'OVERs'} outperforming by ${Math.abs(diff*100).toFixed(1)}pp — consider review.</div>`}return `<div style="padding:0 16px 10px"><div style="color:var(--accent);font-size:var(--t-sm);font-weight:800;margin-bottom:6px">Lean Breakdown</div>${call}${['OVER','UNDER'].map(v=>{const r=v==='OVER'?over:under;if(!r)return '';return `<div class="card" style="margin-bottom:6px"><div style="display:flex;justify-content:space-between"><div style="font-weight:800;color:var(--ink-1)">${v}<div style="font-size:var(--t-xs);color:var(--push)">n=${Math.round(statNum(r,'N_PICKS_DECISIVE'))} · ROI ${statRoiSummary(r)}</div></div><div style="font-size:var(--t-lg);font-weight:900;color:${statNum(r,'HIT_RATE')>=STATS_BREAK_EVEN?'var(--over)':'var(--under)'}">${statPct(statNum(r,'HIT_RATE'))}</div></div></div>`}).join('')}</div>`}
 function renderCLVSummary(rows,w){const pos=getMetricsForSlice(rows,'clv_bucket','positive',w),neg=getMetricsForSlice(rows,'clv_bucket','negative',w);if(!pos&&!neg)return '';const cell=(label,r)=>`<div class="card"><div style="font-size:var(--t-xs);color:var(--push);text-transform:uppercase">${label}</div><div style="font-size:var(--t-lg);font-weight:900;color:${label.includes('Positive')?'var(--over)':'var(--under)'}">${r?statPct(statNum(r,'HIT_RATE')):'—'}</div><div style="font-size:var(--t-xs);color:var(--ink-1)">n=${r?Math.round(statNum(r,'N_PICKS_DECISIVE')):0}</div></div>`;return `<div style="padding:0 16px 10px"><div style="color:var(--accent);font-size:var(--t-sm);font-weight:800;margin-bottom:6px">CLV Summary</div><div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">${cell('Positive CLV',pos)}${cell('Negative CLV',neg)}</div></div>`}
@@ -2369,10 +2431,12 @@ function pickWhyHTML(model){
   const reason=String(rowField(model.pk,"rationale","reasoning")||"").trim();
   const score=Number(rowField(model.pk,"CALIBRATION_SCORE"));
   const scoreText=Number.isFinite(score)?` · calibration ${score.toFixed(2)}`:"";
-  return `<div class="pick-why"><strong>Why it ranks:</strong> ${esc(reason||model.provenance.description)}${esc(scoreText)}</div>`;
+  const demotion=model.calibration?.demoted?`<div class="pick-why" style="margin-top:4px;color:var(--warn)"><strong>Tier floor:</strong> ${esc(model.calibration.reason)}</div>`:"";
+  return `<div class="pick-why"><strong>Why it ranks:</strong> ${esc(reason||model.provenance.description)}${esc(scoreText)}</div>${demotion}`;
 }
 function getPickDisplayModel(pk){
-  const confidence=normalizeConfidence(pk.confidence),tierClass=confidence==="SMASH"?"smash":confidence==="STRONG"?"strong":"lean";
+  const calibration=calibratedConfidenceForPick(pk);
+  const confidence=calibration.confidence,rawConfidence=calibration.raw,tierClass=confidence==="SMASH"?"smash":confidence==="STRONG"?"strong":"lean";
   const leanText=normalizeLeanText(pk.lean),leanClass=leanText==="UNDER"?"under":"over";
   const isPitch=String(pk.prop_type||"").startsWith("P_");
   const flags=getSampleFlags(pk.player,isPitch),locked=getLockInfo(pk.player,isPitch).started;
@@ -2381,7 +2445,7 @@ function getPickDisplayModel(pk){
   const result=hit==="YES"||hit==="TRUE"?"HIT":hit==="NO"||hit==="FALSE"?"MISS":hasActual?"PUSH":"";
   const injury=String(pk.injury_context||""),lineupRisk=injury.toUpperCase().startsWith("LINEUP RISK");
   const pickProp=findPropForPick(pk.player,pk.prop_type,pk.line);
-  const model={pk,confidence,tierClass,leanText,leanClass,isPitch,flags,locked,actual,hasActual,pending,result,injury,lineupRisk,pickProp,provenance:getPickProvenance(pk)};
+  const model={pk,confidence,rawConfidence,tierClass,leanText,leanClass,isPitch,flags,locked,actual,hasActual,pending,result,injury,lineupRisk,pickProp,provenance:getPickProvenance(pk),calibration};
   model.form=getPickRecentForm(pk);
   return model;
 }
@@ -2433,7 +2497,7 @@ function renderModelPicksView(convergenceHTML){
     :allTodayPicks;
   const researchCount=hasCalibrationStatus?allTodayPicks.length-todayPicks.length:0;
   const modelIntro=`<section class="model-picks-intro"><div class="model-picks-title">Model Picks</div><div class="model-picks-sub">Ranked recommendations from the deterministic market model and Gemini review layer. Provenance, evidence, and source freshness stay visible so every call can be audited.</div>${renderModelRunHealth(allTodayPicks)}${renderModelFreshness()}</section>`;
-  let html=convergenceHTML+modelIntro+renderPickGuard(st.pickGuard);
+  let html=convergenceHTML+modelIntro+renderPickGuard(st.pickGuard)+renderCalibrationPolicy();
 
   if(!todayPicks.length){
     const emptyMessage=hasCalibrationStatus
