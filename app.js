@@ -4321,7 +4321,7 @@ function loadAllData(){
     .then(rows=>({available:true,rows}))
     .catch(error=>{reportNonFatal("Picks_Current unavailable; using Daily_Picks history fallback.",error,"Current model picks are unavailable; showing the latest history snapshot.");return{available:false,rows:[]}}),
   fetchOptionalSheet("Daily_Picks"),
-  fetchOptionalSheet("DK_Player_Props","Sportsbook markets are unavailable."),
+  fetchOptionalSheet("Player_Props","Sportsbook markets are unavailable."),
   fetchOptionalSheet("All_Books_Props"),
   fetchOptionalSheet("Player_vs_Defense"),
   fetchOptionalSheet("Team_Rankings"),
@@ -4377,7 +4377,7 @@ function loadAllData(){
 	                  'confidence', 'rationale', 'HIT'],
 	    Daily_Picks: ['DATE', 'RUN_NUMBER', 'player', 'prop_type', 'line', 'lean',
 	                  'confidence', 'rationale', 'HIT'],
-	    DK_Player_Props: ['PLAYER_NAME', 'METRIC', 'DK_LINE', 'OVER_ODDS', 'UNDER_ODDS'],
+	    Player_Props: ['PLAYER_NAME', 'METRIC', 'DK_LINE', 'OVER_ODDS', 'UNDER_ODDS'],
 	    All_Books_Props: ['PLAYER_NAME', 'METRIC', 'LINE', 'BOOK', 'OVER_ODDS', 'UNDER_ODDS'],
 	    Team_Rankings: ['team_abbr', 'passing_yards', 'rushing_yards'],
 	  };
@@ -4385,7 +4385,7 @@ function loadAllData(){
 	    Slate_Skill: st.tonight,
 	    Picks_Current: normalizedCurrentPicks,
 	    Daily_Picks: st.picksHistory,
-	    DK_Player_Props: st.props,
+	    Player_Props: st.props,
 	    All_Books_Props: st.allBooksProps,
 	    Slate_QB: st.pitchers,
 	    Team_Rankings: st.teamRankings,

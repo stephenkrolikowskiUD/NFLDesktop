@@ -426,7 +426,7 @@ def build_team_rankings_tab(team_stats: pd.DataFrame) -> pd.DataFrame:
 
 
 def build_dk_props_tab(board: pd.DataFrame) -> pd.DataFrame:
-    """Best-price board in MLB's DK_Player_Props column contract.
+    """Best-price board in MLB's Player_Props column contract.
 
     Column names are UPPER_SNAKE because the ported prop renderers read
     p.PLAYER_NAME / p.METRIC / p.DK_LINE / p.OVER_ODDS / p.UNDER_ODDS directly
@@ -607,7 +607,7 @@ def write_to_sheets(
                 last_updated_col="LAST_UPDATED",
                 generated_at=generated_at,
             )
-        elif tab_name == "DK_Player_Props":
+        elif tab_name == "Player_Props":
             df = _add_prop_opening_snapshot(
                 df,
                 prior,
@@ -754,7 +754,7 @@ def main():
         "Skill_Game_Logs": build_game_logs_tab(stats, SKILL_POSITIONS),
         "QB_Game_Logs": build_game_logs_tab(stats, ["QB"]),
         "Team_Rankings": build_team_rankings_tab(team_stats),
-        "DK_Player_Props": build_dk_props_tab(board),
+        "Player_Props": build_dk_props_tab(board),
         "All_Books_Props": build_all_books_props_tab(props),
         "Injuries": build_injuries_tab(injuries),
         "Projections": projections,
