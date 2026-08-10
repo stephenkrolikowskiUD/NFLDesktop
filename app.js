@@ -1088,7 +1088,12 @@ function getMarketEdges(){
 
 // ═══ SMART SLIP GENERATOR ═══
 function getConvictionLegs(){
-  const SLIP_WORTHY=new Set(["H","HR","RBI","R","TB","SB","BB","H+R+RBI","H+R","R+RBI","P_SO","P_H","P_BB","P_ER","P_OUTS","UD_FP"]); const bets=getMarketEdges().filter(b=>b.edge>=0.05&&!b.returning&&!getLockInfo(b.name,b.isP).started).filter(b=>{   if(!SLIP_WORTHY.has(b.metric))return false;   if(b.lean==="UNDER"&&parseFloat(b.dkLine)<=0.5)return false;   return true; });
+  const SLIP_WORTHY=new Set(["REC","REC_YDS","RUSH_YDS","CARRIES","TGT","ANY_TD","UD_FP","PASS_YDS","PASS_TDS","COMP","ATT"]);
+  const bets=getMarketEdges().filter(b=>b.edge>=0.05&&!b.returning&&!getLockInfo(b.name,b.isP).started).filter(b=>{
+    if(!SLIP_WORTHY.has(b.metric))return false;
+    if(b.lean==="UNDER"&&parseFloat(b.dkLine)<=0.5)return false;
+    return true;
+  });
   if(!bets.length)return[];
 
   const latestDate=getLatestPickDate();
@@ -1109,8 +1114,12 @@ function getConvictionLegs(){
     const aiPick=aiMap.get(`${nl}|${normalizePropMetric(b.metric)}|${b.lean}`)||aiMap.get(nl);
     const selectionMethod=!aiPick?"MARKET_MODEL":String(rowField(aiPick,"SELECTION_METHOD")||rowField(aiPick,"CONSENSUS_TAG")).toUpperCase().includes("VALIDATED")?"VALIDATED_MODEL":"GEMINI";
     const explicitStatus=String(rowField(aiPick||{},"RECOMMENDATION_STATUS")||"").toUpperCase();
-    const recommendationStatus=explicitStatus||(selectionMethod==="VALIDATED_MODEL"&&b.metric==="H"&&b.lean==="OVER"?"PLAYABLE":selectionMethod==="GEMINI"&&b.lean==="UNDER"&&["P_BB","P_ER"].includes(b.metric)?"PLAYABLE":"RESEARCH");
     let aiConflictLevel="",aiDisagreementText="";
+    const recommendationStatus=explicitStatus||(
+      selectionMethod==="VALIDATED_MODEL"&&b.edge>=0.08?"PLAYABLE"
+      :selectionMethod==="GEMINI"&&b.edge>=0.05&&!aiConflictLevel?"PLAYABLE"
+      :"RESEARCH"
+    );
     if(aiPick){
         const conf=normalizeConfidence(aiPick.confidence);
         const aiLean=normalizeLeanText(aiPick.lean);
@@ -1142,10 +1151,10 @@ function getConvictionLegs(){
     const hrScore=b.hitRate>=0.8?2:b.hitRate>=0.65?1:0;
 
     let calibrationScore=0;
-    if(selectionMethod==="VALIDATED_MODEL"&&b.metric==="H"&&b.lean==="OVER")calibrationScore=4;
-    else if(selectionMethod==="GEMINI"&&b.lean==="UNDER"&&b.metric==="P_BB")calibrationScore=4;
-    else if(selectionMethod==="GEMINI"&&b.lean==="UNDER"&&b.metric==="P_ER")calibrationScore=2;
-    else if(selectionMethod==="GEMINI"&&b.lean==="OVER"&&["H","R","P_SO"].includes(b.metric))calibrationScore=-2;
+    if(selectionMethod==="VALIDATED_MODEL"&&b.edge>=0.1)calibrationScore=4;
+    else if(selectionMethod==="VALIDATED_MODEL"&&b.edge>=0.05)calibrationScore=2;
+    else if(selectionMethod==="GEMINI"&&b.hitRate>=0.65&&b.edge>=0.05)calibrationScore=1;
+    else if(selectionMethod==="GEMINI"&&b.hasAIConflict)calibrationScore=-2;
 
     const conviction=evScore+aiScore+calibrationScore+streakScore+reliabilityScore+hrScore;
 
@@ -1171,10 +1180,11 @@ function getConvictionLegs(){
 function getShortlistMatchupEvidence(leg){
   const opponent=getTeamRanking(leg.opp);
   if(!opponent)return `${leg.opp||"Opponent"} profile available on player page`;
-  if(leg.metric==="P_SO")return `${leg.opp} strikes out ${teamRankValue(opponent,"OFF_K_PCT","OFF_K_PCT_MOST_RANK",{digits:1,suffix:"%",direction:"most"})}`;
-  if(leg.metric==="HR")return `${leg.opp} allows ${teamRankValue(opponent,"PIT_HR9","PIT_HR9_MOST_RANK",{digits:2,suffix:" HR/9",direction:"most"})}`;
-  if(leg.isP)return `${leg.opp} OPS ${teamRankValue(opponent,"OFF_OPS","OFF_OPS_BEST_RANK",{digits:3,direction:"highest"})}`;
-  return `${leg.opp} staff WHIP ${teamRankValue(opponent,"PIT_WHIP","PIT_WHIP_BEST_RANK",{digits:2,direction:"best"})}`;
+  if(["PASS_YDS","PASS_TDS","COMP","ATT"].includes(leg.metric))return `${leg.opp} pass defense ${teamRankValue(opponent,"passing_yards","passing_yards_rank",{digits:1,direction:"allowed"})}`;
+  if(["RUSH_YDS","CARRIES","ANY_TD"].includes(leg.metric))return `${leg.opp} rush defense ${teamRankValue(opponent,"rushing_yards","rushing_yards_rank",{digits:1,direction:"allowed"})}`;
+  if(["REC","REC_YDS","TGT"].includes(leg.metric))return `${leg.opp} coverage unit ${teamRankValue(opponent,"passing_yards","passing_yards_rank",{digits:1,direction:"allowed"})}`;
+  if(leg.metric==="UD_FP")return `${leg.opp} overall defense ${teamRankValue(opponent,leg.isP?"passing_yards":"rushing_yards",leg.isP?"passing_yards_rank":"rushing_yards_rank",{digits:1,direction:"allowed"})}`;
+  return `${leg.opp} profile available on player page`;
 }
 
 function getShortlistOpponentEffect(leg){
@@ -2871,7 +2881,7 @@ function renderBetsBoardView(convergenceHTML){
           return`<div class="bet-card ${cls}${locked?" locked-card":""}" style="cursor:pointer" onclick="streakToDash('${esc(b.name)}')">
             <div class="bet-left">
               <div class="bet-name">${b.isP?icon('ball'):""}${playerLink(b.name,b.metric,b.dkLine)}${badges}${lockBadge(b.name,b.isP)}</div>
-              <div class="bet-meta">${esc(b.team)} vs ${b.isP?esc(b.opp):esc(b.pitcher)+(b.hand?" ("+b.hand+"HP)":"")} · ${b.hits}/${b.total} games</div>
+              <div class="bet-meta">${esc(b.team)} vs ${esc(b.opp||"TBD")} · ${b.hits}/${b.total} games</div>
               <div class="bet-prop">
                 <span class="prop-metric" style="font-size:var(--t-xs)">${b.metric}</span>
                 <span class="${leanCls}" style="font-weight:700;font-size:var(--t-sm)">${b.lean} ${b.dkLine}</span>
