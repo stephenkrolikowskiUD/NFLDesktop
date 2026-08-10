@@ -556,7 +556,8 @@ const COMBO_STATS={
 
 function getMetricVal(g,m){
   if(COMBO_STATS[m])return COMBO_STATS[m].reduce((s,k)=>s+toNum(g[k]),0);
-  return toNum(g[m]);
+  if(m==="ANY_TD")return toNum(rowField(g,"rushing_tds","RUSH_TDS"))+toNum(rowField(g,"receiving_tds","REC_TDS"));
+  return toNum(rowField(g,m,propToLogCol(m)));
 }
 function getRollingVal(row,prefix,m){
   if(COMBO_STATS[m])return COMBO_STATS[m].reduce((s,k)=>s+toNum(row[`${prefix}${k}`]),0);
@@ -961,7 +962,13 @@ function getHitRate(name,metric,line,isP){
   const combo=COMBO_STATS[metric];
   let over=0,under=0,push=0;
   for(const g of logs){
-    const val=combo?combo.reduce((s,k)=>s+toNum(g[k]),0):metric==="P_OUTS"?toNum(g.IP_OUTS):toNum(g[metric]);
+    const val=combo
+      ?combo.reduce((s,k)=>s+toNum(rowField(g,k,propToLogCol(k))),0)
+      :metric==="P_OUTS"
+        ?toNum(g.IP_OUTS)
+        :metric==="ANY_TD"
+          ?toNum(rowField(g,"rushing_tds","RUSH_TDS"))+toNum(rowField(g,"receiving_tds","REC_TDS"))
+          :toNum(rowField(g,metric,propToLogCol(metric)));
     if(val>ln)over++;
     else if(val<ln)under++;
     else push++;
@@ -977,7 +984,15 @@ function getHitRate(name,metric,line,isP){
 
 function propToLogCol(metric){
   if(COMBO_STATS[metric])return metric;
-  const map={H:"H",TB:"TB",HR:"HR",RBI:"RBI",R:"R",SB:"SB",BB:"BB","1B":"1B","2B":"2B",Batter_SO:"SO",P_SO:"SO",P_H:"H",P_BB:"BB",P_ER:"ER",P_OUTS:"P_OUTS"};
+  const map={
+    H:"H",TB:"TB",HR:"HR",RBI:"RBI",R:"R",SB:"SB",BB:"BB","1B":"1B","2B":"2B",Batter_SO:"SO",
+    REC:"receptions",REC_YDS:"receiving_yards",REC_TDS:"receiving_tds",
+    RUSH_YDS:"rushing_yards",RUSH_TDS:"rushing_tds",CARRIES:"carries",
+    TGT:"targets",ANY_TD:"rushing_tds",UD_FP:"fantasy_points_ppr",
+    PASS_YDS:"passing_yards",PASS_TDS:"passing_tds",COMP:"completions",
+    ATT:"attempts",INT:"passing_interceptions",
+    P_SO:"SO",P_H:"H",P_BB:"BB",P_ER:"ER",P_OUTS:"P_OUTS"
+  };
   return map[metric]||metric;
 }
 
