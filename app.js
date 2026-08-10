@@ -861,37 +861,40 @@ function getDingerBoard(){
   const rows=[];
   for(const p of st.tonight){
     const name=p.player_name;if(!name)continue;
-    const seasHR=toNum(p.Seas_HR);
-    const l7HR=toNum(p.L7_HR);
-    const l14HR=toNum(p.L14_HR);
-    const pLogs=getPlayerLogs(name,false);
-    if(!pLogs.length)continue;
-    const totalAB=pLogs.reduce((s,g)=>s+toNum(g.AB),0);
-    if(totalAB===0)continue;
-    const seasHRtotal=pLogs.reduce((s,g)=>s+toNum(g.HR),0);
-    const hrRate=totalAB>0?seasHRtotal/totalAB:0;
-    const gamesPlayed=pLogs.length;
-    const hrPerGame=gamesPlayed>0?seasHRtotal/gamesPlayed:0;
-    const hrProp=st.props.find(pr=>normalizePlayerName(pr.PLAYER_NAME)===normalizePlayerName(name)&&normalizePropMetric(pr.METRIC)==="HR");
-    const dkLine=hrProp?hrProp.DK_LINE:null;
-    const overOdds=hrProp?parseInt(hrProp.OVER_ODDS)||null:null;
+    const logs=getPlayerLogs(name,false);
+    if(!logs.length)continue;
+    const tdByGame=logs.map(g=>toNum(rowField(g,"rushing_tds","RUSH_TDS"))+toNum(rowField(g,"receiving_tds","REC_TDS")));
+    const totalTds=tdByGame.reduce((s,v)=>s+v,0);
+    const gamesPlayed=logs.length;
+    const tdRate=gamesPlayed>0?tdByGame.filter(v=>v>0).length/gamesPlayed:0;
+    const l5Td=gamesPlayed?tdByGame.slice(0,5).reduce((s,v)=>s+v,0)/Math.min(5,gamesPlayed):0;
+    const l10Td=gamesPlayed?tdByGame.slice(0,10).reduce((s,v)=>s+v,0)/Math.min(10,gamesPlayed):0;
+    const targets=toNum(rowField(p,"targets","TGT","L5_TGT","Seas_TGT"));
+    const carries=toNum(rowField(p,"carries","CARRIES","L5_CARRIES","Seas_CARRIES"));
+    const targetShare=toNum(rowField(p,"target_share","TARGET_SHARE"));
+    const snapPct=toNum(rowField(p,"snap_pct","SNAP_PCT","offense_pct"));
+    const usageScore=(targets*2.2)+(carries*1.6)+(targetShare*25)+(snapPct*15);
+    const tdProp=(st.props||[]).find(pr=>normalizePlayerName(pr.PLAYER_NAME)===normalizePlayerName(name)&&normalizePropMetric(pr.METRIC)==="ANY_TD")
+      ||(st.props||[]).find(pr=>normalizePlayerName(pr.PLAYER_NAME)===normalizePlayerName(name)&&["REC_TDS","RUSH_TDS"].includes(normalizePropMetric(pr.METRIC)));
+    const tdMetric=tdProp?normalizePropMetric(tdProp.METRIC):"ANY_TD";
+    const dkLine=tdProp?tdProp.DK_LINE:null;
+    const overOdds=tdProp?parseInt(tdProp.OVER_ODDS)||null:null;
     let score=0;
-    score+=hrRate*100;
-    score+=l7HR*15;
-    score+=l14HR*8;
-    score+=seasHR*5;
-    score+=hrPerGame*20;
+    score+=tdRate*55;
+    score+=l5Td*22;
+    score+=l10Td*12;
+    score+=totalTds*2;
+    score+=usageScore;
     if(overOdds&&overOdds<0)score+=10;
     if(overOdds&&overOdds>0&&overOdds<=200)score+=5;
     const legacyScore=score;
-    const modelEdgeScore=optionalRowNumber(p,"POWER_EDGE_SCORE");
-    const modelOpponentAdjustment=optionalRowNumber(p,"POWER_OPP_ADJ");
+    const modelEdgeScore=optionalRowNumber(p,"ANY_TD_EDGE_SCORE");
+    const modelOpponentAdjustment=optionalRowNumber(p,"ANY_TD_OPP_ADJ");
     score=modelEdgeScore===null?legacyScore:modelEdgeScore;
     rows.push({
-      name,team:p.team_abbr||"",opp:p.opp_abbr_tonight||"",pitcher:p.opp_pitcher_name||"TBD",
-      hand:p.opp_pitcher_hand||"?",venue:p.venue_tonight||"",
-      seasHR:seasHRtotal,totalAB,hrRate,hrPerGame,gamesPlayed,
-      l7HR,l14HR,seasAvgHR:seasHR,
+      name,team:p.team_abbr||"",opp:p.opp_abbr_tonight||"",venue:p.venue_tonight||"",
+      tdMetric,totalTds,tdRate,gamesPlayed,l5Td,l10Td,
+      targets,carries,targetShare,snapPct,
       modelOpponentAdjustment,
       dkLine,overOdds,score
     });
@@ -904,50 +907,48 @@ function getDingerBoard(){
 function getKsBoard(){
   return getMemo("ksBoard",()=>{
   const rows=[];
-  const leagueKPcts=(st.teamRankings||[])
-    .map(row=>optionalRowNumber(row,"OFF_K_PCT"))
+  const leaguePassYards=(st.teamRankings||[])
+    .map(row=>optionalRowNumber(row,"passing_yards"))
     .filter(value=>value!==null&&value>0);
-  const leagueKPct=leagueKPcts.length
-    ?leagueKPcts.reduce((sum,value)=>sum+value,0)/leagueKPcts.length
+  const leaguePassYardsAvg=leaguePassYards.length
+    ?leaguePassYards.reduce((sum,value)=>sum+value,0)/leaguePassYards.length
     :null;
   for(const p of st.pTonight){
     const name=p.player_name;if(!name)continue;
-    const pLogs=getPlayerLogs(name,true);
-    if(!pLogs.length)continue;
-    const most=pLogs[0]||{};
-    const seasSO=pLogs.reduce((s,g)=>s+toNum(g.SO),0);
-    const totalOuts=pLogs.reduce((s,g)=>s+toNum(g.IP_OUTS),0);
-    if(totalOuts===0)continue;
-    const ipEquiv=totalOuts/3;
-    const k9=ipEquiv>0?(seasSO*9)/ipEquiv:0;
-    const gamesStarted=pLogs.length;
-    const soPerStart=gamesStarted>0?seasSO/gamesStarted:0;
-    const l3SO=toNum(most.L3_SO);
-    const l7SO=toNum(most.L7_SO);
-    const seasSOavg=toNum(most.Seas_SO);
-    const seasonBaseline=seasSOavg||soPerStart;
-    const recent7=l7SO||seasonBaseline;
-    const recent3=l3SO||recent7;
-    const projectedSO=(seasonBaseline*0.5)+(recent7*0.3)+(recent3*0.2);
+    const logs=getPlayerLogs(name,true);
+    if(!logs.length)continue;
+    const most=logs[0]||{};
+    const passYardsByGame=logs.map(g=>toNum(rowField(g,"passing_yards","PASS_YDS")));
+    const attemptsByGame=logs.map(g=>toNum(rowField(g,"attempts","ATT")));
+    const totalPassYards=passYardsByGame.reduce((s,v)=>s+v,0);
+    const totalAttempts=attemptsByGame.reduce((s,v)=>s+v,0);
+    const gamesStarted=logs.length;
+    if(gamesStarted===0)continue;
+    const passYardsPerStart=totalPassYards/gamesStarted;
+    const attemptsPerStart=totalAttempts/gamesStarted;
+    const l3PassYds=passYardsByGame.slice(0,3).reduce((s,v)=>s+v,0)/Math.min(3,gamesStarted);
+    const l7PassYds=passYardsByGame.slice(0,7).reduce((s,v)=>s+v,0)/Math.min(7,gamesStarted);
+    const seasonBaseline=toNum(rowField(most,"Seas_PASS_YDS"))||passYardsPerStart;
+    const projectedPassYards=(seasonBaseline*0.5)+(l7PassYds*0.3)+(l3PassYds*0.2);
     const opponentRanking=getTeamRanking(p.opp_abbr_tonight);
-    const opponentKPct=optionalRowNumber(opponentRanking,"OFF_K_PCT");
-    const hasMatchupRate=opponentKPct!==null&&opponentKPct>0&&Number.isFinite(leagueKPct)&&leagueKPct>0;
+    const opponentPassYards=optionalRowNumber(opponentRanking,"passing_yards");
+    const hasMatchupRate=opponentPassYards!==null&&opponentPassYards>0&&Number.isFinite(leaguePassYardsAvg)&&leaguePassYardsAvg>0;
     const matchupFactor=hasMatchupRate
-      ?Math.max(0.75,Math.min(1.25,opponentKPct/leagueKPct))
+      ?Math.max(0.82,Math.min(1.18,opponentPassYards/leaguePassYardsAvg))
       :1;
-    const adjustedProjection=projectedSO*matchupFactor;
-    const projectionAdjustment=adjustedProjection-projectedSO;
-    const modelEdgeScore=optionalRowNumber(p,"P_SO_EDGE_SCORE");
-    const modelOpponentAdjustment=optionalRowNumber(p,"P_SO_OPP_ADJ");
-    const soProp=st.props.find(pr=>normalizePlayerName(pr.PLAYER_NAME)===normalizePlayerName(name)&&normalizePropMetric(pr.METRIC)==="P_SO");
-    const dkLine=soProp?soProp.DK_LINE:null;
-    const overOdds=soProp?parseInt(soProp.OVER_ODDS)||null:null;
+    const adjustedProjection=projectedPassYards*matchupFactor;
+    const projectionAdjustment=adjustedProjection-projectedPassYards;
+    const modelEdgeScore=optionalRowNumber(p,"PASS_YDS_EDGE_SCORE");
+    const modelOpponentAdjustment=optionalRowNumber(p,"PASS_YDS_OPP_ADJ");
+    const passProp=(st.props||[]).find(pr=>normalizePlayerName(pr.PLAYER_NAME)===normalizePlayerName(name)&&normalizePropMetric(pr.METRIC)==="PASS_YDS");
+    const dkLine=passProp?passProp.DK_LINE:null;
+    const overOdds=passProp?parseInt(passProp.OVER_ODDS)||null:null;
     let score=0;
-    score+=k9*3;
-    score+=soPerStart*4;
-    score+=l3SO*2.5;
-    score+=l7SO*1.5;
-    if(dkLine&&soPerStart>parseFloat(dkLine))score+=8;
+    score+=passYardsPerStart*0.08;
+    score+=attemptsPerStart*1.5;
+    score+=l3PassYds*0.05;
+    score+=l7PassYds*0.03;
+    if(dkLine&&passYardsPerStart>parseFloat(dkLine))score+=8;
     if(overOdds&&overOdds<0)score+=5;
     const legacyScore=score;
     score=modelEdgeScore===null?legacyScore:modelEdgeScore;
@@ -957,9 +958,9 @@ function getKsBoard(){
     rows.push({
       name,team:p.team_abbr||"",opp:p.opp_abbr_tonight||"",
       venue:p.venue_tonight||"",hand:p.throws||p.player_hand||"?",
-      seasSO,totalOuts,ipEquiv,k9,soPerStart,gamesStarted,
-      l3SO,l7SO,seasSOavg,projectedSO,adjustedProjection,projectionAdjustment,
-      opponentKPct:hasMatchupRate?opponentKPct:null,
+      totalPassYards,attemptsPerStart,passYardsPerStart,gamesStarted,
+      l3PassYds,l7PassYds,seasonBaseline,projectedPassYards,adjustedProjection,projectionAdjustment,
+      opponentPassYards:hasMatchupRate?opponentPassYards:null,
       modelOpponentAdjustment,
       dkLine,overOdds,score
     });
@@ -1399,33 +1400,46 @@ function miniChart(vals,thr){const mx=Math.max(...vals,thr+1);return vals.slice(
 function getStreaks(){
   return getMemo("streaks",()=>{
   const streaks=[];
-  const BAT=[{key:"H",threshold:1,label:"Hit Streak",emoji:"🔥",desc:"games w/ a hit"},{key:"HR",threshold:1,label:"HR Streak",emoji:"💣",desc:"games w/ a HR"},{key:"H",threshold:2,label:"Multi-Hit",emoji:"🔥🔥",desc:"games w/ 2+ hits"},{key:"RBI",threshold:1,label:"RBI Streak",emoji:"💰",desc:"games w/ an RBI"},{key:"TB",threshold:3,label:"Power Surge",emoji:"⚡",desc:"games w/ 3+ TB"},{key:"R",threshold:1,label:"Runs Streak",emoji:"🏃",desc:"games scoring a run"},{key:"SB",threshold:1,label:"SB Streak",emoji:"💨",desc:"games w/ a steal"}];
+  const BAT=[
+    {key:"REC",threshold:4,label:"Catch Streak",emoji:"🔥",desc:"games with 4+ catches"},
+    {key:"REC_YDS",threshold:50,label:"Receiving Heater",emoji:"⚡",desc:"games with 50+ receiving yards"},
+    {key:"RUSH_YDS",threshold:60,label:"Ground Game",emoji:"🏃",desc:"games with 60+ rushing yards"},
+    {key:"ANY_TD",threshold:1,label:"Touchdown Streak",emoji:"💰",desc:"games with a touchdown"},
+    {key:"TGT",threshold:6,label:"Target Magnet",emoji:"🎯",desc:"games with 6+ targets"}
+  ];
   const tonightNames=new Set(st.tonight.map(p=>p.player_name).filter(Boolean));
   for(const sType of BAT){for(const name of tonightNames){
     const logs=getPlayerLogs(name,false);
     if(logs.length<3)continue;let streak=0;
-    for(const g of logs){if(toNum(g[sType.key])>=sType.threshold)streak++;else break}
+    for(const g of logs){if(getMetricVal(g,sType.key)>=sType.threshold)streak++;else break}
     if(streak<3)continue;
     const pT=getTonightPlayerRow(name,false)||{};
-    const recentVals=logs.slice(0,7).map(g=>toNum(g[sType.key]));
-    const avgDuring=(logs.slice(0,streak).reduce((s,g)=>s+toNum(g[sType.key]),0)/streak)||0;
-    const seasAvg=toNum(logs[0][`Seas_${sType.key}`]);
+    const recentVals=logs.slice(0,7).map(g=>getMetricVal(g,sType.key));
+    const avgDuring=(logs.slice(0,streak).reduce((s,g)=>s+getMetricVal(g,sType.key),0)/streak)||0;
+    const seasAvg=sType.key==="ANY_TD"
+      ?(logs.reduce((s,g)=>s+getMetricVal(g,"ANY_TD"),0)/logs.length)||0
+      :toNum(rowField(logs[0],`Seas_${sType.key}`,propToLogCol(sType.key)));
     const prop=st.props.find(pr=>normalizePlayerName(pr.PLAYER_NAME)===normalizePlayerName(name)&&normalizePropMetric(pr.METRIC)===normalizePropMetric(sType.key));
-    streaks.push({player:name,team:pT.team_abbr||"",opp:pT.opp_abbr_tonight||"",pitcher:pT.opp_pitcher_name||"TBD",hand:pT.opp_pitcher_hand||"?",venue:pT.venue_tonight||"",stat:sType.key,threshold:sType.threshold,streak,label:sType.label,emoji:sType.emoji,propType:"bat",desc:sType.desc,avgDuring:avgDuring.toFixed(2),seasAvg:seasAvg.toFixed(2),recentVals,dkLine:prop?prop.DK_LINE:null,overOdds:prop?parseInt(prop.OVER_ODDS)||null:null});
+    streaks.push({player:name,team:pT.team_abbr||"",opp:pT.opp_abbr_tonight||"",venue:pT.venue_tonight||"",stat:sType.key,threshold:sType.threshold,streak,label:sType.label,emoji:sType.emoji,propType:"bat",desc:sType.desc,avgDuring:avgDuring.toFixed(2),seasAvg:seasAvg.toFixed(2),recentVals,dkLine:prop?prop.DK_LINE:null,overOdds:prop?parseInt(prop.OVER_ODDS)||null:null});
   }}
-  const PITCH=[{key:"SO",threshold:6,label:"K Streak",emoji:"🔥",desc:"starts w/ 6+ K"},{key:"SO",threshold:8,label:"Elite K",emoji:"⚡",desc:"starts w/ 8+ K"},{key:"ER",threshold:2,label:"Lockdown",emoji:"🔒",compare:"lte",desc:"starts w/ ≤2 ER"},{key:"W",threshold:1,label:"Win Streak",emoji:"👑",desc:"consecutive wins"}];
+  const PITCH=[
+    {key:"PASS_YDS",threshold:225,label:"Passing Volume",emoji:"🔥",desc:"games with 225+ pass yards"},
+    {key:"PASS_TDS",threshold:2,label:"TD Tosses",emoji:"⚡",desc:"games with 2+ pass TD"},
+    {key:"COMP",threshold:20,label:"Completion Floor",emoji:"🎯",desc:"games with 20+ completions"},
+    {key:"ATT",threshold:30,label:"Dropback Run",emoji:"👑",desc:"games with 30+ attempts"}
+  ];
   const pNames=new Set(st.pTonight.map(p=>p.player_name).filter(Boolean));
   for(const sType of PITCH){for(const name of pNames){
     const logs=getPlayerLogs(name,true);
-    if(logs.length<2)continue;let streak=0;const isLte=sType.compare==="lte";
-    for(const g of logs){const v=toNum(g[sType.key]);if(isLte?v<=sType.threshold:v>=sType.threshold)streak++;else break}
+    if(logs.length<2)continue;let streak=0;
+    for(const g of logs){const v=getMetricVal(g,sType.key);if(v>=sType.threshold)streak++;else break}
     if(streak<2)continue;
     const pT=getTonightPlayerRow(name,true)||{};
-    const recentVals=logs.slice(0,7).map(g=>toNum(g[sType.key]));
-    const avgDuring=(logs.slice(0,streak).reduce((s,g)=>s+toNum(g[sType.key]),0)/streak)||0;
-    const seasAvg=toNum(logs[0][`Seas_${sType.key}`])||toNum(logs[0][`L7_${sType.key}`]);
+    const recentVals=logs.slice(0,7).map(g=>getMetricVal(g,sType.key));
+    const avgDuring=(logs.slice(0,streak).reduce((s,g)=>s+getMetricVal(g,sType.key),0)/streak)||0;
+    const seasAvg=toNum(rowField(logs[0],`Seas_${sType.key}`,propToLogCol(sType.key)))||toNum(rowField(logs[0],`L7_${sType.key}`,propToLogCol(sType.key)));
     const prop=st.props.find(pr=>normalizePlayerName(pr.PLAYER_NAME)===normalizePlayerName(name)&&normalizePropMetric(pr.METRIC)===normalizePropMetric(sType.key));
-    streaks.push({player:name,team:pT.team_abbr||"",opp:pT.opp_abbr_tonight||"",pitcher:"",hand:"",venue:pT.venue_tonight||"",stat:sType.key,threshold:sType.threshold,streak,label:sType.label,emoji:sType.emoji,propType:"pitch",desc:sType.desc,isLte,avgDuring:avgDuring.toFixed(2),seasAvg:seasAvg.toFixed(2),recentVals,dkLine:prop?prop.DK_LINE:null,overOdds:prop?parseInt(prop.OVER_ODDS)||null:null});
+    streaks.push({player:name,team:pT.team_abbr||"",opp:pT.opp_abbr_tonight||"",venue:pT.venue_tonight||"",stat:sType.key,threshold:sType.threshold,streak,label:sType.label,emoji:sType.emoji,propType:"pitch",desc:sType.desc,avgDuring:avgDuring.toFixed(2),seasAvg:seasAvg.toFixed(2),recentVals,dkLine:prop?prop.DK_LINE:null,overOdds:prop?parseInt(prop.OVER_ODDS)||null:null});
   }}
   const best={};for(const s of streaks){const k=`${s.player}|${s.stat}`;if(!best[k]||s.streak>best[k].streak||(s.streak===best[k].streak&&s.threshold>best[k].threshold))best[k]=s}
   const result=Object.values(best);result.sort((a,b)=>b.streak-a.streak);
@@ -1463,7 +1477,7 @@ function getConvergenceBoard(){
     add(pk.player,"AI",conf==="SMASH"?4:conf==="STRONG"?3:2,{detail:`${pk.lean||""} ${pk.prop_type||""} ${pk.line||""}`.trim()});
   });
   getStreaks().slice(0,20).forEach(s=>add(s.player,"Streaks",s.streak>=7?3:s.streak>=5?2.5:2,{team:s.team,opp:s.opp,detail:`${s.streak}G ${s.stat}`}));
-  getDingerBoard().slice(0,15).forEach(d=>add(d.name,"Dingers",1.5+(d.hrRate||0)*3,{team:d.team,opp:d.opp,detail:`${(d.hrRate*100).toFixed(1)}% HR rate`}));
+  getDingerBoard().slice(0,15).forEach(d=>add(d.name,"TD Board",1.5+(d.tdRate||0)*3,{team:d.team,opp:d.opp,detail:`${(d.tdRate*100).toFixed(1)}% TD game rate`}));
   return [...board.values()].map(r=>({...r,sourceCount:r.sources.size,sourceList:[...r.sources]})).filter(r=>r.sourceCount>=2).sort((a,b)=>b.sourceCount-a.sourceCount||b.score-a.score).slice(0,5);
   });
 }
@@ -1952,49 +1966,53 @@ function getDraftBoard(){
     const name=p.player_name;if(!name)continue;
     const logs=getPlayerLogs(name,false);
     if(!logs.length)continue;const most=logs[0]||{};
-    const sH=toNum(most.Seas_H),sHR=toNum(most.Seas_HR),s2B=toNum(most.Seas_2B);
-    const sTB=toNum(most.Seas_TB),sRBI=toNum(most.Seas_RBI),sR=toNum(most.Seas_R);
-    const sSB=toNum(most.Seas_SB),sBB=toNum(most.Seas_BB),sHBP=toNum(most.Seas_HBP);
-    const s3B=Math.max(0,(sTB-sH-s2B-3*sHR)/2)||0;
-    const s1B=Math.max(0,sH-s2B-s3B-sHR)||0;
-    const projUD=toNum(most.Seas_UD_FP)||(s1B*3+s2B*6+s3B*8+sHR*10+sBB*3+sHBP*3+sRBI*2+sR*2+sSB*4)||0;
-    const l7H=toNum(most.L7_H),l7HR=toNum(most.L7_HR),l72B=toNum(most.L7_2B);
-    const l7TB=toNum(most.L7_TB),l7RBI=toNum(most.L7_RBI),l7R=toNum(most.L7_R);
-    const l7SB=toNum(most.L7_SB),l7BB=toNum(most.L7_BB),l7HBP=toNum(most.L7_HBP);
-    const l73B=Math.max(0,(l7TB-l7H-l72B-3*l7HR)/2)||0;
-    const l71B=Math.max(0,l7H-l72B-l73B-l7HR)||0;
-    const l7UD=toNum(most.L7_UD_FP)||(l71B*3+l72B*6+l73B*8+l7HR*10+l7BB*3+l7HBP*3+l7RBI*2+l7R*2+l7SB*4)||0;
+    const rec=toNum(rowField(most,"Seas_REC","receptions","REC"));
+    const recYds=toNum(rowField(most,"Seas_REC_YDS","receiving_yards","REC_YDS"));
+    const rushYds=toNum(rowField(most,"Seas_RUSH_YDS","rushing_yards","RUSH_YDS"));
+    const recTds=toNum(rowField(most,"Seas_REC_TDS","receiving_tds","REC_TDS"));
+    const rushTds=toNum(rowField(most,"Seas_RUSH_TDS","rushing_tds","RUSH_TDS"));
+    const targets=toNum(rowField(most,"Seas_TGT","targets","TGT"));
+    const carries=toNum(rowField(most,"Seas_CARRIES","carries","CARRIES"));
+    const projUD=toNum(rowField(most,"Seas_UD_FP","fantasy_points_ppr"))||((rec*0.5)+(recYds*0.1)+(rushYds*0.1)+(recTds*6)+(rushTds*6));
+    const l7Rec=toNum(rowField(most,"L7_REC","receptions","REC"));
+    const l7RecYds=toNum(rowField(most,"L7_REC_YDS","receiving_yards","REC_YDS"));
+    const l7RushYds=toNum(rowField(most,"L7_RUSH_YDS","rushing_yards","RUSH_YDS"));
+    const l7RecTds=toNum(rowField(most,"L7_REC_TDS","receiving_tds","REC_TDS"));
+    const l7RushTds=toNum(rowField(most,"L7_RUSH_TDS","rushing_tds","RUSH_TDS"));
+    const l7UD=toNum(rowField(most,"L7_UD_FP"))||((l7Rec*0.5)+(l7RecYds*0.1)+(l7RushYds*0.1)+(l7RecTds*6)+(l7RushTds*6));
     const ai=aiMap.get(normalizePlayerName(name)),isSmash=ai&&normalizeConfidence(ai.confidence)==="SMASH";
-    let pos="FLEX";const posRaw=(p.position||"").toUpperCase();
-    if(posRaw.includes("C")||posRaw.includes("1B")||posRaw.includes("2B")||posRaw.includes("3B")||posRaw.includes("SS"))pos="IF";
-    else if(posRaw.includes("OF")||posRaw.includes("LF")||posRaw.includes("CF")||posRaw.includes("RF"))pos="OF";
+    const pos=String(rowField(p,"position","pos","POS")||"FLEX").toUpperCase();
     const flags=getSampleFlags(name,false);
-    board.push({name,team:p.team_abbr||"",opp:p.opp_abbr_tonight||"",pitcher:p.opp_pitcher_name||"TBD",hand:p.opp_pitcher_hand||"?",projUD:projUD.toFixed(1),l7UD:l7UD.toFixed(1),sH,sHR,sRBI,sR,sSB,sBB,isSmash,isPitcher:false,pos,returning:flags.returning,limitedSample:flags.limited});
+    board.push({name,team:p.team_abbr||"",opp:p.opp_abbr_tonight||"",projUD:projUD.toFixed(1),l7UD:l7UD.toFixed(1),rec,recYds,rushYds,recTds,rushTds,targets,carries,isSmash,isPitcher:false,pos,returning:flags.returning,limitedSample:flags.limited});
   }
   for(const p of st.pTonight){
     if(!draftRowInSlate(p))continue;
     const name=p.player_name;if(!name)continue;
     const logs=getPlayerLogs(name,true);
     if(!logs.length)continue;const most=logs[0]||{};
-    const sSO=toNum(most.Seas_SO),sER=toNum(most.Seas_ER),sW=toNum(most.Seas_W),sIP=toNum(most.Seas_IP);
-    const qsRate=logs.length>0?logs.filter(g=>toNum(g.IP)>=6&&toNum(g.ER)<=3).length/logs.length:0;
-    const projUD=toNum(most.Seas_UD_FP)||(sW*5+qsRate*5+sSO*3+sIP*3+sER*-3)||0;
-    const l3SO=toNum(most.L3_SO),l3ER=toNum(most.L3_ER),l3W=toNum(most.L3_W),l3IP=toNum(most.L3_IP);
-    const l3QS=logs.slice(0,3).filter(g=>toNum(g.IP)>=6&&toNum(g.ER)<=3).length/Math.min(3,logs.length);
-    const l7UD=toNum(most.L7_UD_FP)||(l3W*5+l3QS*5+l3SO*3+l3IP*3+l3ER*-3)||0;
+    const passYds=toNum(rowField(most,"Seas_PASS_YDS","passing_yards","PASS_YDS"));
+    const passTds=toNum(rowField(most,"Seas_PASS_TDS","passing_tds","PASS_TDS"));
+    const rushYds=toNum(rowField(most,"Seas_RUSH_YDS","rushing_yards","RUSH_YDS"));
+    const ints=toNum(rowField(most,"Seas_INT","passing_interceptions","INT"));
+    const attempts=toNum(rowField(most,"Seas_ATT","attempts","ATT"));
+    const projUD=toNum(rowField(most,"Seas_UD_FP","fantasy_points_ppr"))||((passYds*0.04)+(passTds*4)+(rushYds*0.1)-ints);
+    const l3PassYds=toNum(rowField(most,"L3_PASS_YDS","passing_yards","PASS_YDS"));
+    const l3PassTds=toNum(rowField(most,"L3_PASS_TDS","passing_tds","PASS_TDS"));
+    const l3RushYds=toNum(rowField(most,"L3_RUSH_YDS","rushing_yards","RUSH_YDS"));
+    const l3Ints=toNum(rowField(most,"L3_INT","passing_interceptions","INT"));
+    const l7UD=toNum(rowField(most,"L7_UD_FP"))||((l3PassYds*0.04)+(l3PassTds*4)+(l3RushYds*0.1)-l3Ints);
     const ai=aiMap.get(normalizePlayerName(name)),isSmash=ai&&normalizeConfidence(ai.confidence)==="SMASH";
     const flags=getSampleFlags(name,true);
-    board.push({name,team:p.team_abbr||"",opp:p.opp_abbr_tonight||"",pitcher:"",hand:"",projUD:projUD.toFixed(1),l7UD:l7UD.toFixed(1),sSO,sER,sW,sIP,qsRate,isSmash,isPitcher:true,pos:"P",returning:flags.returning,limitedSample:flags.limited});
+    board.push({name,team:p.team_abbr||"",opp:p.opp_abbr_tonight||"",projUD:projUD.toFixed(1),l7UD:l7UD.toFixed(1),passYds,passTds,rushYds,ints,attempts,isSmash,isPitcher:true,pos:"QB",returning:flags.returning,limitedSample:flags.limited});
   }
   board.sort((a,b)=>parseFloat(b.projUD)-parseFloat(a.projUD));
   return board;
   });
 }
 
-function getMlbPitcherEra(name){
-  const key=normalizePlayerName(name);
-  const row=(st.pTonight||[]).find(p=>normalizePlayerName(p.player_name)===key);
-  return row?toNum(row.Seas_ERA||row.L7_ERA||row.L3_ERA):0;
+function getOpponentPassDefenseAllowance(teamAbbr){
+  const row=getTeamRanking(teamAbbr);
+  return row?toNum(rowField(row,"passing_yards")):0;
 }
 
 function getDraftStacks(){
@@ -2020,17 +2038,17 @@ function getDraftStacks(){
           const key=[normalizePlayerName(a.name),normalizePlayerName(b.name)].sort().join("|");
           if(seen.has(key))continue;
           seen.add(key);
-          const era=getMlbPitcherEra(ra.opp_pitcher_name||rb.opp_pitcher_name);
           const venue=ra.venue_tonight||rb.venue_tonight||"";
-          const coors=/coors/i.test(venue)||["LAD","COL"].includes(team);
-          const weakPitcher=era>=4.5;
+          const opponentPassDefense=getOpponentPassDefenseAllowance(a.opp);
+          const sameArchetype=(["WR","TE"].includes(a.pos)&&["WR","TE"].includes(b.pos))||(["RB"].includes(a.pos)&&["WR","TE"].includes(b.pos));
+          const recentBoost=(toNum(a.l7UD)>toNum(a.projUD)?1:0)+(toNum(b.l7UD)>toNum(b.projUD)?1:0);
           const proj=toNum(a.projUD)+toNum(b.projUD);
-          const score=proj+(weakPitcher?4:0)+(coors?5:0)+(toNum(a.l7UD)>toNum(a.projUD)?1:0)+(toNum(b.l7UD)>toNum(b.projUD)?1:0);
+          const score=proj+(opponentPassDefense>240?4:0)+(sameArchetype?2:0)+recentBoost;
           const tags=[];
-          if(coors)tags.push("⚡ HIGH TOTAL");
-          if(weakPitcher)tags.push("STACK TARGET");
+          if(opponentPassDefense>240)tags.push("⚡ SOFT PASS DEFENSE");
+          if(sameArchetype)tags.push("🔗 TEAM CORRELATION");
           if(team===ra.team_abbr&&team===rb.team_abbr)tags.push("🔗 CORRELATED");
-          pairs.push({players:[a,b],score,combinedProj:proj.toFixed(1),tags,team,opp:a.opp,pitcher:ra.opp_pitcher_name||"TBD",era,venue});
+          pairs.push({players:[a,b],score,combinedProj:proj.toFixed(1),tags,team,opp:a.opp,opponentPassDefense,venue});
         }
       }
     }
@@ -2641,20 +2659,19 @@ function renderDingerBoardView(convergenceHTML){
   if(!db.length){
     const missing=[];
     if(!st.tonight.length)missing.push("this week's skill players");
-    if(!st.gameLogs.length)missing.push("batter game logs");
+    if(!st.gameLogs.length)missing.push("skill-player game logs");
     const detail=missing.length
       ?`Google Sheets did not return ${missing.join(" or ")} on this page load.`
       :"No eligible players had usable snaps and game-log history.";
-    return convergenceHTML+`<div class="empty" style="padding:40px;text-align:center"><div style="font-weight:800;color:var(--ink-1)">Dinger Board unavailable</div><div style="margin-top:6px">${detail}</div><button class="refresh-btn" style="margin-top:12px" onclick="loadAllData()">${icon("refresh")}Retry data load</button></div>`;
+    return convergenceHTML+`<div class="empty" style="padding:40px;text-align:center"><div style="font-weight:800;color:var(--ink-1)">TD Board unavailable</div><div style="margin-top:6px">${detail}</div><button class="refresh-btn" style="margin-top:12px" onclick="loadAllData()">${icon("refresh")}Retry data load</button></div>`;
   }
   let html=convergenceHTML+`<div class="dinger-header"><div class="dinger-title">This Week's TD Board</div></div>
-  <div class="dinger-desc">Ranked by red-zone usage, recent form, opposing-starter quality, and sportsbook price. Top 3 are 🔥.</div>`;
+  <div class="dinger-desc">Ranked by touchdown game rate, recent touchdown form, usage share, and sportsbook price. Top 3 are 🔥.</div>`;
   html+=`<div class="cards-grid">`;
   html+=db.map((d,i)=>{
     const isTop=i<3;
     const odds=d.overOdds?fmtOdds(d.overOdds):"—";
-    const ratePct=(d.hrRate*100).toFixed(1);
-    const abPerHR=d.seasHR>0?Math.round(d.totalAB/d.seasHR):"—";
+    const ratePct=(d.tdRate*100).toFixed(1);
     const matchupAdjustment=d.modelOpponentAdjustment;
     const matchupGrade=matchupAdjustment===null
       ?null
@@ -2664,67 +2681,66 @@ function renderDingerBoardView(convergenceHTML){
           ?{label:"Tough defensive matchup",color:"var(--under)"}
           :{label:"Neutral defensive matchup",color:"var(--ink-muted)"};
     const opponentRanking=getTeamRanking(d.opp);
-    const teamContext=opponentRanking?`${esc(d.opp)} staff · ${teamRankValue(opponentRanking,"PIT_HR9","PIT_HR9_MOST_RANK",{digits:2,suffix:" HR/9",direction:"most"})}`:"";
+    const teamContext=opponentRanking?`${esc(d.opp)} defense · ${teamRankValue(opponentRanking,"rushing_tds","rushing_tds_rank",{digits:1,direction:"allowed"})}`:"";
     const locked=getLockInfo(d.name,false).started;
-    return`<div class="dinger-card ${isTop?"top3":""}${locked?" locked-card":""}" style="cursor:pointer" onclick="streakToDash('${esc(d.name)}','HR','${d.dkLine||""}')">
+    return`<div class="dinger-card ${isTop?"top3":""}${locked?" locked-card":""}" style="cursor:pointer" onclick="streakToDash('${esc(d.name)}','${d.tdMetric}','${d.dkLine||""}')">
       <div class="dinger-left">
-        <div><span class="dinger-rank">${i+1}</span><span class="dinger-name">${playerLink(d.name,"HR",d.dkLine||"")}${lockBadge(d.name,false)}</span></div>
-        <div class="dinger-meta">${esc(d.team)} vs ${esc(d.pitcher)} (${d.hand}HP) · ${esc(d.venue)}</div>
-        <div class="dinger-meta">${d.seasHR} HR in ${d.gamesPlayed} G · L7 avg: ${d.l7HR.toFixed(2)} · L14: ${d.l14HR.toFixed(2)}</div>
+        <div><span class="dinger-rank">${i+1}</span><span class="dinger-name">${playerLink(d.name,d.tdMetric,d.dkLine||"")}${lockBadge(d.name,false)}</span></div>
+        <div class="dinger-meta">${esc(d.team)} vs ${esc(d.opp)} · ${esc(d.venue)}</div>
+        <div class="dinger-meta">${d.totalTds} total TD in ${d.gamesPlayed} G · L5 avg: ${d.l5Td.toFixed(2)} · L10: ${d.l10Td.toFixed(2)}</div>
         ${teamContext?`<div class="dinger-meta" style="color:var(--accent)">${teamContext}</div>`:""}
         ${matchupGrade?`<div class="dinger-meta" style="color:${matchupGrade.color}">${matchupGrade.label} · opponent adjustment ${matchupAdjustment>0?"+":""}${matchupAdjustment.toFixed(1)}</div>`:""}
       </div>
       <div class="dinger-right">
         <div class="dinger-rate">${ratePct}%</div>
-        <div class="dinger-sub">${locked?"started":"HR/AB · 1 per "+abPerHR+" AB"}</div>
+        <div class="dinger-sub">${locked?"started":`${d.targets.toFixed(1)} tgt · ${d.carries.toFixed(1)} car`}</div>
         ${d.dkLine!==null?`<div class="dinger-odds">DK ${d.dkLine} O:${odds}</div>`:""}
       </div>
     </div>`;
   }).join("");
   html+=`</div>`;
-  html+=renderMarketParlays("HR","Dinger");
+  html+=renderMarketParlays("ANY_TD","Touchdown");
   return html;
 }
 
 function renderKsBoardView(convergenceHTML){
   const kb=getKsBoard();
   if(!kb.length){
-    return convergenceHTML+`<div class="empty" style="padding:40px">No Ks data available. Run the engine first.</div>`;
+    return convergenceHTML+`<div class="empty" style="padding:40px">No passing board data available. Run the engine first.</div>`;
   }
   let html=convergenceHTML+`<div class="dinger-header"><div class="dinger-title">This Week's Passing Board</div></div>
-  <div class="dinger-desc">Projected Ks blend season, L7, and L3 form, then adjust for the opponent's pass defense. Sportsbook price breaks close calls.</div>`;
+  <div class="dinger-desc">Projected passing yards blend season baseline, recent form, and matchup context. Sportsbook price breaks close calls.</div>`;
   html+=`<div class="cards-grid">`;
   html+=kb.map((d,i)=>{
     const isTop=i<3;
     const odds=d.overOdds?fmtOdds(d.overOdds):"—";
-    const k9Str=d.k9.toFixed(1);
     const projectionStr=d.adjustedProjection.toFixed(1);
-    const adjustmentText=`${d.projectionAdjustment>0?"+":""}${d.projectionAdjustment.toFixed(1)} K`;
+    const adjustmentText=`${d.projectionAdjustment>0?"+":""}${d.projectionAdjustment.toFixed(1)} yds`;
     const matchupGrade=d.projectionAdjustment<=-0.35
       ?{label:"Tough matchup",color:"var(--under)"}
       :d.projectionAdjustment>=0.35
         ?{label:"Favorable matchup",color:"var(--over)"}
         :{label:"Neutral matchup",color:"var(--ink-muted)"};
     const opponentRanking=getTeamRanking(d.opp);
-    const teamContext=opponentRanking?`${esc(d.opp)} offense · ${teamRankValue(opponentRanking,"OFF_K_PCT","OFF_K_PCT_MOST_RANK",{digits:1,suffix:"% K",direction:"most"})}`:"";
+    const teamContext=opponentRanking?`${esc(d.opp)} defense · ${teamRankValue(opponentRanking,"passing_yards","passing_yards_rank",{digits:1,direction:"allowed"})}`:"";
     const locked=getLockInfo(d.name,true).started;
-    return`<div class="dinger-card ${isTop?"top3":""}${locked?" locked-card":""}" style="cursor:pointer" onclick="streakToDash('${esc(d.name)}','P_SO','${d.dkLine||""}')">
+    return`<div class="dinger-card ${isTop?"top3":""}${locked?" locked-card":""}" style="cursor:pointer" onclick="streakToDash('${esc(d.name)}','PASS_YDS','${d.dkLine||""}')">
       <div class="dinger-left">
-        <div><span class="dinger-rank">${i+1}</span><span class="dinger-name">${playerLink(d.name,"P_SO",d.dkLine||"")}${lockBadge(d.name,true)}</span></div>
+        <div><span class="dinger-rank">${i+1}</span><span class="dinger-name">${playerLink(d.name,"PASS_YDS",d.dkLine||"")}${lockBadge(d.name,true)}</span></div>
         <div class="dinger-meta">${esc(d.team)} vs ${esc(d.opp)} · ${esc(d.venue)}</div>
-        <div class="dinger-meta">${d.seasSO} K in ${d.gamesStarted} GS · L7 avg: ${d.l7SO.toFixed(1)} · L3: ${d.l3SO.toFixed(1)}</div>
+        <div class="dinger-meta">${d.passYardsPerStart.toFixed(1)} pass yds per start · L7 avg: ${d.l7PassYds.toFixed(1)} · L3: ${d.l3PassYds.toFixed(1)}</div>
         ${teamContext?`<div class="dinger-meta" style="color:var(--accent)">${teamContext}</div>`:""}
-        <div class="dinger-meta" style="color:${matchupGrade.color}">${matchupGrade.label} · raw ${d.projectedSO.toFixed(1)} → adjusted ${projectionStr} (${adjustmentText})</div>
+        <div class="dinger-meta" style="color:${matchupGrade.color}">${matchupGrade.label} · raw ${d.projectedPassYards.toFixed(1)} → adjusted ${projectionStr} (${adjustmentText})</div>
       </div>
       <div class="dinger-right">
         <div class="dinger-rate">${projectionStr}</div>
-        <div class="dinger-sub">Matchup projection · ${k9Str} K/9</div>
+        <div class="dinger-sub">Matchup projection · ${d.attemptsPerStart.toFixed(1)} att/g</div>
         ${d.dkLine!==null?`<div class="dinger-odds">DK ${d.dkLine} O:${odds}</div>`:""}
       </div>
     </div>`;
   }).join("");
   html+=`</div>`;
-  html+=renderMarketParlays("P_SO","K");
+  html+=renderMarketParlays("PASS_YDS","Passing yards");
   return html;
 }
 
@@ -2744,7 +2760,7 @@ function renderStreaksBoardView(convergenceHTML){
     return`<div class="streak-card ${heat.cls}${locked?" locked-card":""}" onclick="streakToDash('${esc(s.player)}')">
       <div class="streak-left">
         <div><span class="streak-emoji">${s.emoji}</span><span class="streak-name">${playerLink(s.player,s.stat,s.dkLine||"")}${lockBadge(s.player,s.propType==="pitch")}</span><span class="streak-label">${s.label}</span></div>
-        <div class="streak-meta">${esc(s.team)} vs ${s.propType==="pitch"?esc(s.opp):esc(s.pitcher)+" ("+s.hand+"HP)"} · ${s.desc}</div>
+        <div class="streak-meta">${esc(s.team)} vs ${esc(s.opp)} · ${s.desc}</div>
         <div class="streak-chart">${miniChart(s.recentVals,s.threshold)}</div>
         ${s.dkLine?`<div class="streak-prop">DK ${s.stat} ${s.dkLine} ${odds?" O:"+odds:""} · Avg during: ${s.avgDuring}</div>`:`<div class="streak-prop">Avg during streak: ${s.avgDuring} · Season: ${s.seasAvg}</div>`}
       </div>
