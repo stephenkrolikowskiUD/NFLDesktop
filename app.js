@@ -1767,13 +1767,40 @@ function renderDraftSlateSelector(){
 function nflMetricLabel(metric){
   const key=normalizePropMetric(metric);
   const labels={
-    REC:"Receptions",REC_YDS:"Receiving yards",REC_TDS:"Receiving TDs",
-    RUSH_YDS:"Rushing yards",RUSH_TDS:"Rushing TDs",CARRIES:"Carries",
-    TGT:"Targets",ANY_TD:"Anytime TD",UD_FP:"UD fantasy points",
-    PASS_YDS:"Passing yards",PASS_TDS:"Passing TDs",COMP:"Completions",
+    REC:"Receptions",REC_YDS:"Receiving Yards",REC_TDS:"Receiving Touchdowns",
+    RUSH_YDS:"Rushing Yards",RUSH_TDS:"Rushing Touchdowns",CARRIES:"Carries",
+    TGT:"Targets",ANY_TD:"Anytime Touchdown",UD_FP:"Underdog Fantasy Points",
+    PASS_YDS:"Passing Yards",PASS_TDS:"Passing Touchdowns",COMP:"Completions",
     ATT:"Attempts",INT:"Interceptions"
   };
   return labels[key]||key.replace(/_/g," ");
+}
+
+function nflHomeAwayLabel(row,teamHint=""){
+  const raw=String(rowField(row,"home_away","HOME_AWAY")||"").trim().toUpperCase();
+  if(raw){
+    if(raw.startsWith("H"))return "Home";
+    if(raw.startsWith("A"))return "Away";
+  }
+  const team=String(rowField(row,"team_abbr","TEAM_ABBR","team","TEAM")||teamHint||"").trim().toUpperCase();
+  const opp=String(rowField(row,"opp_abbr","OPP_ABBR","opp","OPP")||"").trim().toUpperCase();
+  const week=String(rowField(row,"week","WEEK")||"").trim();
+  const season=String(rowField(row,"season","SEASON")||"").trim();
+  if(!team||!opp)return "—";
+  const scheduled=(st.schedule||[]).find(game=>{
+    const home=String(rowField(game,"home_abbr","HOME_ABBR","home_team_abbr")||"").trim().toUpperCase();
+    const away=String(rowField(game,"away_abbr","AWAY_ABBR","away_team_abbr")||"").trim().toUpperCase();
+    const gameWeek=String(rowField(game,"week","WEEK")||"").trim();
+    const gameSeason=String(rowField(game,"season","SEASON")||"").trim();
+    const weekMatch=!week||!gameWeek||week===gameWeek;
+    const seasonMatch=!season||!gameSeason||season===gameSeason;
+    return weekMatch&&seasonMatch&&((home===team&&away===opp)||(home===opp&&away===team));
+  });
+  if(scheduled){
+    const home=String(rowField(scheduled,"home_abbr","HOME_ABBR","home_team_abbr")||"").trim().toUpperCase();
+    return home===team?"Home":"Away";
+  }
+  return "—";
 }
 
 function nflPlayerProps(name){
@@ -4052,7 +4079,8 @@ function renderDashboardPage(){
     const height=Math.max(8,Math.round((value/maxLog)*88));
     const week=rowField(g,"week","game_date")||"";
     const oppCell=rowField(g,"opp_abbr")||"";
-    const ha=String(rowField(g,"home_away")||"").toUpperCase().startsWith("H")?"vs":"@";
+    const haLabel=nflHomeAwayLabel(g,team);
+    const ha=haLabel==="Home"?"vs":haLabel==="Away"?"@":"";
     return `<div class="bar-wrap"><div class="bar-val">${fmtMetric(value,1)}</div><div class="bar" style="height:${height}px;background:${barColor(value)}"></div><div class="bar-date">${esc(String(week).replace(/^202\d-/,""))}</div><div class="bar-date" style="color:var(--ink-muted);margin-top:0">${oppCell?`${ha}${oppCell}`:""}</div></div>`;
   }).join(""):`<div class="empty" style="padding:18px">No recent NFL logs loaded for this player yet.</div>`;
   const avg=(rows)=>rows.length?rows.reduce((sum,row)=>sum+metricValue(row,selectedMetric),0)/rows.length:null;
@@ -4118,7 +4146,7 @@ function renderDashboardPage(){
     const value=metricValue(g,selectedMetric);
     const outcome=Number.isFinite(lineNum)?(lean==="UNDER"?value<lineNum:value>lineNum):null;
     const cls=outcome===null?"":outcome?"hit":value===lineNum?"push":"miss";
-    return `<tr><td>${esc(String(rowField(g,"week","game_date")||"—"))}</td><td>${esc(rowField(g,"opp_abbr")||"—")}</td><td>${esc(rowField(g,"home_away")||"—")}</td><td class="${cls}">${fmtMetric(value,1)}</td><td>${fmtMetric(metricValue(g,"UD_FP"),1)}</td><td>${fmtMetric(metricValue(g,isP?"PASS_TDS":"ANY_TD"),1)}</td></tr>`;
+    return `<tr><td>${esc(String(rowField(g,"week","game_date")||"—"))}</td><td>${esc(rowField(g,"opp_abbr")||"—")}</td><td>${esc(nflHomeAwayLabel(g,team))}</td><td class="${cls}">${fmtMetric(value,1)}</td><td>${fmtMetric(metricValue(g,"UD_FP"),1)}</td><td>${fmtMetric(metricValue(g,isP?"PASS_TDS":"ANY_TD"),1)}</td></tr>`;
   }).join("");
   const lastUpdated=rowField(selectedProp||{},"LAST_UPDATED")||rowField(pT,"LAST_UPDATED")||"—";
 
@@ -4172,7 +4200,7 @@ function renderDashboardPage(){
       <section class="analysis-game-log">
         <div class="analysis-section-head"><div><div class="analysis-section-title">Game log · ${st.showFullLog?"Full history":"Recent sample"}</div><div class="analysis-section-meta">${filteredLogs.length} matching game${filteredLogs.length===1?"":"s"} loaded</div></div></div>
         <div class="log-controls"><label for="oppFilter">Opponent</label><select id="oppFilter">${oppOpts}</select>${filteredLogs.length>10?`<button class="log-expand-btn" onclick="toggleFullLog()">${st.showFullLog?"Show recent sample":`Show full history (${filteredLogs.length})`}</button>`:""}</div>
-        <div class="log-table-wrap"><table><thead><tr><th>WEEK</th><th>OPP</th><th>H/A</th><th>${esc(nflMetricLabel(selectedMetric))}</th><th>UD_FP</th><th>${isP?"PASS_TDS":"ANY_TD"}</th></tr></thead><tbody>${logRows||`<tr><td colspan="6" style="text-align:center;color:var(--ink-muted)">No logs available for this filter.</td></tr>`}</tbody></table></div>
+        <div class="log-table-wrap"><table><thead><tr><th>WEEK</th><th>OPP</th><th>HOME/AWAY</th><th>${esc(nflMetricLabel(selectedMetric))}</th><th>${esc(nflMetricLabel("UD_FP"))}</th><th>${esc(nflMetricLabel(isP?"PASS_TDS":"ANY_TD"))}</th></tr></thead><tbody>${logRows||`<tr><td colspan="6" style="text-align:center;color:var(--ink-muted)">No logs available for this filter.</td></tr>`}</tbody></table></div>
       </section>
     </div>`:`<div class="empty" style="padding:70px 20px">Select a player above to open the NFL analysis workspace.</div>`}
     <div class="timestamp">As of: ${fmtNowEastern()} · Last Refreshed: ${esc(String(lastUpdated||"—"))}</div>
