@@ -606,9 +606,9 @@ async function mlbFetch(url){
 function switchTab(t){st.activeTab=t==="gamelog"?"dashboard":t;render()}
 function switchMode(m){
   st.mode=m;
-  st.metric=m==="pitcher"?"SO":"H";
+  st.metric=m==="qb"?"PASS_YDS":"REC";
   st.line="";st.oppFilter="";st.showFullLog=false;st.playerSearch="";st.playerSuggestions=[];st.showPlayerSugs=false;
-  const src=m==="pitcher"?st.pTonight:st.tonight;
+  const src=m==="qb"?st.pTonight:st.tonight;
   st.player=firstValidPlayer(src);
   console.log(`Mode → ${m}, default player: "${st.player}", source has ${src.length} entries`);
   render();
@@ -4001,182 +4001,182 @@ function bindRenderedControls(){
 function renderDashboardPage(){
   const isP=st.mode==="qb";
   const curMetrics=isP?P_METRICS:METRICS;
-  const {player,metric,line,activeTab,oppFilter}=st;
+  const {player,metric,activeTab,oppFilter}=st;
   const curTonight=isP?st.pTonight:st.tonight;
-  const curLogs=isP?st.pGameLogs:st.gameLogs;
-  const curSplits=isP?st.pSplits:st.splits;
-  const lineNum=parseFloat(line)||0;
-
-  const pT=getTonightPlayerRow(player,isP)||{};
-  const pHasLogs=hasLogs(player,isP);
-  const allLogs=getPlayerLogs(player,isP);
-  const last10=[...allLogs].reverse().slice(-10);
-  const most=allLogs[0]||{};
-  const pPick=getPick(player);
-  const pickMatchesMetric=pPick&&propToLogCol(pPick.prop_type)===metric;
-  const analysisLean=pickMatchesMetric?normalizeLeanText(pPick.lean):(isP&&(metric==="ER"||metric==="BB")?"UNDER":"OVER");
-
-  const seasAvg=getRollingVal(most,"Seas_",metric);
-  const midAvg=isP?getRollingVal(most,"L7_",metric):getRollingVal(most,"L30_",metric);
-  const shortAvg=isP?getRollingVal(most,"L3_",metric):getRollingVal(most,"L7_",metric);
-  const lastGame=getMetricVal(most,metric);
-  const midLbl=isP?"L7":"L30",shortLbl=isP?"L3":"L7";
-
-  const hL5=lineNum?allLogs.slice(0,5).filter(g=>clearsPropLine(getMetricVal(g,metric),lineNum,analysisLean)).length:null;
-  const hL10=lineNum?allLogs.slice(0,10).filter(g=>clearsPropLine(getMetricVal(g,metric),lineNum,analysisLean)).length:null;
-  const hSeas=lineNum?allLogs.filter(g=>clearsPropLine(getMetricVal(g,metric),lineNum,analysisLean)).length:null;
-  const sRate=hSeas!==null&&allLogs.length>0?hSeas/allLogs.length:null;
-  const maxLog=Math.max(...last10.map(g=>getMetricVal(g,metric)),lineNum||0,1);
-
-  const metricOpts=curMetrics.map(m=>`<option value="${m}" ${m===metric?"selected":""}>${m}</option>`).join("");
-  const bars=last10.map(g=>{const v=getMetricVal(g,metric);const h=Math.max(4,(v/maxLog)*80);return`<div class="bar-wrap"><div class="bar-val">${v}</div><div class="bar" style="height:${h}px;background:${barColor(v,lineNum,analysisLean)}"></div><div class="bar-date">${(g.game_date||"").slice(5)}</div><div class="bar-date" style="color:var(--ink-muted);margin-top:0">${g.opp_abbr?(g.home_away==="Home"?"vs":"@")+g.opp_abbr:""}</div></div>`}).join("");
-  const avgs=[{l:"Season",v:seasAvg},{l:midLbl,v:midAvg},{l:shortLbl,v:shortAvg},{l:"Last",v:lastGame}].map(a=>`<div class="avg-card" style="border:1px solid ${lineNum&&clearsPropLine(a.v,lineNum,analysisLean)?"var(--over-line)":lineNum?"color-mix(in srgb, var(--under) 20%, transparent)":"var(--border-1)"}"><div class="avg-label">${a.l}</div><div class="avg-val" style="color:${avgColor(a.v,lineNum,analysisLean)}">${a.v.toFixed(2)}</div></div>`).join("");
-
-  const sT={};let statStrip="";
-  if(isP){
-    ["IP","SO","ER","H","HR","BB","W","L","PC","R"].forEach(s=>{sT[s]=allLogs.reduce((a,g)=>a+toNum(g[s]),0)});
-    sT.UD_FP=allLogs.reduce((a,g)=>a+toNum(g.UD_FP),0).toFixed(1);
-    const outs=allLogs.reduce((a,g)=>a+Math.round(toNum(g.IP)*3),0);
-    const rIP=outs/3;sT.IP=outsToIPStr(outs);
-    sT.ERA=rIP>0?((sT.ER*9)/rIP).toFixed(2):"0.00";
-    sT.WHIP=rIP>0?(((sT.H||0)+(sT.BB||0))/rIP).toFixed(2):"0.00";
-    sT.K9=rIP>0?((sT.SO*9)/rIP).toFixed(1):"0.0";
-    statStrip=["W","L","ERA","WHIP","SO","K9","IP","UD_FP"].map(s=>`<div class="stat-item"><div class="stat-label">${s}</div><div class="stat-val">${sT[s]}</div></div>`).join("");
-  }else{
-    ["H","HR","RBI","R","SB","BB","TB","SO","AB"].forEach(s=>{sT[s]=allLogs.reduce((a,g)=>a+toNum(g[s]),0)});
-    sT.AVG=sT.AB>0?(sT.H/sT.AB).toFixed(3):".000";
-    sT.UD_FP=allLogs.reduce((a,g)=>a+toNum(g.UD_FP),0).toFixed(1);
-    statStrip=["H","HR","RBI","R","SB","BB","TB","UD_FP","AVG"].map(s=>`<div class="stat-item"><div class="stat-label">${s}</div><div class="stat-val">${s==="AVG"?sT.AVG:s==="UD_FP"?sT.UD_FP:sT[s]}</div></div>`).join("");
-  }
-
-  const oppP=pT.opp_pitcher_name||"TBD",oppH=pT.opp_pitcher_hand||"?";
-  const vsAvg=toNum(pT.vs_OPP_AVG),vsOps=toNum(pT.vs_OPP_OPS),vsHr=toNum(pT.vs_OPP_HR),vsSo=toNum(pT.vs_OPP_SO);
-  const venue=pT.venue_tonight||"";
-  const wx=st.weather.find(w=>w.venue_name===venue)||{};
-
-  const sp=curSplits.find(s=>s.player_name===player)||{};
-  const hV=COMBO_STATS[metric]?COMBO_STATS[metric].reduce((s,k)=>s+toNum(sp[`${k}_Home`]),0):toNum(sp[`${metric}_Home`]);
-  const aV=COMBO_STATS[metric]?COMBO_STATS[metric].reduce((s,k)=>s+toNum(sp[`${k}_Away`]),0):toNum(sp[`${metric}_Away`]);
-  const hGames=toNum(sp.Home_GAMES)||toNum(sp['Home_GAMES']);
-  const aGames=toNum(sp.Away_GAMES)||toNum(sp['Away_GAMES']);
-  const hTotal=hGames>0?Math.round(hV*hGames):0;
-  const aTotal=aGames>0?Math.round(aV*aGames):0;
-  let haBars=`<div class="no-data">No data</div>`;
-  if(hV>0||aV>0){const mx=Math.max(hV,aV,.1);haBars=[{l:"Home",v:hV,t:hTotal,g:hGames,c:"#8b5cf6"},{l:"Away",v:aV,t:aTotal,g:aGames,c:"#06b6d4"}].map(b=>`<div class="mini-bar-wrap"><div class="mini-bar" style="height:${Math.max(4,(b.v/mx)*60)}px;background:${b.c}"></div><div class="mini-bar-label">${b.l}</div><div class="mini-bar-val">${b.v.toFixed(2)}/g</div>${b.g?`<div class="mini-bar-val" style="color:var(--accent);font-size:var(--t-xs)">${b.t} in ${b.g}G</div>`:""}</div>`).join("")}
-
-  const lastUp=most.LAST_UPDATED||pT.LAST_UPDATED||"—";
-  const earlyBanner=!pHasLogs&&player?`<div class="early-banner"><div class="msg">Early Season — No Game Logs Yet</div><div class="sub">${esc(player)} is on the active roster. Matchup info, props, and Lookup are available.</div></div>`:"";
-
-  const pProps=getProps(player);
-  let propsHTML="";
-  if(pProps.length>0){propsHTML=`<div class="analysis-market-list">${pProps.map(p=>`<div class="analysis-market-row"><div class="analysis-market-name">${esc(propTypeLabel(p.METRIC))}</div><div class="analysis-market-line">${esc(p.DK_LINE)}</div><div class="analysis-market-odds"><span class="prop-over">O ${fmtOdds(p.OVER_ODDS)}</span><br><span class="prop-under">U ${fmtOdds(p.UNDER_ODDS)}</span></div><div class="analysis-market-best">${renderPropBestBookBlock(p)}</div></div>`).join("")}</div>`}
-  let pickBanner="";
-  if(pPick){
-    const c=pPick.confidence||"",cls=c==="SMASH"?"smash":c==="STRONG"?"strong":"lean";
-    const pInjCtx=(pPick.injury_context||"").toString();
-    const pHasRisk=pInjCtx.toUpperCase().startsWith("LINEUP RISK");
-    const pRiskHTML=pHasRisk?`<div class="lineup-risk-badge">${icon('warn')}LINEUP RISK</div><div class="lineup-risk-text">${esc(pInjCtx)}</div>`:"";
-    const decisionLean=normalizeLeanText(pPick.lean),decisionClass=decisionLean==="UNDER"?"under":"over";
-    pickBanner=`<div class="analysis-decision ${cls}${pHasRisk?" analysis-decision-risk":""}"><div class="analysis-decision-top"><div><div class="analysis-eyebrow">Model recommendation</div><div class="analysis-decision-call ${decisionClass}">${esc(decisionLean)} ${esc(pPick.line||"—")}</div><div class="analysis-decision-market">${esc(propTypeLabel(pPick.prop_type))}</div></div><div class="analysis-decision-tier ${cls}">${esc(c||"LEAN")}</div></div>${pPick.rationale?`<div class="analysis-decision-reason">${esc(pPick.rationale)}</div>`:""}${pRiskHTML}</div>`;
-  }
-  const modelScoreValue=(row,key)=>{
-    const raw=rowField(row,key);
-    if(raw===null||raw===undefined||raw==="")return null;
-    const value=Number(raw);
-    return Number.isFinite(value)?value:null;
+  const metricValue=(row,m)=>{
+    const value=Number(rowField(row,m,propToLogCol(m)));
+    return Number.isFinite(value)?value:0;
   };
-  let modelContext=null;
-  if(isP&&metric==="SO"){
-    modelContext={
-      base:modelScoreValue(pT,"P_SO_PLAYER_SCORE"),
-      adjustment:modelScoreValue(pT,"P_SO_OPP_ADJ"),
-      final:modelScoreValue(pT,"P_SO_EDGE_SCORE"),
-      detail:`Opponent offense adjustment for ${pT.opp_abbr_tonight||"this week's matchup"}`
-    };
-  }else if(isP&&metric==="ER"){
-    modelContext={
-      base:modelScoreValue(pT,"P_ER_PLAYER_RISK_SCORE"),
-      adjustment:modelScoreValue(pT,"P_ER_OPP_ADJ"),
-      final:modelScoreValue(pT,"P_ER_RISK_SCORE"),
-      detail:`Opponent scoring-risk adjustment for ${pT.opp_abbr_tonight||"this week's matchup"}`
-    };
-  }else if(!isP&&metric==="H"){
-    modelContext={
-      base:modelScoreValue(pT,"H_PLAYER_SCORE"),
-      adjustment:modelScoreValue(pT,"H_OPP_ADJ"),
-      final:modelScoreValue(pT,"H_EDGE_SCORE"),
-      detail:`Opposing starter adjustment for ${oppP}`
-    };
-  }else if(!isP&&["HR","TB"].includes(metric)){
-    modelContext={
-      base:modelScoreValue(pT,"POWER_PLAYER_SCORE"),
-      adjustment:modelScoreValue(pT,"POWER_OPP_ADJ"),
-      final:modelScoreValue(pT,"POWER_EDGE_SCORE"),
-      detail:`Opposing starter power adjustment for ${oppP}`
-    };
-  }
-  if(modelContext&&[modelContext.base,modelContext.adjustment,modelContext.final].some(value=>value===null)){
-    modelContext=null;
-  }
-  const modelContextHTML=modelContext?(()=>{
-    const adjustment=modelContext.adjustment;
-    const grade=adjustment>=2
-      ?{label:"Favorable",className:"favorable"}
-      :adjustment<=-2
-        ?{label:"Tough",className:"tough"}
-        :{label:"Neutral",className:"neutral"};
-    const adjustmentText=`${adjustment>0?"+":""}${adjustment.toFixed(1)}`;
-    const adjustmentClass=adjustment>0?"pos":adjustment<0?"neg":"";
-    return `<section class="analysis-rail-section"><div class="analysis-rail-title">Model context</div><div class="model-context-head"><span class="matchup-grade ${grade.className}">${grade.label} matchup</span><span class="model-context-final">${modelContext.final.toFixed(1)}</span></div><div class="analysis-data-row"><span>Player baseline</span><strong>${modelContext.base.toFixed(1)}</strong></div><div class="analysis-data-row"><span>Opponent adjustment</span><strong class="model-context-adj ${adjustmentClass}">${adjustmentText}</strong></div><div class="analysis-data-row"><span>Final score</span><strong>${modelContext.final.toFixed(1)}</strong></div><div class="model-context-note">${esc(modelContext.detail)}</div></section>`;
+  const fmtMetric=(value,digits=1)=>Number.isFinite(value)?Number(value).toFixed(digits):"—";
+  const card=(label,value,sub="")=>`<div class="analysis-kpi"><div class="analysis-kpi-value">${esc(String(value))}</div><div class="analysis-kpi-label">${esc(label)}</div>${sub?`<div style="margin-top:4px;color:var(--ink-muted);font-size:var(--t-xs)">${esc(sub)}</div>`:""}</div>`;
+  const playerRecord=lookupPlayerByName(player)||null;
+  const projection=playerRecord?.projection||null;
+  const pT=getTonightPlayerRow(player,isP)||playerRecord?.qbSlate||playerRecord?.slate||{};
+  const allLogs=getPlayerLogs(player,isP);
+  const pHasLogs=allLogs.length>0;
+  const pProps=nflPlayerProps(player);
+  const primaryMarket=nflPrimaryMarket(pProps,isP);
+  const availableMetrics=[...new Set([...curMetrics,...pProps.map(p=>normalizePropMetric(rowField(p,"METRIC")))].filter(Boolean))];
+  const selectedMetric=availableMetrics.includes(metric)?metric:(primaryMarket?normalizePropMetric(rowField(primaryMarket,"METRIC")):curMetrics[0]);
+  const selectedProp=pProps.find(p=>normalizePropMetric(rowField(p,"METRIC"))===selectedMetric)||primaryMarket||null;
+  const lineValue=String(st.line||rowField(selectedProp||{},"DK_LINE")||"");
+  const lineNum=parseFloat(lineValue);
+  const metricLabel=nflMetricLabel(selectedMetric);
+  const latestPick=getPick(player);
+  const matchingPick=latestPick&&normalizePropMetric(rowField(latestPick,"prop_type"))===selectedMetric?latestPick:latestPick;
+  const lean=matchingPick?normalizeLeanText(rowField(matchingPick,"lean")):"OVER";
+  const usageSummary=nflWeeklyUsageSummary(projection||pT,isP);
+  const weeklyProjection=nflWeeklyProjectionValue(projection||pT,isP);
+  const flags=getSampleFlags(player,isP);
+  const lock=getLockInfo(player,isP);
+  const nextGame=getScheduleRow(rowField(pT,"team_abbr"),rowField(pT,"opp_abbr_tonight","opp_abbr"))||lookupNextGame(rowField(pT,"team_abbr"))||{};
+  const team=rowField(pT,"team_abbr","team_now","team")||"—";
+  const opp=rowField(pT,"opp_abbr_tonight","opp_abbr")||"—";
+  const gameTime=gameStartTimeForTeams(team,opp);
+  const contextBits=[team,rowField(pT,"pos","position")||"",opp!=="—"?`vs ${opp}`:"",gameTime].filter(Boolean).join(" · ");
+  const teamRow=getTeamRanking(team);
+  const oppRow=getTeamRanking(opp);
+  const recentLogs=allLogs.slice(0,10);
+  const filteredLogs=oppFilter?allLogs.filter(g=>String(rowField(g,"opp_abbr")).trim().toUpperCase()===oppFilter):allLogs;
+  const visibleLogs=st.showFullLog?filteredLogs:filteredLogs.slice(0,10);
+  const recentValues=recentLogs.map(g=>metricValue(g,selectedMetric));
+  const maxLog=Math.max(1,...recentValues,lineNum||0);
+  const barColor=(value)=>{
+    if(!Number.isFinite(lineNum))return "var(--accent)";
+    const hit=lean==="UNDER"?value<lineNum:value>lineNum;
+    const push=value===lineNum;
+    return push?"var(--push)":hit?"var(--over)":"var(--under)";
+  };
+  const bars=recentLogs.length?recentLogs.map(g=>{
+    const value=metricValue(g,selectedMetric);
+    const height=Math.max(8,Math.round((value/maxLog)*88));
+    const week=rowField(g,"week","game_date")||"";
+    const oppCell=rowField(g,"opp_abbr")||"";
+    const ha=String(rowField(g,"home_away")||"").toUpperCase().startsWith("H")?"vs":"@";
+    return `<div class="bar-wrap"><div class="bar-val">${fmtMetric(value,1)}</div><div class="bar" style="height:${height}px;background:${barColor(value)}"></div><div class="bar-date">${esc(String(week).replace(/^202\d-/,""))}</div><div class="bar-date" style="color:var(--ink-muted);margin-top:0">${oppCell?`${ha}${oppCell}`:""}</div></div>`;
+  }).join(""):`<div class="empty" style="padding:18px">No recent NFL logs loaded for this player yet.</div>`;
+  const avg=(rows)=>rows.length?rows.reduce((sum,row)=>sum+metricValue(row,selectedMetric),0)/rows.length:null;
+  const seasonAvg=avg(allLogs);
+  const l5Avg=avg(allLogs.slice(0,5));
+  const l10Avg=avg(allLogs.slice(0,10));
+  const lastValue=allLogs.length?metricValue(allLogs[0],selectedMetric):null;
+  const hitRate=Number.isFinite(lineNum)&&allLogs.length
+    ?allLogs.filter(g=>lean==="UNDER"?metricValue(g,selectedMetric)<lineNum:metricValue(g,selectedMetric)>lineNum).length/allLogs.length
+    :null;
+  const metricOpts=availableMetrics.map(m=>`<option value="${m}" ${m===selectedMetric?"selected":""}>${esc(nflMetricLabel(m))}</option>`).join("");
+  const propsHTML=pProps.length
+    ?`<div class="analysis-market-list">${pProps.map(p=>{
+      const propMetric=normalizePropMetric(rowField(p,"METRIC"));
+      const active=propMetric===selectedMetric;
+      const bestLine=renderBestBookLine(p,lean);
+      const clvLine=renderCurrentClvLine(p,lean);
+      return `<div class="analysis-market-row" style="${active?'border-color:var(--accent);background:color-mix(in srgb, var(--accent) 8%, transparent);':''}">
+        <div class="analysis-market-name">${esc(nflMetricLabel(propMetric))}</div>
+        <div class="analysis-market-line">${esc(rowField(p,"DK_LINE")||"—")}</div>
+        <div class="analysis-market-odds"><span class="prop-over">O ${fmtOdds(rowField(p,"OVER_ODDS"))}</span><br><span class="prop-under">U ${fmtOdds(rowField(p,"UNDER_ODDS"))}</span></div>
+        <div class="analysis-market-best">${bestLine}${clvLine}${renderPropBestBookBlock(p)}</div>
+      </div>`;
+    }).join("")}</div>`
+    :`<div class="empty" style="padding:20px">No live player props yet. The NFL dashboard will light up here once preseason markets are posted.</div>`;
+  const pickBanner=matchingPick?(()=>{
+    const c=normalizeConfidence(rowField(matchingPick,"confidence"));
+    const cls=c==="SMASH"?"smash":c==="STRONG"?"strong":"lean";
+    const riskText=String(rowField(matchingPick,"injury_context")||"");
+    const risk=riskText.toUpperCase().startsWith("LINEUP RISK")?`<div class="lineup-risk-text">${esc(riskText)}</div>`:"";
+    return `<div class="analysis-decision ${cls}"><div class="analysis-decision-top"><div><div class="analysis-eyebrow">Current recommendation</div><div class="analysis-decision-call ${lean==="UNDER"?"under":"over"}">${esc(lean)} ${esc(rowField(matchingPick,"line")||rowField(selectedProp||{},"DK_LINE")||"—")}</div><div class="analysis-decision-market">${esc(nflMetricLabel(rowField(matchingPick,"prop_type")||selectedMetric))}</div></div><div class="analysis-decision-tier ${cls}">${esc(c)}</div></div>${rowField(matchingPick,"rationale")?`<div class="analysis-decision-reason">${esc(rowField(matchingPick,"rationale"))}</div>`:""}${risk}</div>`;
   })():"";
-  const vsp=getVsSP(player);
-  const matchupAnalysisHTML=isP
-    ?`<div class="analysis-rail-heading">${esc(pT.team_abbr||"")} vs ${esc(pT.opp_abbr_tonight||"—")}</div><div class="analysis-rail-sub">${esc(pT.home_away_tonight||"—")} · ${esc(pT.venue_tonight||"—")}</div>`
-    :`<div class="analysis-rail-heading">${esc(pT.team_abbr||"")} vs ${esc(oppP)}</div><div class="analysis-rail-sub">${esc(pT.opp_abbr_tonight||"—")} · ${esc(oppH)}HP · ${esc(venue||"Venue TBD")}</div>${vsp&&toNum(vsp.AB)?`<div style="margin-top:9px"><div class="analysis-data-row"><span>Career matchup</span><strong>${vsp.H||0}-for-${vsp.AB||0}</strong></div><div class="analysis-data-row"><span>Average</span><strong>${vsp.AVG||"—"}</strong></div><div class="analysis-data-row"><span>Home runs</span><strong>${vsp.HR||0}</strong></div></div>`:""}`;
-  const opponentRanking=getTeamRanking(pT.opp_abbr_tonight);
-  const opponentProfileHTML=opponentRanking?(isP
-    ?`<div class="analysis-rail-heading">${esc(rowField(opponentRanking,"TEAM","TEAM_ABBR")||pT.opp_abbr_tonight)} offense</div><div class="analysis-rail-sub">Season-to-date MLB team rates</div><div style="margin-top:8px"><div class="analysis-data-row"><span>Strikeout rate</span><strong>${teamRankValue(opponentRanking,"OFF_K_PCT","OFF_K_PCT_MOST_RANK",{digits:1,suffix:"%",direction:"most"})}</strong></div><div class="analysis-data-row"><span>OPS</span><strong>${teamRankValue(opponentRanking,"OFF_OPS","OFF_OPS_BEST_RANK",{digits:3,direction:"highest"})}</strong></div><div class="analysis-data-row"><span>Runs</span><strong>${teamRankValue(opponentRanking,"OFF_RUNS_PER_GAME","OFF_RUNS_MOST_RANK",{digits:2,suffix:"/game",direction:"most"})}</strong></div><div class="analysis-data-row"><span>Home runs</span><strong>${teamRankValue(opponentRanking,"OFF_HR_PER_GAME","OFF_HR_MOST_RANK",{digits:2,suffix:"/game",direction:"most"})}</strong></div></div>`
-    :`<div class="analysis-rail-heading">${esc(rowField(opponentRanking,"TEAM","TEAM_ABBR")||pT.opp_abbr_tonight)} pitching</div><div class="analysis-rail-sub">Season-to-date MLB staff rates</div><div style="margin-top:8px"><div class="analysis-data-row"><span>Home runs allowed</span><strong>${teamRankValue(opponentRanking,"PIT_HR9","PIT_HR9_MOST_RANK",{digits:2,suffix:" HR/9",direction:"most"})}</strong></div><div class="analysis-data-row"><span>Runs allowed</span><strong>${teamRankValue(opponentRanking,"PIT_RUNS_ALLOWED_PER_GAME","PIT_RUNS_ALLOWED_MOST_RANK",{digits:2,suffix:"/game",direction:"most"})}</strong></div><div class="analysis-data-row"><span>ERA</span><strong>${teamRankValue(opponentRanking,"PIT_ERA","PIT_ERA_BEST_RANK",{digits:2,direction:"best"})}</strong></div><div class="analysis-data-row"><span>WHIP</span><strong>${teamRankValue(opponentRanking,"PIT_WHIP","PIT_WHIP_BEST_RANK",{digits:2,direction:"best"})}</strong></div></div>`):"";
-  const hitRateAnalysisHTML=lineNum&&pHasLogs?`<div class="analysis-data-row"><span>L5</span><strong>${hL5}/5</strong></div><div class="analysis-data-row"><span>L10</span><strong>${hL10}/10</strong></div><div class="analysis-data-row"><span>Season</span><strong>${hSeas}/${allLogs.length} · ${sRate!==null?(sRate*100).toFixed(0):"—"}%</strong></div>`:"";
-  const splitAnalysisHTML=isP
-    ?`<div class="analysis-data-row"><span>ERA</span><strong>${sT.ERA||"—"}</strong></div><div class="analysis-data-row"><span>WHIP</span><strong>${sT.WHIP||"—"}</strong></div><div class="analysis-data-row"><span>K/9</span><strong>${sT.K9||"—"}</strong></div>`
-    :`<div class="analysis-data-row"><span>vs ${esc(oppH)}HP AVG</span><strong>${vsAvg?vsAvg.toFixed(3):"—"}</strong></div><div class="analysis-data-row"><span>vs ${esc(oppH)}HP OPS</span><strong>${vsOps?vsOps.toFixed(3):"—"}</strong></div><div class="analysis-data-row"><span>HR / SO</span><strong>${vsHr||0} / ${vsSo||0}</strong></div>`;
-  const weatherAnalysisHTML=wx.temp_f?`<div class="analysis-data-row"><span>Temperature</span><strong>${wx.temp_f}°F</strong></div><div class="analysis-data-row"><span>Wind</span><strong>${wx.wind_mph} mph ${esc(wx.wind_dir||"")}</strong></div><div class="analysis-data-row"><span>Conditions</span><strong>${esc(wx.description||"—")}</strong></div>${wx.is_dome===true||wx.is_dome==="TRUE"||wx.is_dome==="True"?`<div class="analysis-data-row"><span>Venue</span><strong>Dome</strong></div>`:""}`:"";
-
-  const opps=[...new Set(allLogs.map(g=>g.opp_abbr).filter(Boolean))].sort();
+  const opponentProfileHTML=oppRow?isP
+    ?`<div class="analysis-data-row"><span>Opponent pass offense</span><strong>${teamRankValue(oppRow,"passing_yards","passing_yards_rank",{digits:1,direction:"in NFL"})}</strong></div><div class="analysis-data-row"><span>Opponent rush offense</span><strong>${teamRankValue(oppRow,"rushing_yards","rushing_yards_rank",{digits:1,direction:"in NFL"})}</strong></div>`
+    :`<div class="analysis-data-row"><span>Opponent rush defense</span><strong>${teamRankValue(oppRow,"rushing_yards","rushing_yards_rank",{digits:1,direction:"allowed"})}</strong></div><div class="analysis-data-row"><span>Opponent pass defense</span><strong>${teamRankValue(oppRow,"passing_yards","passing_yards_rank",{digits:1,direction:"allowed"})}</strong></div>`
+    :`<div class="empty" style="padding:12px 0">Opponent team profile not loaded yet.</div>`;
+  const modelContextHTML=(()=>{
+    const baseKeys=isP
+      ?{PASS_YDS:["PASS_YDS","PASS_YDS_PLAYER_SCORE","PASS_YDS_EDGE_SCORE"],PASS_TDS:["PASS_TDS","PASS_TDS_PLAYER_SCORE","PASS_TDS_EDGE_SCORE"],COMP:["COMP","COMP_PLAYER_SCORE","COMP_EDGE_SCORE"],INT:["INT","INT_RISK_SCORE","INT_EDGE_SCORE"],RUSH_YDS:["RUSH_YDS","RUSH_YDS_PLAYER_SCORE","RUSH_YDS_EDGE_SCORE"]}
+      :{REC:["REC","REC_PLAYER_SCORE","REC_EDGE_SCORE"],REC_YDS:["REC_YDS","REC_YDS_PLAYER_SCORE","REC_YDS_EDGE_SCORE"],TGT:["TGT","TGT_PLAYER_SCORE","TGT_EDGE_SCORE"],RUSH_YDS:["RUSH_YDS","RUSH_YDS_PLAYER_SCORE","RUSH_YDS_EDGE_SCORE"],CARRIES:["CARRIES","CARRIES_PLAYER_SCORE","CARRIES_EDGE_SCORE"],ANY_TD:["ANY_TD","TD_PLAYER_SCORE","TD_EDGE_SCORE"]};
+    const keys=baseKeys[selectedMetric];
+    if(!keys)return "";
+    const values=keys.map(k=>Number(rowField(pT,k)));
+    const usable=values.filter(Number.isFinite);
+    if(!usable.length)return "";
+    return `<section class="analysis-rail-section"><div class="analysis-rail-title">Model context</div>${keys.map((k,index)=>Number.isFinite(values[index])?`<div class="analysis-data-row"><span>${esc(k.replace(/_/g," ").toLowerCase())}</span><strong>${values[index].toFixed(1)}</strong></div>`:"").join("")}</section>`;
+  })();
+  const summaryStrip=[
+    card("Projection",fmtMetric(weeklyProjection,1),isP?"weekly QB points":"weekly skill points"),
+    card("Usage",usageSummary||"—",isP?"volume baseline":"role baseline"),
+    card("Line",selectedProp?`${rowField(selectedProp,"DK_LINE")} ${nflMetricLabel(selectedMetric)}`:"No market",selectedProp?`O ${fmtOdds(rowField(selectedProp,"OVER_ODDS"))} · U ${fmtOdds(rowField(selectedProp,"UNDER_ODDS"))}`:""),
+    card("Hit rate",hitRate===null?"—":`${Math.round(hitRate*100)}%`,Number.isFinite(lineNum)?`${lean.toLowerCase()} ${lineNum} across ${allLogs.length} logs`:"set a line to compare")
+  ].join("");
+  const statStrip=[
+    card("Season",seasonAvg===null?"—":fmtMetric(seasonAvg,1),metricLabel),
+    card("L5",l5Avg===null?"—":fmtMetric(l5Avg,1),metricLabel),
+    card("L10",l10Avg===null?"—":fmtMetric(l10Avg,1),metricLabel),
+    card("Last",lastValue===null?"—":fmtMetric(lastValue,1),metricLabel)
+  ].join("");
+  const opps=[...new Set(allLogs.map(g=>String(rowField(g,"opp_abbr")).trim().toUpperCase()).filter(Boolean))].sort();
   const oppOpts=`<option value="">All Opponents</option>`+opps.map(o=>`<option value="${o}" ${oppFilter===o?"selected":""}>${o}</option>`).join("");
-  const fLogs=oppFilter?allLogs.filter(g=>g.opp_abbr===oppFilter):allLogs;
-  const visibleLogs=st.showFullLog?fLogs:fLogs.slice(0,10);
-  const logCols=isP?["IP","H","ER","HR","SO","BB","PC","W","L","UD_FP"]:["AB","H","HR","RBI","R","SB","BB","SO","TB","UD_FP"];
-  const tHeaders=logCols.map(c=>`<th class="${c===metric?"hl":""}">${c}</th>`).join("");
-  const tRows=visibleLogs.map(g=>{const cells=logCols.map(c=>{const v=toNum(g[c]);let cls=c===metric?"hl":"";if(c===metric&&lineNum){cls=v>lineNum?"hit":v===lineNum?"push":"miss"}return`<td class="${cls}">${c==="UD_FP"?v.toFixed(1):v}</td>`}).join("");return`<tr><td>${(g.game_date||"").slice(5)}</td><td>${g.opp_abbr||"—"}</td><td>${g.home_away||"—"}</td>${cells}</tr>`}).join("");
+  const logRows=visibleLogs.map(g=>{
+    const value=metricValue(g,selectedMetric);
+    const outcome=Number.isFinite(lineNum)?(lean==="UNDER"?value<lineNum:value>lineNum):null;
+    const cls=outcome===null?"":outcome?"hit":value===lineNum?"push":"miss";
+    return `<tr><td>${esc(String(rowField(g,"week","game_date")||"—"))}</td><td>${esc(rowField(g,"opp_abbr")||"—")}</td><td>${esc(rowField(g,"home_away")||"—")}</td><td class="${cls}">${fmtMetric(value,1)}</td><td>${fmtMetric(metricValue(g,"UD_FP"),1)}</td><td>${fmtMetric(metricValue(g,isP?"PASS_TDS":"ANY_TD"),1)}</td></tr>`;
+  }).join("");
+  const lastUpdated=rowField(selectedProp||{},"LAST_UPDATED")||rowField(pT,"LAST_UPDATED")||"—";
 
   return `<div id="pg-dash" class="page ${activeTab==="dashboard"?"active":""}">
     ${player?`<div class="analysis-shell">
-      ${earlyBanner}
       <header class="analysis-hero">
-        <div class="analysis-hero-top"><div><div class="analysis-eyebrow">${isP?"Pitcher analysis":"Batter analysis"}</div><div class="analysis-player">${esc(player)}</div><div class="analysis-context">${esc(pT.team_abbr||"Team TBD")} · ${esc(pT.home_away_tonight||"—")} vs ${esc(pT.opp_abbr_tonight||"—")} · ${esc(venue||pT.venue_tonight||"Venue TBD")}${gameStartTimeForTeams(pT.team_abbr,pT.opp_abbr_tonight)?` · ${esc(gameStartTimeForTeams(pT.team_abbr,pT.opp_abbr_tonight))}`:""}</div></div><div class="analysis-focus"><div class="analysis-focus-value">${esc(metric)}</div><div class="analysis-focus-label">${lineNum?`Prop line ${lineNum}`:"Selected metric"}</div></div></div>
-        ${pHasLogs?`<div class="analysis-kpis"><div class="analysis-kpi"><div class="analysis-kpi-value" style="color:${avgColor(seasAvg,lineNum,analysisLean)}">${seasAvg.toFixed(2)}</div><div class="analysis-kpi-label">Season</div></div><div class="analysis-kpi"><div class="analysis-kpi-value" style="color:${avgColor(midAvg,lineNum,analysisLean)}">${midAvg.toFixed(2)}</div><div class="analysis-kpi-label">${midLbl}</div></div><div class="analysis-kpi"><div class="analysis-kpi-value" style="color:${avgColor(shortAvg,lineNum,analysisLean)}">${shortAvg.toFixed(2)}</div><div class="analysis-kpi-label">${shortLbl}</div></div><div class="analysis-kpi"><div class="analysis-kpi-value" style="color:${avgColor(lastGame,lineNum,analysisLean)}">${lastGame.toFixed(2)}</div><div class="analysis-kpi-label">Last game</div></div></div><div class="analysis-season-strip">${statStrip}</div>`:""}
+        <div class="analysis-hero-top">
+          <div>
+            <div class="analysis-eyebrow">${isP?"QB analysis":"Skill-player analysis"}</div>
+            <div class="analysis-player">${esc(player)}</div>
+            <div class="analysis-context">${esc(contextBits||"Team and matchup loading")}</div>
+          </div>
+          <div class="analysis-focus">
+            <div class="analysis-focus-value">${esc(nflMetricLabel(selectedMetric))}</div>
+            <div class="analysis-focus-label">${selectedProp?`Prop line ${esc(rowField(selectedProp,"DK_LINE")||"—")}`:"No live market yet"}</div>
+          </div>
+        </div>
+        <div class="analysis-kpis">${summaryStrip}</div>
+        <div class="analysis-season-strip">${statStrip}</div>
       </header>
       <div class="analysis-layout">
         <main class="analysis-primary">
-          ${pHasLogs?`<section class="analysis-section"><div class="analysis-section-head"><div class="analysis-section-title">Last 10 · ${esc(propTypeLabel(metric))}</div><div class="analysis-section-meta">${last10.length} games · green marks ${analysisLean.toLowerCase()} wins</div></div><div class="analysis-chart"><div class="bar-chart">${bars}</div>${lineNum?`<div class="line-indicator">Reference line ${lineNum}</div>`:""}</div></section>`:""}
-          ${pickBanner?`<section class="analysis-section"><div class="analysis-section-head"><div class="analysis-section-title">Decision</div><div class="analysis-section-meta">Model-ranked recommendation</div></div>${pickBanner}</section>`:""}
-          ${propsHTML?`<section class="analysis-section"><div class="analysis-section-head"><div class="analysis-section-title">Sportsbook markets</div><div class="analysis-section-meta">Live comparison by book</div></div>${propsHTML}</section>`:""}
+          <section class="analysis-section">
+            <div class="analysis-section-head"><div class="analysis-section-title">Recent form · ${esc(nflMetricLabel(selectedMetric))}</div><div class="analysis-section-meta">${recentLogs.length} recent log${recentLogs.length===1?"":"s"} · green bars clear the current lean</div></div>
+            <div class="analysis-chart"><div class="bar-chart">${bars}</div>${Number.isFinite(lineNum)?`<div class="line-indicator">Reference line ${lineNum}</div>`:""}</div>
+          </section>
+          ${pickBanner?`<section class="analysis-section"><div class="analysis-section-head"><div class="analysis-section-title">Decision</div><div class="analysis-section-meta">Latest model signal for this player</div></div>${pickBanner}</section>`:""}
+          <section class="analysis-section"><div class="analysis-section-head"><div class="analysis-section-title">Sportsbook markets</div><div class="analysis-section-meta">Player props loaded in this snapshot</div></div>${propsHTML}</section>
         </main>
         <aside class="analysis-rail">
-          <section class="analysis-rail-section"><div class="analysis-rail-title">This week's matchup</div>${matchupAnalysisHTML}</section>
+          <section class="analysis-rail-section">
+            <div class="analysis-rail-title">This week's matchup</div>
+            <div class="analysis-rail-heading">${esc(team)} vs ${esc(opp)}</div>
+            <div class="analysis-rail-sub">${esc(gameTime||"Time TBD")} · ${esc(rowField(nextGame,"stadium","venue_name","venue")||"Venue TBD")}</div>
+            <div style="margin-top:8px">
+              <div class="analysis-data-row"><span>Spread</span><strong>${rowField(nextGame,"spread_line","spread")||"—"}</strong></div>
+              <div class="analysis-data-row"><span>Total</span><strong>${rowField(nextGame,"total_line","over_under")||"—"}</strong></div>
+              <div class="analysis-data-row"><span>Status</span><strong>${lock.started?"Locked / started":"Upcoming"}</strong></div>
+            </div>
+          </section>
           ${modelContextHTML}
-          ${opponentProfileHTML?`<section class="analysis-rail-section"><div class="analysis-rail-title">Opponent profile</div>${opponentProfileHTML}</section>`:""}
-          ${hitRateAnalysisHTML?`<section class="analysis-rail-section"><div class="analysis-rail-title">Hit rates · ${esc(metric)} ${lineNum?`${analysisLean.toLowerCase()} ${lineNum}`:""}</div>${hitRateAnalysisHTML}</section>`:""}
-          ${pHasLogs?`<section class="analysis-rail-section"><div class="analysis-rail-title">${isP?"Season rates":`Handedness split · ${esc(oppH)}HP`}</div>${splitAnalysisHTML}</section><section class="analysis-rail-section"><div class="analysis-rail-title">Home / away</div><div class="mini-bars-container">${haBars}</div></section>`:""}
-          ${weatherAnalysisHTML?`<section class="analysis-rail-section"><div class="analysis-rail-title">Weather</div>${weatherAnalysisHTML}</section>`:""}
+          <section class="analysis-rail-section"><div class="analysis-rail-title">Opponent profile</div>${opponentProfileHTML}</section>
+          <section class="analysis-rail-section">
+            <div class="analysis-rail-title">Player context</div>
+            <div class="analysis-data-row"><span>Position</span><strong>${esc(rowField(pT,"pos","position")||rowField(projection||{},"position")||"—")}</strong></div>
+            <div class="analysis-data-row"><span>Team baseline</span><strong>${teamRow?teamRankValue(teamRow,isP?"passing_yards":"rushing_yards",isP?"passing_yards_rank":"rushing_yards_rank",{digits:1,direction:"in NFL"}):"—"}</strong></div>
+            <div class="analysis-data-row"><span>Flags</span><strong>${flags.returning?"Returning":flags.limited?"Limited sample":"Stable"}</strong></div>
+          </section>
         </aside>
       </div>
-      ${pHasLogs?`<section class="analysis-game-log"><div class="analysis-section-head"><div><div class="analysis-section-title">Game log · ${st.showFullLog?"Full history":"Recent 10"}</div><div class="analysis-section-meta">${esc(metric)} results · ${fLogs.length} matching game${fLogs.length===1?"":"s"} loaded</div></div></div><div class="log-controls"><label for="oppFilter">Opponent</label><select id="oppFilter">${oppOpts}</select>${fLogs.length>10?`<button class="log-expand-btn" onclick="toggleFullLog()">${st.showFullLog?"Show recent 10":`Show full history (${fLogs.length})`}</button>`:""}</div><div class="log-table-wrap"><table><thead><tr><th>DATE</th><th>OPP</th><th>H/A</th>${tHeaders}</tr></thead><tbody>${tRows}</tbody></table></div></section>`:""}
-    </div>`:`<div class="empty" style="padding:70px 20px">Select a player above to open the analysis workspace.</div>`}
-    <div class="timestamp">As of: ${fmtNowEastern()} · Last Refreshed: ${lastUp}</div>
-    <div class="timestamp" style="color:var(--border-1);font-size:var(--t-xs);padding-top:0">Made by S. Krolikowski w/ Claude · 2026</div>
+      <section class="analysis-game-log">
+        <div class="analysis-section-head"><div><div class="analysis-section-title">Game log · ${st.showFullLog?"Full history":"Recent sample"}</div><div class="analysis-section-meta">${filteredLogs.length} matching game${filteredLogs.length===1?"":"s"} loaded</div></div></div>
+        <div class="log-controls"><label for="oppFilter">Opponent</label><select id="oppFilter">${oppOpts}</select>${filteredLogs.length>10?`<button class="log-expand-btn" onclick="toggleFullLog()">${st.showFullLog?"Show recent sample":`Show full history (${filteredLogs.length})`}</button>`:""}</div>
+        <div class="log-table-wrap"><table><thead><tr><th>WEEK</th><th>OPP</th><th>H/A</th><th>${esc(nflMetricLabel(selectedMetric))}</th><th>UD_FP</th><th>${isP?"PASS_TDS":"ANY_TD"}</th></tr></thead><tbody>${logRows||`<tr><td colspan="6" style="text-align:center;color:var(--ink-muted)">No logs available for this filter.</td></tr>`}</tbody></table></div>
+      </section>
+    </div>`:`<div class="empty" style="padding:70px 20px">Select a player above to open the NFL analysis workspace.</div>`}
+    <div class="timestamp">As of: ${fmtNowEastern()} · Last Refreshed: ${esc(String(lastUpdated||"—"))}</div>
+    <div class="timestamp" style="color:var(--border-1);font-size:var(--t-xs);padding-top:0">NFL analysis workspace rebuilt for live props, projections, and recent game logs.</div>
   </div>`;
 }
 

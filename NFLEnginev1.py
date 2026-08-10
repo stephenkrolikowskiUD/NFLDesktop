@@ -129,9 +129,8 @@ def get_gspread_client():
 def extract_book_odds(events: list, preferred="draftkings", fallback="fanduel") -> pd.DataFrame:
     """Flatten Odds API events to one row per game, preferring a single book.
 
-    Mirrors the MLB engine's approach: prefer DraftKings, fall back to FanDuel,
-    then whatever book is present, so a book dropping a market doesn't blank
-    the row.
+    Prefer DraftKings, fall back to FanDuel, then whatever book is present, so
+    a book dropping a market doesn't blank the row.
     """
     rows = []
     for event in events:
@@ -302,12 +301,12 @@ def build_injuries_tab(injuries: pd.DataFrame) -> pd.DataFrame:
 
 
 # ============================================================================
-# MLB-CONTRACT TABS
+# DASHBOARD-CONTRACT TABS
 # ============================================================================
-# app.js is ported from MLBDesktop, so it expects that dashboard's tab and
-# column contract. Its rowField() aliasing layer accepts either UPPER_SNAKE or
-# lower_snake, so these builders emit generous column sets and let the
-# dashboard pick what it needs. Extra columns are harmless.
+# app.js was ported from MLBDesktop, so some tab and column names are shared.
+# Its rowField() aliasing layer accepts either UPPER_SNAKE or lower_snake, so
+# these builders emit generous column sets and let the dashboard pick what it
+# needs. Extra columns are harmless.
 
 SKILL_POSITIONS = ["RB", "WR", "TE"]
 
@@ -425,8 +424,8 @@ def build_team_rankings_tab(team_stats: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
-def build_dk_props_tab(board: pd.DataFrame) -> pd.DataFrame:
-    """Best-price board in MLB's Player_Props column contract.
+def build_player_props_tab(board: pd.DataFrame) -> pd.DataFrame:
+    """Best-price board in the dashboard's Player_Props column contract.
 
     Column names are UPPER_SNAKE because the ported prop renderers read
     p.PLAYER_NAME / p.METRIC / p.DK_LINE / p.OVER_ODDS / p.UNDER_ODDS directly
@@ -458,7 +457,7 @@ def build_dk_props_tab(board: pd.DataFrame) -> pd.DataFrame:
 
 
 def build_all_books_props_tab(props: pd.DataFrame) -> pd.DataFrame:
-    """Every per-book quote in MLB's All_Books_Props contract."""
+    """Every per-book quote in the dashboard's All_Books_Props contract."""
     if props.empty:
         return pd.DataFrame()
     out = pd.DataFrame({
@@ -580,8 +579,7 @@ def write_to_sheets(
             continue
         if df.empty:
             # Writing an empty frame would wipe a tab that still holds usable
-            # data from a previous run — skip instead. Same reasoning as the
-            # MLB engine's empty-tab guard (see MLBDesktop ENGINE_AUDIT.md).
+            # data from a previous run, so skip instead.
             print(f"   ⏭️  {tab_name}: empty, leaving existing tab untouched")
             continue
         try:
@@ -747,14 +745,14 @@ def main():
     games_tab = build_games_tab(schedule, odds, name_map)
 
     tabs = {
-        # Tabs the ported MLB dashboard reads
+        # Tabs the NFL dashboard reads
         "Schedule": build_schedule_tab(games_tab),
         "Slate_Skill": build_slate_tab(stats, snaps, SKILL_POSITIONS),
         "Slate_QB": build_slate_tab(stats, snaps, ["QB"]),
         "Skill_Game_Logs": build_game_logs_tab(stats, SKILL_POSITIONS),
         "QB_Game_Logs": build_game_logs_tab(stats, ["QB"]),
         "Team_Rankings": build_team_rankings_tab(team_stats),
-        "Player_Props": build_dk_props_tab(board),
+        "Player_Props": build_player_props_tab(board),
         "All_Books_Props": build_all_books_props_tab(props),
         "Injuries": build_injuries_tab(injuries),
         "Projections": projections,
