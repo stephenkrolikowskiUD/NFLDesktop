@@ -495,8 +495,8 @@ function getModelFreshness(){
   return[
     freshnessSignal("Model picks",currentPicks,{warnHours:8,staleHours:20,fields:["LAST_UPDATED","RUN_TIME"]}),
     freshnessSignal("Sportsbook markets",st.props,{warnHours:3,staleHours:8}),
-    freshnessSignal("Batter logs",st.gameLogs,{warnHours:18,staleHours:36}),
-    freshnessSignal("Probable starters",st.pTonight,{warnHours:4,staleHours:10}),
+    freshnessSignal("Skill-player logs",st.gameLogs,{warnHours:18,staleHours:36}),
+    freshnessSignal("QB logs",st.pGameLogs,{warnHours:18,staleHours:36}),
   ];
 }
 function renderModelFreshness(){
@@ -2153,9 +2153,9 @@ function setStatsLeaderMetric(metric){st.statsLeaderMetric=metric;st.leaderDateO
 function setLeaderMode(mode){st.leaderMode=mode==="live"?"live":"final";st.leaderDateOffset=0;render()}
 function shiftLeaderDate(delta){st.leaderDateOffset=Math.max(0,(st.leaderDateOffset||0)+delta);render()}
 function getDailyLeaders(metric){
-  const pitcher=metric==="P_SO";
-  const stat= pitcher?"SO":metric;
-  const logs=pitcher?st.pGameLogs:st.gameLogs;
+  const quarterbackMetrics=new Set(["PASS_YDS","PASS_TDS","COMP","ATT","INT"]);
+  const isQb=quarterbackMetrics.has(metric);
+  const logs=isQb?st.pGameLogs:st.gameLogs;
   const today=easternTodayISO();
   const dated=(logs||[]).map(row=>({...row,_leaderDate:entryDateISO(rowField(row,"game_date","GAME_DATE","DATE"))})).filter(row=>row._leaderDate);
   const mode=st.leaderMode==="live"?"live":"final";
@@ -2173,9 +2173,9 @@ function getDailyLeaders(metric){
     const current=grouped.get(key)||{
       name,team:String(rowField(row,"team_abbr","TEAM_ABBR","team")||""),
       opp:String(rowField(row,"opp_abbr","OPP_ABBR","opponent")||""),
-      value:0,games:0,pitcher
+      value:0,games:0,isQb
     };
-    current.value+=toNum(rowField(row,stat));
+    current.value+=getMetricVal(row,metric);
     current.games+=1;
     grouped.set(key,current);
   });
@@ -2187,21 +2187,20 @@ function getDailyLeaders(metric){
   };
 }
 function renderDailyLeaders(){
-  const metric=st.statsLeaderMetric||"H";
+  const metric=st.statsLeaderMetric||"REC";
   const board=getDailyLeaders(metric);
-  const labels={H:"Hits",HR:"Home runs",RBI:"RBI",P_SO:"Passing yards"};
-  const metricLabel=labels[metric]||metric;
+  const metricLabel=nflMetricLabel(metric);
   const dateLabel=board.date?new Date(`${board.date}T12:00:00`).toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"}):"Latest completed slate";
   const live=board.mode==="live";
   const modeControls=`<div class="daily-leaders-mode"><button class="${live?"":"active"}" onclick="setLeaderMode('final')">Final</button><button class="${live?"active":""}" onclick="setLeaderMode('live')">Today so far</button></div>`;
   const dateNav=live?"":`<div class="daily-leaders-date-nav"><button onclick="shiftLeaderDate(1)" ${board.hasPrevious?"":"disabled"} aria-label="Previous completed slate">‹</button><button onclick="shiftLeaderDate(-1)" ${board.hasNext?"":"disabled"} aria-label="Next completed slate">›</button></div>`;
-  const controls=[["H","Hits"],["HR","Home Runs"],["RBI","RBI"],["P_SO","Pitcher Ks"]]
+  const controls=[["REC","Receptions"],["REC_YDS","Receiving Yards"],["RUSH_YDS","Rushing Yards"],["PASS_YDS","Passing Yards"]]
     .map(([value,label])=>`<button class="daily-leaders-metric ${metric===value?"active":""}" onclick="setStatsLeaderMetric('${value}')">${label}</button>`).join("");
   const rows=board.rows.map((row,index)=>{
     const detail=[row.team,row.opp?`vs ${row.opp}`:"",row.games>1?`${row.games} games`:""].filter(Boolean).join(" · ");
-    return`<div class="daily-leader-row" onclick="streakToDash(decodeURIComponent('${encodeURIComponent(row.name)}'),'${metric}','')"><div class="daily-leader-rank">${String(index+1).padStart(2,"0")}</div><div><div class="daily-leader-name">${esc(row.name)}</div><div class="daily-leader-meta">${esc(detail)}</div></div><div class="daily-leader-team">${row.pitcher?"PITCHER":"BATTER"}</div><div class="daily-leader-value">${row.value}</div></div>`;
+    return`<div class="daily-leader-row" onclick="streakToDash(decodeURIComponent('${encodeURIComponent(row.name)}'),'${metric}','')"><div class="daily-leader-rank">${String(index+1).padStart(2,"0")}</div><div><div class="daily-leader-name">${esc(row.name)}</div><div class="daily-leader-meta">${esc(detail)}</div></div><div class="daily-leader-team">${row.isQb?"QB":"SKILL"}</div><div class="daily-leader-value">${row.value}</div></div>`;
   }).join("");
-  const sourceLabel=live?`<span class="daily-leaders-live">LIVE / INCOMPLETE</span> · games currently available in MLB game logs`:"final box scores from MLB game logs";
+  const sourceLabel=live?`<span class="daily-leaders-live">LIVE / INCOMPLETE</span> · games currently available in NFL game logs`:"finalized NFL game logs";
   const emptyLabel=live?"No results have reached today's game logs yet.":"No completed-game data available for this metric.";
   return`<section class="daily-leaders"><div class="daily-leaders-head"><div><div class="analysis-eyebrow">Daily results</div><div class="daily-leaders-title">${esc(metricLabel)} Leaders</div><div class="daily-leaders-sub">${esc(dateLabel)} · ${sourceLabel}</div></div><div class="daily-leaders-toolbar">${modeControls}${dateNav}<div class="daily-leaders-metrics">${controls}</div></div></div>${rows?`<div class="daily-leaders-list">${rows}</div>`:`<div class="empty" style="padding:24px;text-align:center">${emptyLabel}</div>`}</section>`;
 }
@@ -2554,7 +2553,7 @@ function renderLeadersView(){
   const refreshed=st.loadedAt||"this page load";
   const status=live
     ?`Today so far · Engine snapshot refreshed ${refreshed} · Not continuously live`
-    :`Finalized MLB game-log snapshot · Dashboard refreshed ${refreshed}`;
+    :`Finalized NFL game-log snapshot · Dashboard refreshed ${refreshed}`;
   return `${renderDailyLeaders()}<div class="timestamp">${esc(status)} · Click any player to open analysis</div>`;
 }
 function renderStatsView(){const w=st.statsTimeWindow||'last_30d';const rows=typeof getMemo==='function'?getMemo('statsRows:'+w,()=>st.pickPerformance||[]):(st.pickPerformance||[]);let html=renderTimeWindowSelector(w);if(!rows.length)return html+`<div class="empty" style="padding:40px 20px;text-align:center">Pick Performance unavailable — grading analytics will appear after the next grader run.</div>`;if(!statsRowsForWindow(rows,w).length)return html+`<div class="empty" style="padding:40px 20px;text-align:center">No Pick Performance rows for ${statsWindowLabel(w)}.</div>`;const updated=rows.map(r=>statField(r,'LAST_UPDATED')).filter(Boolean).sort().pop()||'';html+=renderDriftAlerts(rows);html+=renderOverallCard(rows,w);html+=renderEraCohortAudit(rows,w);html+=renderPriceDiscipline(rows);html+=renderTierBreakdown(rows,w);html+=renderLeanBreakdown(rows,w);html+=renderCLVSummary(rows,w);html+=renderPropTypeList(rows,w,'best');html+=renderPropTypeList(rows,w,'worst');html+=`<div class="timestamp">Data through ${esc(updated||'latest grader run')} · Updated daily after grader run</div>`;return html}
@@ -3980,14 +3979,14 @@ function renderLookupPage(activeTab){
 
 function renderMethodPage(activeTab){
   return `<div id="pg-method" class="page ${activeTab==="method"?"active":""}">
-    <div style="padding:16px"><div style="text-align:center;margin-bottom:16px"><div style="font-size:28px;margin-bottom:4px">⚾</div><div style="color:var(--accent);font-weight:800;font-size:var(--t-md)">How This Dashboard Works</div><div style="color:var(--accent-soft);font-size:var(--t-xs);margin-top:4px">Under the hood of the MLB DFS Engine</div></div>
-      <div class="card" style="margin-bottom:10px"><div class="card-title">📡 Data Sources</div><div style="font-size:var(--t-sm);color:var(--ink-1);line-height:1.6"><div style="margin-bottom:6px"><span style="color:var(--accent);font-weight:700">MLB Stats API</span> — Batter/QB game logs, splits, matchup history, this week's schedule.</div><div style="margin-bottom:6px"><span style="color:var(--accent);font-weight:700">The Odds API</span> — Live spreads, totals, and player props across 13 markets.</div><div style="margin-bottom:6px"><span style="color:var(--accent);font-weight:700">OpenWeather</span> — Venue weather (temp, wind, conditions) for outdoor parks.</div><div><span style="color:var(--accent);font-weight:700">Google Sheets</span> — Central warehouse. Engine writes 14+ tabs; app reads live.</div></div></div>
-      <div class="card" style="margin-bottom:10px"><div class="card-title">⚙️ Calculations</div><div style="font-size:var(--t-sm);color:var(--ink-1);line-height:1.6"><span style="color:var(--accent);font-weight:700">Rolling Averages</span> L7/L14/L30/Season · <span style="color:var(--accent);font-weight:700">LHP/RHP Splits</span> · <span style="color:var(--accent);font-weight:700">Home/Away Splits</span> · <span style="color:var(--accent);font-weight:700">Season vs Defense</span> · <span style="color:var(--accent);font-weight:700">EV%</span> hit rate vs implied odds · <span style="color:var(--accent);font-weight:700">Line Movement</span> snapshot diffs</div></div>
+    <div style="padding:16px"><div style="text-align:center;margin-bottom:16px"><div style="font-size:28px;margin-bottom:4px">🏈</div><div style="color:var(--accent);font-weight:800;font-size:var(--t-md)">How This Dashboard Works</div><div style="color:var(--accent-soft);font-size:var(--t-xs);margin-top:4px">Under the hood of the NFL DFS engine</div></div>
+      <div class="card" style="margin-bottom:10px"><div class="card-title">📡 Data Sources</div><div style="font-size:var(--t-sm);color:var(--ink-1);line-height:1.6"><div style="margin-bottom:6px"><span style="color:var(--accent);font-weight:700">nflverse</span> — Weekly player logs, snap counts, schedule, injuries, and team context.</div><div style="margin-bottom:6px"><span style="color:var(--accent);font-weight:700">The Odds API</span> — Live spreads, totals, and player props across supported books.</div><div style="margin-bottom:6px"><span style="color:var(--accent);font-weight:700">Projection layer</span> — Season-long rankings and weekly usage context adapted for NFL.</div><div><span style="color:var(--accent);font-weight:700">Google Sheets</span> — Central warehouse. The engine writes the tabs and the dashboard reads them live.</div></div></div>
+      <div class="card" style="margin-bottom:10px"><div class="card-title">⚙️ Calculations</div><div style="font-size:var(--t-sm);color:var(--ink-1);line-height:1.6"><span style="color:var(--accent);font-weight:700">Rolling Form</span> recent-game and season context · <span style="color:var(--accent);font-weight:700">Usage Signals</span> targets, carries, attempts, snaps · <span style="color:var(--accent);font-weight:700">Opponent Context</span> team offense and defense baselines · <span style="color:var(--accent);font-weight:700">EV%</span> hit rate vs implied odds · <span style="color:var(--accent);font-weight:700">Line Movement</span> opening vs current price snapshots</div></div>
       <div class="card" style="margin-bottom:10px"><div class="card-title">Model Picks</div><div style="font-size:var(--t-sm);color:var(--ink-1);line-height:1.6">A deterministic market-and-form model and Gemini review layer produce a tracked recommendation cohort. Every pick is anchored to a real player, market, and sportsbook line; provenance badges distinguish validated-model selections from AI-reviewed candidates.</div></div>
       <div class="card" style="margin-bottom:10px"><div class="card-title">Market Edge & Slips</div><div style="font-size:var(--t-sm);color:var(--ink-1);line-height:1.6">The market-edge signal compares historical hit rates to implied odds as one input. Slips combine that signal with model review and recent form.</div></div>
-      <div class="card" style="margin-bottom:10px"><div class="card-title">Dingers</div><div style="font-size:var(--t-sm);color:var(--ink-1);line-height:1.6">TD probability board ranked by TD rate, recent usage, and best-book odds. Includes 3-leg TD parlay combos.</div></div>
-      <div class="card" style="margin-bottom:10px"><div class="card-title">📖 Abbreviations</div><div style="font-size:var(--t-sm);color:var(--ink-1);line-height:1.7">H — Hits · HR — Home Runs · RBI — Runs Batted In · R — Runs · SB — Stolen Bases<br>TB — Total Bases · BB — Walks · SO — Strikeouts · AB — At Bats · AVG — Batting Average<br>1B — Singles · 2B — Doubles · 3B — Triples · HBP — Hit By Pitch<br>OPS — On-Base Plus Slugging · OBP — On-Base Percentage · SLG — Slugging Percentage<br>H+R+RBI — Hits + Runs + RBIs combo<br>IP — Innings Pitched · ER — Earned Runs · ERA — Earned Run Average<br>WHIP — Walks + Hits per Inning Pitched · K/9 — Strikeouts per 9 innings<br>QS — Quality Start (6+ IP, 3 or fewer ER) · W — Win · PC — Pitch Count<br>P_SO — Passing Yards · P_H — Hits Allowed · P_BB — Walks Allowed · P_ER — Earned Runs<br>DK_FP — DraftKings Fantasy Points · UD_FP — Underdog Fantasy Points<br>EV% — Expected Value (hit rate minus implied odds)<br>LHP/RHP — Left/Right-Handed Pitcher<br>vs SP — Season stats against this week's defense<br>SMASH/STRONG/LEAN — AI confidence tiers<br>L7/L14/L30 — Last 7/14/30 game averages · Seas — Season average</div></div>
-      <div class="card" style="margin-bottom:10px;border:1px solid var(--border-1)"><div class="card-title">🙏 Credits</div><div style="font-size:var(--t-sm);color:var(--ink-1);line-height:1.6"><div>Built by <span style="color:var(--accent);font-weight:700">Stephen Krolikowski</span></div><div>AI: <span style="color:var(--accent);font-weight:700">Gemini 3.6 Flash</span> · App: <span style="color:var(--accent);font-weight:700">Claude</span> by Anthropic</div><div>Engine + dashboard fixes with <span style="color:var(--accent);font-weight:700">Codex</span> by OpenAI</div><div>Props: <span style="color:var(--accent);font-weight:700">The Odds API</span> · Data: <span style="color:var(--accent);font-weight:700">MLB Stats API</span> · Weather: <span style="color:var(--accent);font-weight:700">OpenWeather</span></div></div></div>
+      <div class="card" style="margin-bottom:10px"><div class="card-title">Touchdown Board</div><div style="font-size:var(--t-sm);color:var(--ink-1);line-height:1.6">The touchdown board ranks players by scoring usage, recent role, opponent context, and best-book pricing. It is meant to narrow the field, not force a play.</div></div>
+      <div class="card" style="margin-bottom:10px"><div class="card-title">📖 Abbreviations</div><div style="font-size:var(--t-sm);color:var(--ink-1);line-height:1.7">REC — Receptions · REC_YDS — Receiving Yards · REC_TDS — Receiving Touchdowns<br>RUSH_YDS — Rushing Yards · RUSH_TDS — Rushing Touchdowns · CARRIES — Carries · TGT — Targets<br>ANY_TD — Anytime Touchdown · PASS_YDS — Passing Yards · PASS_TDS — Passing Touchdowns<br>COMP — Completions · ATT — Attempts · INT — Interceptions · UD_FP — Underdog Fantasy Points<br>EV% — Expected Value (hit rate minus implied odds) · CLV — Closing Line Value<br>SMASH / STRONG / LEAN — Confidence tiers for tracked recommendations</div></div>
+      <div class="card" style="margin-bottom:10px;border:1px solid var(--border-1)"><div class="card-title">🙏 Credits</div><div style="font-size:var(--t-sm);color:var(--ink-1);line-height:1.6"><div>Built by <span style="color:var(--accent);font-weight:700">Stephen Krolikowski</span></div><div>AI: <span style="color:var(--accent);font-weight:700">Gemini 3.6 Flash</span> · App: <span style="color:var(--accent);font-weight:700">Claude</span> by Anthropic</div><div>Engine + dashboard fixes with <span style="color:var(--accent);font-weight:700">Codex</span> by OpenAI</div><div>Props: <span style="color:var(--accent);font-weight:700">The Odds API</span> · Data: <span style="color:var(--accent);font-weight:700">nflverse</span></div></div></div>
       <div style="text-align:center;color:var(--ink-quiet);font-size:var(--t-xs);padding:8px 0 20px">For entertainment & research purposes only.</div>
     </div>
   </div>`;
