@@ -347,12 +347,14 @@ def best_price_board(props: pd.DataFrame) -> pd.DataFrame:
             if valid.empty:
                 record[f"best_{side}_odds"] = None
                 record[f"best_{side}_book"] = None
+                record[f"best_{side}_last_update"] = None
                 continue
             # Highest American number is the best price for the bettor, whether
             # the range is positive or negative (+150 > +120, -105 > -120).
             best = valid.loc[valid[col].idxmax()]
             record[f"best_{side}_odds"] = best[col]
             record[f"best_{side}_book"] = best["book"]
+            record[f"best_{side}_last_update"] = best.get("last_update")
 
         record["books_quoting"] = group["book"].nunique()
         out.append(record)

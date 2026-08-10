@@ -444,11 +444,15 @@ def build_dk_props_tab(board: pd.DataFrame) -> pd.DataFrame:
         "REFERENCE_BOOK": board.get("best_over_book"),
         "BEST_OVER_BOOK": board.get("best_over_book"),
         "BEST_OVER_ODDS": board.get("best_over_odds"),
+        "BEST_OVER_LAST_UPDATED": board.get("best_over_last_update"),
         "BEST_UNDER_BOOK": board.get("best_under_book"),
         "BEST_UNDER_ODDS": board.get("best_under_odds"),
+        "BEST_UNDER_LAST_UPDATED": board.get("best_under_last_update"),
         "BOOKS_QUOTING": board.get("books_quoting"),
         "GAME": board.get("event_away", "") + " @ " + board.get("event_home", ""),
-        "LAST_UPDATED": board.get("commence_time"),
+        "LAST_UPDATED": board.get("best_over_last_update").fillna(
+            board.get("best_under_last_update")
+        ).fillna(board.get("commence_time")),
     })
     return out.reset_index(drop=True)
 
@@ -470,6 +474,91 @@ def build_all_books_props_tab(props: pd.DataFrame) -> pd.DataFrame:
         "LAST_UPDATED": props.get("last_update"),
     })
     return out.reset_index(drop=True)
+
+
+def _safe_records_df(ws) -> pd.DataFrame:
+    try:
+        records = ws.get_all_records(default_blank="")
+    except Exception:
+        return pd.DataFrame()
+    return pd.DataFrame(records or [])
+
+
+def _add_prop_opening_snapshot(current: pd.DataFrame, prior: pd.DataFrame,
+                               *, key_cols: list[str],
+                               over_col: str = "OVER_ODDS",
+                               under_col: str = "UNDER_ODDS",
+                               over_book_col: str | None = None,
+                               under_book_col: str | None = None,
+                               last_updated_col: str = "LAST_UPDATED",
+                               generated_at: str = "") -> pd.DataFrame:
+    """Persist first-seen prices so later runs can measure movement.
+
+    CLV needs an opening snapshot to compare against. The engine rewrites whole
+    tabs each run, so without carrying the first seen price forward, every run
+    becomes its own "open" and movement is lost.
+    """
+    if current.empty:
+        return current
+
+    out = current.copy()
+    prior_lookup = {}
+    if not prior.empty:
+        missing = [c for c in key_cols if c not in prior.columns]
+        if not missing:
+            keyed = prior.drop_duplicates(subset=key_cols, keep="first")
+            for _, row in keyed.iterrows():
+                key = tuple(str(row.get(col, "")) for col in key_cols)
+                prior_lookup[key] = row
+
+    def implied(odds):
+        value = oc.american_to_implied(odds)
+        return None if pd.isna(value) else float(value)
+
+    open_over, open_under = [], []
+    open_over_book, open_under_book = [], []
+    open_captured_at, over_delta_pp, under_delta_pp = [], [], []
+
+    for _, row in out.iterrows():
+        key = tuple(str(row.get(col, "")) for col in key_cols)
+        prev = prior_lookup.get(key)
+
+        prev_open_over = prev.get("OPEN_OVER_ODDS", "") if prev is not None else ""
+        prev_open_under = prev.get("OPEN_UNDER_ODDS", "") if prev is not None else ""
+        prev_open_over_book = prev.get("OPEN_OVER_BOOK", "") if prev is not None else ""
+        prev_open_under_book = prev.get("OPEN_UNDER_BOOK", "") if prev is not None else ""
+        prev_captured = prev.get("OPEN_CAPTURED_AT", "") if prev is not None else ""
+
+        current_over = row.get(over_col, "")
+        current_under = row.get(under_col, "")
+
+        opening_over = prev_open_over if prev_open_over != "" else current_over
+        opening_under = prev_open_under if prev_open_under != "" else current_under
+        opening_over_book = prev_open_over_book if prev_open_over_book != "" else (row.get(over_book_col, "") if over_book_col else "")
+        opening_under_book = prev_open_under_book if prev_open_under_book != "" else (row.get(under_book_col, "") if under_book_col else "")
+        captured_at = prev_captured if prev_captured != "" else row.get(last_updated_col, "") or generated_at
+
+        cur_over_prob = implied(current_over)
+        open_over_prob = implied(opening_over)
+        cur_under_prob = implied(current_under)
+        open_under_prob = implied(opening_under)
+
+        open_over.append(opening_over)
+        open_under.append(opening_under)
+        open_over_book.append(opening_over_book)
+        open_under_book.append(opening_under_book)
+        open_captured_at.append(captured_at)
+        over_delta_pp.append(round((cur_over_prob - open_over_prob) * 100, 2) if cur_over_prob is not None and open_over_prob is not None else "")
+        under_delta_pp.append(round((cur_under_prob - open_under_prob) * 100, 2) if cur_under_prob is not None and open_under_prob is not None else "")
+
+    out["OPEN_OVER_ODDS"] = open_over
+    out["OPEN_UNDER_ODDS"] = open_under
+    out["OPEN_OVER_BOOK"] = open_over_book
+    out["OPEN_UNDER_BOOK"] = open_under_book
+    out["OPEN_CAPTURED_AT"] = open_captured_at
+    out["OVER_CLV_DELTA_PP"] = over_delta_pp
+    out["UNDER_CLV_DELTA_PP"] = under_delta_pp
+    return out
 
 
 # ============================================================================
@@ -502,6 +591,35 @@ def write_to_sheets(
                                      rows=max(len(df) + 10, 100),
                                      cols=max(len(df.columns) + 5, 26))
             print(f"   ➕ created tab {tab_name}")
+            prior = pd.DataFrame()
+        else:
+            prior = _safe_records_df(ws)
+
+        if tab_name == "All_Books_Props":
+            df = _add_prop_opening_snapshot(
+                df,
+                prior,
+                key_cols=["PLAYER_NAME", "METRIC", "LINE", "BOOK"],
+                over_col="OVER_ODDS",
+                under_col="UNDER_ODDS",
+                over_book_col="BOOK",
+                under_book_col="BOOK",
+                last_updated_col="LAST_UPDATED",
+                generated_at=generated_at,
+            )
+        elif tab_name == "DK_Player_Props":
+            df = _add_prop_opening_snapshot(
+                df,
+                prior,
+                key_cols=["PLAYER_NAME", "METRIC", "DK_LINE", "GAME"],
+                over_col="BEST_OVER_ODDS",
+                under_col="BEST_UNDER_ODDS",
+                over_book_col="BEST_OVER_BOOK",
+                under_book_col="BEST_UNDER_BOOK",
+                last_updated_col="LAST_UPDATED",
+                generated_at=generated_at,
+            )
+
         ws.clear()
         # Sheets rejects NaN/NaT in JSON, and datetimes need to be strings.
         clean = df.copy()
