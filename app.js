@@ -612,16 +612,6 @@ let _restoring=false;
 function saveFocus(){const el=document.activeElement;if(el&&el.id)return{id:el.id,pos:el.selectionStart,val:el.value};return null}
 function restoreFocus(f){if(!f)return;const el=document.getElementById(f.id);if(el){_restoring=true;el.focus();if(f.val!==undefined)el.value=f.val;if(el.setSelectionRange&&f.pos!==undefined)try{el.setSelectionRange(f.pos,f.pos)}catch(e){}_restoring=false}}
 
-let useProxy=false;
-const LOOKUP_PORTED=true;
-async function mlbFetch(url){
-  // Deliberately inert. This called statsapi.mlb.com, which has no NFL data;
-  // leaving it live would search baseball players for football names.
-  if(!LOOKUP_PORTED)throw new Error("Lookup is not yet ported to nflverse.");
-  try{const r=await fetch(url);if(!r.ok)throw new Error(r.status);return r.json()}
-  catch(e){if(!useProxy){useProxy=true;return(await fetch("https://corsproxy.io/?"+encodeURIComponent(url))).json()}throw e}
-}
-
 function switchTab(t){st.activeTab=t==="gamelog"?"dashboard":t;render()}
 function switchMode(m){
   st.mode=m;
@@ -3048,11 +3038,17 @@ function bbProjectedPoints(row,scoring=st.bbScoring){
   return base;
 }
 
+// Mirrors projections.py REPLACEMENT_RANKS (last starter in a live 1QB/2RB/
+// 3WR/1TE/1FLEX lineup) so the VORP shown here is the same quantity that was
+// backtested, rather than a roster-depth cutoff (BB_ROSTER_TARGETS*12 is a
+// different, legitimately separate concept used only for scarcity/roster-
+// construction advice elsewhere on this board).
+const BB_VALUE_REPLACEMENT_RANKS={QB:12,RB:29,WR:42,TE:13};
+
 function bbWithDisplayStats(rows,scoring=st.bbScoring){
   const enriched=(rows||[]).map(r=>({...r,displayProj:bbProjectedPoints(r,scoring)}));
   const replacementByPos={};
-  Object.entries(BB_ROSTER_TARGETS).forEach(([pos,targetPerRoster])=>{
-    const startersNeeded=targetPerRoster*12;
+  Object.entries(BB_VALUE_REPLACEMENT_RANKS).forEach(([pos,startersNeeded])=>{
     const pool=enriched
       .filter(r=>r.pos===pos&&Number.isFinite(r.displayProj))
       .sort((a,b)=>(b.displayProj||0)-(a.displayProj||0));
@@ -3931,7 +3927,7 @@ function renderLookupPage(activeTab){
       statCard(rowField(projection,"ecr")?`#${Math.round(toNum(rowField(projection,"ecr")))}`:"—","Consensus ECR",`delta ${compactSignedNumber(rowField(projection,"ecr_vs_model"))}`),
       statCard(rowField(projection,"games_played")?Math.round(toNum(rowField(projection,"games_played"))):"—","Games Played",`proj ${formatLookupStat(rowField(projection,"proj_games"),{digits:1})}`),
       statCard(rowField(projection,"depth_rank")?`${esc(player.pos||"")}${Math.round(toNum(rowField(projection,"depth_rank")))}`:"—","Depth Rank",`mult ${formatLookupStat(rowField(projection,"depth_mult"),{digits:2})}`),
-      statCard(opp?opp:"—","Opponent",teamRankValue(oppRow,isQb?"passing_yards":"rushing_yards",isQb?"passing_yards_rank":"rushing_yards_rank",{digits:1,direction:"allowed"})),
+      statCard(opp?esc(opp):"—","Opponent",teamRankValue(oppRow,isQb?"passing_yards":"rushing_yards",isQb?"passing_yards_rank":"rushing_yards_rank",{digits:1,direction:"allowed"})),
     ];
     const logHeaders=isQb
       ?["Week","Opp","Pass Yds","Pass TD","INT","Rush Yds","PPR"]
@@ -4050,11 +4046,11 @@ function renderMethodPage(activeTab){
     <div style="padding:16px"><div style="text-align:center;margin-bottom:16px"><div style="font-size:28px;margin-bottom:4px">🏈</div><div style="color:var(--accent);font-weight:800;font-size:var(--t-md)">How This Dashboard Works</div><div style="color:var(--accent-soft);font-size:var(--t-xs);margin-top:4px">Under the hood of the NFL DFS engine</div></div>
       <div class="card" style="margin-bottom:10px"><div class="card-title">📡 Data Sources</div><div style="font-size:var(--t-sm);color:var(--ink-1);line-height:1.6"><div style="margin-bottom:6px"><span style="color:var(--accent);font-weight:700">nflverse</span> — Weekly player logs, snap counts, schedule, injuries, and team context.</div><div style="margin-bottom:6px"><span style="color:var(--accent);font-weight:700">The Odds API</span> — Live spreads, totals, and player props across supported books.</div><div style="margin-bottom:6px"><span style="color:var(--accent);font-weight:700">Projection layer</span> — Season-long rankings and weekly usage context adapted for NFL.</div><div><span style="color:var(--accent);font-weight:700">Google Sheets</span> — Central warehouse. The engine writes the tabs and the dashboard reads them live.</div></div></div>
       <div class="card" style="margin-bottom:10px"><div class="card-title">⚙️ Calculations</div><div style="font-size:var(--t-sm);color:var(--ink-1);line-height:1.6"><span style="color:var(--accent);font-weight:700">Rolling Form</span> recent-game and season context · <span style="color:var(--accent);font-weight:700">Usage Signals</span> targets, carries, attempts, snaps · <span style="color:var(--accent);font-weight:700">Opponent Context</span> team offense and defense baselines · <span style="color:var(--accent);font-weight:700">EV%</span> hit rate vs implied odds · <span style="color:var(--accent);font-weight:700">Line Movement</span> opening vs current price snapshots</div></div>
-      <div class="card" style="margin-bottom:10px"><div class="card-title">Model Picks</div><div style="font-size:var(--t-sm);color:var(--ink-1);line-height:1.6">A deterministic market-and-form model and Gemini review layer produce a tracked recommendation cohort. Every pick is anchored to a real player, market, and sportsbook line; provenance badges distinguish validated-model selections from AI-reviewed candidates.</div></div>
+      <div class="card" style="margin-bottom:10px"><div class="card-title">Model Picks</div><div style="font-size:var(--t-sm);color:var(--ink-1);line-height:1.6">Planned, not yet active for NFL: a deterministic market-and-form model plus a Gemini review layer are meant to produce a tracked, anchored recommendation cohort here. The provenance-badge and tier-calibration UI already exists, but the engine does not yet generate or grade picks for this sport, so this section has no live data.</div></div>
       <div class="card" style="margin-bottom:10px"><div class="card-title">Market Edge & Slips</div><div style="font-size:var(--t-sm);color:var(--ink-1);line-height:1.6">The market-edge signal compares historical hit rates to implied odds as one input. Slips combine that signal with model review and recent form.</div></div>
       <div class="card" style="margin-bottom:10px"><div class="card-title">Touchdown Board</div><div style="font-size:var(--t-sm);color:var(--ink-1);line-height:1.6">The touchdown board ranks players by scoring usage, recent role, opponent context, and best-book pricing. It is meant to narrow the field, not force a play.</div></div>
       <div class="card" style="margin-bottom:10px"><div class="card-title">📖 Abbreviations</div><div style="font-size:var(--t-sm);color:var(--ink-1);line-height:1.7">REC — Receptions · REC_YDS — Receiving Yards · REC_TDS — Receiving Touchdowns<br>RUSH_YDS — Rushing Yards · RUSH_TDS — Rushing Touchdowns · CARRIES — Carries · TGT — Targets<br>ANY_TD — Anytime Touchdown · PASS_YDS — Passing Yards · PASS_TDS — Passing Touchdowns<br>COMP — Completions · ATT — Attempts · INT — Interceptions · UD_FP — Underdog Fantasy Points<br>EV% — Expected Value (hit rate minus implied odds) · CLV — Closing Line Value<br>SMASH / STRONG / LEAN — Confidence tiers for tracked recommendations</div></div>
-      <div class="card" style="margin-bottom:10px;border:1px solid var(--border-1)"><div class="card-title">🙏 Credits</div><div style="font-size:var(--t-sm);color:var(--ink-1);line-height:1.6"><div>Built by <span style="color:var(--accent);font-weight:700">Stephen Krolikowski</span></div><div>AI: <span style="color:var(--accent);font-weight:700">Gemini 3.6 Flash</span> · App: <span style="color:var(--accent);font-weight:700">Claude</span> by Anthropic</div><div>Engine + dashboard fixes with <span style="color:var(--accent);font-weight:700">Codex</span> by OpenAI</div><div>Props: <span style="color:var(--accent);font-weight:700">The Odds API</span> · Data: <span style="color:var(--accent);font-weight:700">nflverse</span></div></div></div>
+      <div class="card" style="margin-bottom:10px;border:1px solid var(--border-1)"><div class="card-title">🙏 Credits</div><div style="font-size:var(--t-sm);color:var(--ink-1);line-height:1.6"><div>Built by <span style="color:var(--accent);font-weight:700">Stephen Krolikowski</span></div><div>AI (planned, not yet active for NFL): <span style="color:var(--accent);font-weight:700">Gemini 3.6 Flash</span> · App: <span style="color:var(--accent);font-weight:700">Claude</span> by Anthropic</div><div>Engine + dashboard fixes with <span style="color:var(--accent);font-weight:700">Codex</span> by OpenAI</div><div>Props: <span style="color:var(--accent);font-weight:700">The Odds API</span> · Data: <span style="color:var(--accent);font-weight:700">nflverse</span></div></div></div>
       <div style="text-align:center;color:var(--ink-quiet);font-size:var(--t-xs);padding:8px 0 20px">For entertainment & research purposes only.</div>
     </div>
   </div>`;
