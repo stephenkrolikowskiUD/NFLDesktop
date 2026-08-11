@@ -1,9 +1,9 @@
 # NFLDesktop Roadmap
 
-_Last updated: 2026-08-06_
+_Last updated: 2026-08-11_
 
 ## Where We Are
-NFL is no longer a greenfield build. The core dashboard, engine, and season-long projection layer are live. The remaining work is about sharpening the weekly workflow, finishing lookup, and making the Best Ball board smarter around draft timing.
+NFL is no longer a greenfield build. The core dashboard, engine, season-long projection layer, and Lookup are all live. The remaining work is the weekly picks + grading loop, which currently has real client-side UI (confidence tiers, calibration) but no backend at all — no pick generation, no grading, no data ever reaches those tabs. That's the one piece standing between here and the Week 1 Launch Bar below.
 
 ## Shipped
 - ✅ nflverse-first data pipeline (schedule, rosters, weekly stats, snap counts, injuries, depth-chart context)
@@ -19,32 +19,29 @@ NFL is no longer a greenfield build. The core dashboard, engine, and season-long
 - ✅ Game Builder foundation with contest-slate filtering
 - ✅ Leaders / Picks / Model Performance / Info surfaces online
 - ✅ Mobile navigation pass, including Best Ball access on phone
+- ✅ Lookup rebuilt on nflverse-native data (projections, game logs, props, team rankings, schedule — no external API calls)
 
 ## In Progress
-- 🟡 Weekly picks board calibration and grading loop
-- 🟡 Lookup rebuild on nflverse-native data
+- 🔴 Weekly picks generation + grading — client-side confidence-tier UI (SMASH/STRONG, historical-floor calibration) exists, but there is no engine-side pipeline at all: no Gemini integration, and nothing writes `Picks_Current`/`Daily_Picks`/`Pick_Performance`. This is backend work, not polish.
 - 🟡 Best Ball board layout polish and mobile compaction
 - 🟡 Game Builder presentation and entry ergonomics
 - 🟡 Season-long projection explainer / trust layer
 
 ## Current Sprint Priorities
-1. **Best Ball draft helper polish**
+1. **Weekly picks generation + grader loop (backend, not polish)**
+   - Wire actual pick generation (Gemini review layer over the market/form model) so `Picks_Current`/`Daily_Picks` have real rows
+   - Build the grading loop so `Pick_Performance` gets populated and the existing SMASH/STRONG calibration UI has something to calibrate against
+   - Until this exists, the Info page describes this as planned rather than active — keep it that way rather than re-claiming it's live
+
+2. **Best Ball draft helper polish**
    - Tighten layout so the board stays primary
    - Keep queue, round context, and pressure cards useful without wasting space
    - Add clearer ADP / timing signals so we know who to take now versus who can wait
 
-2. **Season-long projection helper**
+3. **Season-long projection helper**
    - Keep projections trustworthy and explain disagreements vs consensus
    - Surface projection context cleanly in the board and related views
    - Make scoring-source, disagreement, and watchlist context obvious at the top of the board
-
-3. **Lookup rebuild**
-   - Replace MLB placeholder assumptions with NFL-native player lookup
-   - Support player/team search that matches the rest of the app
-
-4. **Weekly picks + grader loop**
-   - Improve weekly picks presentation
-   - Make grading and model-performance feedback more actionable before kickoff
 
 ## Next Up After This Sprint
 - ADP-aware draft timing layer

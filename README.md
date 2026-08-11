@@ -22,8 +22,8 @@ Week 1 kickoff is **2026-09-09** (NE @ SEA).
 - ✅ Leaders / Picks / Model Performance / Info surfaces online
 - ✅ Mobile navigation pass, including Best Ball access on phone
 - ✅ Age/decline and depth-chart role adjustment
-- 🟡 Weekly picks board calibration and grading loop
-- 🟡 Lookup rebuild on nflverse-native data
+- ✅ Lookup rebuilt on nflverse-native data (no external API calls)
+- 🔴 Weekly picks generation + grading — client-side confidence-tier UI exists (SMASH/STRONG, historical-floor calibration), but no engine-side pipeline: no Gemini integration, nothing writes `Picks_Current`/`Daily_Picks`/`Pick_Performance`
 - 🟡 Best Ball board layout polish and mobile compaction
 - 🟡 Projection explainer layer so disagreements are easier to trust at a glance
 - 🟡 Game Builder presentation and entry ergonomics
