@@ -3201,6 +3201,7 @@ function bbNextTargets(rows){
   const all=rows||[];
   const mine=all.filter(r=>st.bbDrafted.has(r.id));
   const available=all.filter(r=>!st.bbDrafted.has(r.id)&&!st.bbTaken.has(r.id));
+  const draftableAvailable=available.filter(bbIsDraftable);
   const counts={};
   mine.forEach(r=>{counts[r.pos]=(counts[r.pos]||0)+1});
   const scarcityByPos=Object.fromEntries(bbScarcityRows(all).map(item=>[item.pos,item]));
@@ -3217,7 +3218,7 @@ function bbNextTargets(rows){
   const seen=new Set();
   posPriority.forEach(item=>{
     if(item.need<=0)return;
-    available
+    draftableAvailable
       .filter(r=>r.pos===item.pos)
       .sort((a,b)=>(b.displayVorp||0)-(a.displayVorp||0))
       .slice(0,2)
@@ -3336,7 +3337,7 @@ function bbTrustSignal(row){
 function bbStackTargets(rows){
   const all=rows||[];
   const mine=all.filter(r=>st.bbDrafted.has(r.id));
-  const available=all.filter(r=>!st.bbDrafted.has(r.id)&&!st.bbTaken.has(r.id));
+  const available=all.filter(r=>!st.bbDrafted.has(r.id)&&!st.bbTaken.has(r.id)).filter(bbIsDraftable);
   const qbs=mine.filter(r=>r.pos==="QB");
   if(qbs.length){
     return available
@@ -3363,6 +3364,8 @@ function renderBestBallRoster(rows,projectionLens=null){
   const mine=rows.filter(r=>st.bbDrafted.has(r.id));
   const queue=rows.filter(r=>st.bbQueue.has(r.id));
   const taken=rows.filter(r=>st.bbTaken.has(r.id));
+  const available=rows.filter(r=>!st.bbDrafted.has(r.id)&&!st.bbTaken.has(r.id));
+  const draftableAvailable=available.filter(bbIsDraftable);
   const nextTargets=bbNextTargets(rows);
   const stackTargets=bbStackTargets(rows);
   const roundContext=bbRoundContext(rows);
@@ -3394,9 +3397,9 @@ function renderBestBallRoster(rows,projectionLens=null){
   const takeNow=roundContext.takeNow;
   const bestWait=roundContext.bestWait;
   const pressureCounts={
-    now:rows.filter(r=>bbTimingState(r,roundContext).tone==="now").length,
-    soon:rows.filter(r=>bbTimingState(r,roundContext).tone==="soon").length,
-    risk:rows.filter(r=>["changed teams","partial season","small sample"].includes(r.confidence)||r.source==="ecr_imputed").length
+    now:draftableAvailable.filter(r=>bbTimingState(r,roundContext).tone==="now").length,
+    soon:draftableAvailable.filter(r=>bbTimingState(r,roundContext).tone==="soon").length,
+    risk:draftableAvailable.filter(r=>["changed teams","partial season","small sample"].includes(r.confidence)||r.source==="ecr_imputed").length
   };
 
   function timingTag(row,mode){
@@ -3498,7 +3501,7 @@ function renderBestBallRoster(rows,projectionLens=null){
       <div class="bb-note-grid">
         <div class="bb-note-metric"><span class="bb-note-k">Current mix</span><span class="bb-note-v">${queue.length?[...new Set(queue.map(r=>r.pos))].join(" · "):"No queue yet"}</span></div>
         <div class="bb-note-metric"><span class="bb-note-k">Stack angle</span><span class="bb-note-v">${stackTargets.length?"Stack live":"No QB pair yet"}</span></div>
-        <div class="bb-note-metric"><span class="bb-note-k">Board status</span><span class="bb-note-v">${taken.length?taken.length+" gone / "+rows.length+" live":rows.length+" live"}</span></div>
+        <div class="bb-note-metric"><span class="bb-note-k">Board status</span><span class="bb-note-v">${taken.length?`${taken.length} gone / ${draftableAvailable.length} draftable live`:`${draftableAvailable.length} draftable live`}</span></div>
       </div>
     </div>`;
   const roundCard=`<div class="bb-pressure-card bb-round-card">
@@ -3687,10 +3690,10 @@ function renderBestBallView(){
 
   return `<section>
     <div style="padding:12px 16px 4px">
-      <div style="color:var(--accent);font-size:var(--t-sm);font-weight:700">Best Ball Draft Board <span class="bb-flag">Week 1 freeze point</span></div>
+      <div style="color:var(--accent);font-size:var(--t-sm);font-weight:700">Best Ball Draft Board <span class="bb-flag">Current preseason board</span></div>
       <div style="color:var(--ink-muted);font-size:var(--t-xs);line-height:1.5;margin-top:2px">
 ${sourceScoring?`<span class="bb-flag">${esc(scoringLabel)}</span> `:""}
-        Draft surface is stable enough for Week 1. Model projection and FantasyPros best-ball consensus stay side by side here.
+        Draft surface is live for current preseason best-ball work. Model projection and FantasyPros best-ball consensus stay side by side here.
         <strong>Disagreement is a question, not an edge.</strong> Backtested over 7 seasons on a
         model-independent sample, this board beats simple carry-forward on both error and ranking,
         but only by a modest margin. That means the signal is useful, not magical: use it to
