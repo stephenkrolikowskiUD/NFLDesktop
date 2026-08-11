@@ -1515,6 +1515,26 @@ function getVsSP(playerName){
 }
 
 // ═══ STAT PARLAY ENGINE ═══
+function getNflMatchupFallbackScore(oppTeam,metric,isQb){
+  const oppRow=getTeamRanking(oppTeam);
+  if(!oppRow)return 0;
+  const normalized=normalizePropMetric(metric);
+  const rankKey=["PASS_YDS","PASS_TDS","COMP","ATT","INT"].includes(normalized)
+    ?"passing_yards_rank"
+    :["REC","REC_YDS","REC_TDS","TGT"].includes(normalized)
+      ?"passing_yards_rank"
+      :["RUSH_YDS","RUSH_TDS","CARRIES","ANY_TD"].includes(normalized)
+        ?"rushing_yards_rank"
+        :normalized==="UD_FP"
+          ?(isQb?"passing_yards_rank":"rushing_yards_rank")
+          :null;
+  const rank=toNum(rowField(oppRow,rankKey));
+  if(!rank)return 0;
+  if(rank>=26)return 2;
+  if(rank>=20)return 1;
+  if(rank<=8)return -1;
+  return 0;
+}
 function getPropOpponentAdjustment(player,metric){
   const normalized=normalizePropMetric(metric);
   const candidates=[
@@ -1574,19 +1594,7 @@ function getStatParlayBoard(stat){
     const l7Avg=isPS?getRollingVal(most,"L3_",logCol):getRollingVal(most,"L7_",logCol);
 
     // Matchup score
-    let matchupScore=0;
-    if(!isPS){
-      const vsAvg=toNum(p.vs_OPP_AVG);
-      if(vsAvg>=0.280)matchupScore+=2;
-      else if(vsAvg>=0.250)matchupScore+=1;
-      // Career vs SP
-      const vsp=getVsSP(name);
-      if(vsp){
-        const cAB=toNum(vsp.AB);const cAVG=toNum(vsp.AVG);
-        if(cAB>=5&&cAVG>=0.300)matchupScore+=2;
-        else if(cAB>=5&&cAVG>=0.250)matchupScore+=1;
-      }
-    }
+    const matchupScore=getNflMatchupFallbackScore(p.opp_abbr_tonight||"",stat,isPS);
     const opponentAdjustment=getPropOpponentAdjustment(p,stat);
 
     // Composite score: hit rate is king, edge matters, matchup bonus
@@ -3007,7 +3015,7 @@ function renderPropExplorerView(){
         <div class="props-control"><label for="propsMinEdgeSelect">Minimum Edge%</label><select id="propsMinEdgeSelect">${[[-100,"Any"],[0,"Positive"],[5,"+5%"],[10,"+10%"],[15,"+15%"]].map(([v,l])=>`<option value="${v}" ${String(st.propsMinEdge)===String(v)?"selected":""}>${l}</option>`).join("")}</select></div>
       </div>
       ${teamBoardHTML}
-      <div class="props-filter"><div class="pf-btn ${st.propsMetric==="ALL"?"active":""}" onclick="setPropsMetric('ALL')">All</div>${allM.map(m=>`<div class="pf-btn ${st.propsMetric===m?"active":""}" onclick="setPropsMetric('${m}')">${m}</div>`).join("")}</div>
+      <div class="props-filter"><div class="pf-btn ${st.propsMetric==="ALL"?"active":""}" onclick="setPropsMetric('ALL')">All</div>${allM.map(m=>`<div class="pf-btn ${st.propsMetric===m?"active":""}" onclick="setPropsMetric('${m}')">${esc(propTypeLabel(m))}</div>`).join("")}</div>
       <div style="padding:0 16px;color:var(--ink-muted);font-size:var(--t-xs);margin-bottom:4px">${filtered.length} props across ${playerCount} players${filtered.length>200?" · showing top 200":""} · ranked by ${st.propsSort==="SCORE"?"research score":st.propsSort==="HIT"?"Hit%":st.propsSort==="EDGE"?"Edge%, then Hit%":"player"}</div>
       ${sorted.length?`<div class="props-tbl-wrap"><table><thead><tr><th>#</th><th>Player</th><th>Team</th><th>Prop</th><th>Best Side</th><th>Over</th><th>Under</th><th>Hit%</th><th>Edge</th><th>Research Score</th></tr></thead><tbody>${sorted.map((row,i)=>{
         const p=row.prop;
@@ -3018,7 +3026,7 @@ function renderPropExplorerView(){
         const matchupDisplay=Math.abs(row.components.matchup)<0.5?0:row.components.matchup;
         const breakdown=`Hit ${row.components.hit.toFixed(1)} · Edge ${row.components.edge.toFixed(1)} · Form ${row.components.form.toFixed(0)} · Matchup ${matchupDisplay.toFixed(0)}`;
         const weak=row.edge===null||row.edge<0.05;
-        return`<tr class="${flags.returning?"props-returning":""}${locked?" props-locked":""}${weak?" props-weak":""}" style="cursor:pointer" onclick="streakToDash('${esc(p.PLAYER_NAME)}','${propToLogCol(p.METRIC)}','${p.DK_LINE}')"><td style="color:var(--ink-muted);font-weight:700">${i+1}</td><td style="text-align:left;font-weight:600">${playerLink(p.PLAYER_NAME,propToLogCol(p.METRIC),p.DK_LINE)}${flags.returning?` <span class="risk-badge risk-returning">⚠️</span>`:flags.limited?` <span class="risk-badge risk-limited">⚠️</span>`:""}${locked?` <span class="locked-badge">🔒</span>`:""}</td><td title="${esc(row.teamName)}"><strong>${esc(row.team||"—")}</strong>${row.opp?` <span style="color:var(--ink-muted)">vs ${esc(row.opp)}</span>`:""}</td><td><span style="color:var(--accent);font-weight:600">${p.METRIC}</span><div style="color:var(--ink-muted);font-size:9px">line ${esc(p.DK_LINE)}</div></td><td>${row.side?`<span class="props-side ${row.side.toLowerCase()}">${row.side} ${fmtOdds(row.odds)}</span>`:"—"}</td><td class="${parseInt(p.OVER_ODDS)<=-130?"odds-over":parseInt(p.OVER_ODDS)>=130?"odds-under":"odds-even"}">${fmtOdds(p.OVER_ODDS)}</td><td class="${parseInt(p.UNDER_ODDS)<=-130?"odds-over":parseInt(p.UNDER_ODDS)>=130?"odds-under":"odds-even"}">${fmtOdds(p.UNDER_ODDS)}</td><td style="font-weight:700">${hrPct}</td><td>${edgeStr}</td><td title="${esc(breakdown)}"><span class="props-score">${row.score.toFixed(1)}</span><div class="props-score-detail">H ${row.components.hit.toFixed(1)} · E ${row.components.edge.toFixed(1)} · F ${row.components.form.toFixed(0)} · M ${matchupDisplay.toFixed(0)}</div></td></tr>${renderPropBestBookTableRow(p,10,{collapsed:true})}`}).join("")}</tbody></table></div>`:`<div class="props-pass"><div class="props-pass-title">No props clear these filters</div><div class="props-pass-copy">That is a valid result, not a broken board. Lower the minimum edge or change the team/market filter to explore the wider slate.</div></div>`}`;
+        return`<tr class="${flags.returning?"props-returning":""}${locked?" props-locked":""}${weak?" props-weak":""}" style="cursor:pointer" onclick="streakToDash('${esc(p.PLAYER_NAME)}','${propToLogCol(p.METRIC)}','${p.DK_LINE}')"><td style="color:var(--ink-muted);font-weight:700">${i+1}</td><td style="text-align:left;font-weight:600">${playerLink(p.PLAYER_NAME,propToLogCol(p.METRIC),p.DK_LINE)}${flags.returning?` <span class="risk-badge risk-returning">⚠️</span>`:flags.limited?` <span class="risk-badge risk-limited">⚠️</span>`:""}${locked?` <span class="locked-badge">🔒</span>`:""}</td><td title="${esc(row.teamName)}"><strong>${esc(row.team||"—")}</strong>${row.opp?` <span style="color:var(--ink-muted)">vs ${esc(row.opp)}</span>`:""}</td><td><span style="color:var(--accent);font-weight:600">${esc(propTypeLabel(p.METRIC))}</span><div style="color:var(--ink-muted);font-size:9px">line ${esc(p.DK_LINE)}</div></td><td>${row.side?`<span class="props-side ${row.side.toLowerCase()}">${row.side} ${fmtOdds(row.odds)}</span>`:"—"}</td><td class="${parseInt(p.OVER_ODDS)<=-130?"odds-over":parseInt(p.OVER_ODDS)>=130?"odds-under":"odds-even"}">${fmtOdds(p.OVER_ODDS)}</td><td class="${parseInt(p.UNDER_ODDS)<=-130?"odds-over":parseInt(p.UNDER_ODDS)>=130?"odds-under":"odds-even"}">${fmtOdds(p.UNDER_ODDS)}</td><td style="font-weight:700">${hrPct}</td><td>${edgeStr}</td><td title="${esc(breakdown)}"><span class="props-score">${row.score.toFixed(1)}</span><div class="props-score-detail">H ${row.components.hit.toFixed(1)} · E ${row.components.edge.toFixed(1)} · F ${row.components.form.toFixed(0)} · M ${matchupDisplay.toFixed(0)}</div></td></tr>${renderPropBestBookTableRow(p,10,{collapsed:true})}`}).join("")}</tbody></table></div>`:`<div class="props-pass"><div class="props-pass-title">No props clear these filters</div><div class="props-pass-copy">That is a valid result, not a broken board. Lower the minimum edge or change the team/market filter to explore the wider slate.</div></div>`}`;
   return html;
 }
 
