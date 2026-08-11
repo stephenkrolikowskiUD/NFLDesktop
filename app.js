@@ -89,7 +89,7 @@ function saveBestBallQueue(){
 
 const initialDraftSlate=loadDraftSlate();
 let st={
-  tonight:[],gameLogs:[],splits:[],weather:[],pitchers:[],schedule:[],
+  tonight:[],gameLogs:[],splits:[],weather:[],qbSlateRows:[],schedule:[],
   pTonight:[],pGameLogs:[],pSplits:[],
   picks:[],picksHistory:[],props:[],allBooksProps:[],teamRankings:[],
   pickPerformance:[],pickPerformanceSnaps:[],statsTimeWindow:"last_30d",statsLeaderMetric:"REC",leaderMode:"final",leaderDateOffset:0,gameEntry:{selectedGame:null,legCount:GAME_ENTRY_DEFAULT_LEGS,entry:null},
@@ -131,8 +131,8 @@ function toggleTheme(){st.theme=st.theme==="light"?"dark":"light";localStorage.s
 
 let derived={
   version:-1,
-  batterLogsByName:new Map(),
-  pitcherLogsByName:new Map(),
+  skillLogsByName:new Map(),
+  qbLogsByName:new Map(),
   propsByName:new Map(),
   tonightByName:new Map(),
   pTonightByName:new Map(),
@@ -145,8 +145,8 @@ let derived={
 function resetDerived(){
   derived={
     version:-1,
-    batterLogsByName:new Map(),
-    pitcherLogsByName:new Map(),
+    skillLogsByName:new Map(),
+    qbLogsByName:new Map(),
     propsByName:new Map(),
     tonightByName:new Map(),
     pTonightByName:new Map(),
@@ -172,10 +172,10 @@ function ensureDerived(){
   if(derived.version===st.dataVersion)return;
   resetDerived();
   derived.version=st.dataVersion;
-  derived.batterLogsByName=indexRowsByName(st.gameLogs,"player_name");
-  derived.pitcherLogsByName=indexRowsByName(st.pGameLogs,"player_name");
-  for(const logs of derived.batterLogsByName.values())logs.sort((a,b)=>(b.game_date||"").localeCompare(a.game_date||""));
-  for(const logs of derived.pitcherLogsByName.values())logs.sort((a,b)=>(b.game_date||"").localeCompare(a.game_date||""));
+  derived.skillLogsByName=indexRowsByName(st.gameLogs,"player_name");
+  derived.qbLogsByName=indexRowsByName(st.pGameLogs,"player_name");
+  for(const logs of derived.skillLogsByName.values())logs.sort((a,b)=>(b.game_date||"").localeCompare(a.game_date||""));
+  for(const logs of derived.qbLogsByName.values())logs.sort((a,b)=>(b.game_date||"").localeCompare(a.game_date||""));
   derived.propsByName=indexRowsByName(st.props,"PLAYER_NAME");
   for(const row of st.tonight||[]){
     const key=normalizePlayerName(row?.player_name);
@@ -210,7 +210,7 @@ function getMemo(key,build){
 function getPlayerLogs(name,isP){
   ensureDerived();
   const key=normalizePlayerName(name);
-  return (isP?derived.pitcherLogsByName:derived.batterLogsByName).get(key)||[];
+  return (isP?derived.qbLogsByName:derived.skillLogsByName).get(key)||[];
 }
 
 function getTonightPlayerRow(name,isP){
@@ -1015,7 +1015,7 @@ function propToLogCol(metric){
   return map[metric]||metric;
 }
 
-function isPitcherProp(metric,name=""){return isQuarterbackProp(metric,name)}
+function isQuarterbackMarket(metric,name=""){return isQuarterbackProp(metric,name)}
 function isActionableMarketEdgeSide(metric,lean,odds){
   if(metric==="HR"&&lean!=="OVER")return false;
   const price=Number(odds);
@@ -1035,7 +1035,7 @@ function getMarketEdges(){
     if(isNaN(overOdds)&&isNaN(underOdds))continue;
 
     const logCol=propToLogCol(metric);
-    const isP=isPitcherProp(metric,name);
+    const isP=isQuarterbackMarket(metric,name);
     const hr=getHitRate(name,logCol,line,isP);
     if(!hr||hr.total<3||!hr.nonPush)continue;
 
@@ -1379,10 +1379,10 @@ function toggleDrafted(name){if(st.drafted.has(name))st.drafted.delete(name);els
 function resetDrafted(){st.drafted.clear();render()}
 function streakToDash(name,metric,line){
   const metricKey=String(metric||"").toUpperCase();
-  const pitcherMetric=isQuarterbackProp(metricKey,name);
+  const qbMetric=isQuarterbackProp(metricKey,name);
   const b=st.tonight.find(t=>normalizePlayerName(t.player_name)===normalizePlayerName(name));
   const p=st.pTonight.find(t=>normalizePlayerName(t.player_name)===normalizePlayerName(name));
-  if(pitcherMetric){
+  if(qbMetric){
     st.mode="qb";
     st.metric=metricKey==="P_SO"?"SO":metricKey||"PASS_YDS";
     st.player=p?.player_name||name;
@@ -1424,7 +1424,7 @@ function getStreaks(){
       ?(logs.reduce((s,g)=>s+getMetricVal(g,"ANY_TD"),0)/logs.length)||0
       :toNum(rowField(logs[0],`Seas_${sType.key}`,propToLogCol(sType.key)));
     const prop=st.props.find(pr=>normalizePlayerName(pr.PLAYER_NAME)===normalizePlayerName(name)&&normalizePropMetric(pr.METRIC)===normalizePropMetric(sType.key));
-    streaks.push({player:name,team:pT.team_abbr||"",opp:pT.opp_abbr_tonight||"",venue:pT.venue_tonight||"",stat:sType.key,threshold:sType.threshold,streak,label:sType.label,emoji:sType.emoji,propType:"bat",desc:sType.desc,avgDuring:avgDuring.toFixed(2),seasAvg:seasAvg.toFixed(2),recentVals,dkLine:prop?prop.DK_LINE:null,overOdds:prop?parseInt(prop.OVER_ODDS)||null:null});
+    streaks.push({player:name,team:pT.team_abbr||"",opp:pT.opp_abbr_tonight||"",venue:pT.venue_tonight||"",stat:sType.key,threshold:sType.threshold,streak,label:sType.label,emoji:sType.emoji,propType:"skill",desc:sType.desc,avgDuring:avgDuring.toFixed(2),seasAvg:seasAvg.toFixed(2),recentVals,dkLine:prop?prop.DK_LINE:null,overOdds:prop?parseInt(prop.OVER_ODDS)||null:null});
   }}
   const PITCH=[
     {key:"PASS_YDS",threshold:225,label:"Passing Volume",emoji:"🔥",desc:"games with 225+ pass yards"},
@@ -1443,7 +1443,7 @@ function getStreaks(){
     const avgDuring=(logs.slice(0,streak).reduce((s,g)=>s+getMetricVal(g,sType.key),0)/streak)||0;
     const seasAvg=toNum(rowField(logs[0],`Seas_${sType.key}`,propToLogCol(sType.key)))||toNum(rowField(logs[0],`L7_${sType.key}`,propToLogCol(sType.key)));
     const prop=st.props.find(pr=>normalizePlayerName(pr.PLAYER_NAME)===normalizePlayerName(name)&&normalizePropMetric(pr.METRIC)===normalizePropMetric(sType.key));
-    streaks.push({player:name,team:pT.team_abbr||"",opp:pT.opp_abbr_tonight||"",venue:pT.venue_tonight||"",stat:sType.key,threshold:sType.threshold,streak,label:sType.label,emoji:sType.emoji,propType:"pitch",desc:sType.desc,avgDuring:avgDuring.toFixed(2),seasAvg:seasAvg.toFixed(2),recentVals,dkLine:prop?prop.DK_LINE:null,overOdds:prop?parseInt(prop.OVER_ODDS)||null:null});
+    streaks.push({player:name,team:pT.team_abbr||"",opp:pT.opp_abbr_tonight||"",venue:pT.venue_tonight||"",stat:sType.key,threshold:sType.threshold,streak,label:sType.label,emoji:sType.emoji,propType:"qb",desc:sType.desc,avgDuring:avgDuring.toFixed(2),seasAvg:seasAvg.toFixed(2),recentVals,dkLine:prop?prop.DK_LINE:null,overOdds:prop?parseInt(prop.OVER_ODDS)||null:null});
   }}
   const best={};for(const s of streaks){const k=`${s.player}|${s.stat}`;if(!best[k]||s.streak>best[k].streak||(s.streak===best[k].streak&&s.threshold>best[k].threshold))best[k]=s}
   const result=Object.values(best);result.sort((a,b)=>b.streak-a.streak);
@@ -1611,7 +1611,7 @@ function getRankedPropsBoard(){
       metricBoards.set(metric,byPlayer);
     });
     return st.props.map((prop,index)=>{
-      const isP=isPitcherProp(prop.METRIC,prop.PLAYER_NAME);
+      const isP=isQuarterbackMarket(prop.METRIC,prop.PLAYER_NAME);
       const source=isP?st.pTonight:st.tonight;
       const playerKey=normalizePlayerName(prop.PLAYER_NAME);
       const player=source.find(row=>normalizePlayerName(row.player_name)===playerKey)||{};
@@ -2767,20 +2767,20 @@ function renderKsBoardView(convergenceHTML){
 
 function renderStreaksBoardView(convergenceHTML){
   const allStreaks=getStreaks();
-  const fil=st.streakFilter==="all"?allStreaks:st.streakFilter==="bat"?allStreaks.filter(s=>s.propType==="bat"):allStreaks.filter(s=>s.propType==="pitch");
+  const fil=st.streakFilter==="all"?allStreaks:st.streakFilter==="skill"?allStreaks.filter(s=>s.propType==="skill"):allStreaks.filter(s=>s.propType==="qb");
   if(!fil.length){
     return convergenceHTML+`<div class="empty" style="padding:40px">${allStreaks.length?`No ${st.streakFilter} streaks found.`:"No active streaks yet. Need 3+ games of data."}</div>`;
   }
   let html=convergenceHTML+`<div style="padding:12px 16px 4px;display:flex;justify-content:space-between;align-items:center"><div style="color:#ffaa00;font-size:var(--t-sm);font-weight:700">🔥 Active Streaks</div><div style="color:var(--ink-muted);font-size:var(--t-xs)">${fil.length} streaks found</div></div>
-  <div class="streak-filters"><div class="pf-btn ${st.streakFilter==="all"?"active":""}" onclick="setStreakFilter('all')">All</div><div class="pf-btn ${st.streakFilter==="bat"?"active":""}" onclick="setStreakFilter('bat')">${icon('bat')} Skill</div><div class="pf-btn ${st.streakFilter==="pitch"?"active":""}" onclick="setStreakFilter('pitch')">${icon('ball')} QB</div></div>`;
+  <div class="streak-filters"><div class="pf-btn ${st.streakFilter==="all"?"active":""}" onclick="setStreakFilter('all')">All</div><div class="pf-btn ${st.streakFilter==="skill"?"active":""}" onclick="setStreakFilter('skill')">${icon('bat')} Skill</div><div class="pf-btn ${st.streakFilter==="qb"?"active":""}" onclick="setStreakFilter('qb')">${icon('ball')} QB</div></div>`;
   html+=`<div class="cards-grid">`;
   html+=fil.map(s=>{
     const heat=getStreakHeat(s.streak);
     const odds=s.overOdds?fmtOdds(s.overOdds):"";
-    const locked=getLockInfo(s.player,s.propType==="pitch").started;
+    const locked=getLockInfo(s.player,s.propType==="qb").started;
     return`<div class="streak-card ${heat.cls}${locked?" locked-card":""}" onclick="streakToDash('${esc(s.player)}')">
       <div class="streak-left">
-        <div><span class="streak-emoji">${s.emoji}</span><span class="streak-name">${playerLink(s.player,s.stat,s.dkLine||"")}${lockBadge(s.player,s.propType==="pitch")}</span><span class="streak-label">${s.label}</span></div>
+        <div><span class="streak-emoji">${s.emoji}</span><span class="streak-name">${playerLink(s.player,s.stat,s.dkLine||"")}${lockBadge(s.player,s.propType==="qb")}</span><span class="streak-label">${s.label}</span></div>
         <div class="streak-meta">${esc(s.team)} vs ${esc(s.opp)} · ${s.desc}</div>
         <div class="streak-chart">${miniChart(s.recentVals,s.threshold)}</div>
         ${s.dkLine?`<div class="streak-prop">DK ${s.stat} ${s.dkLine} ${odds?" O:"+odds:""} · Avg during: ${s.avgDuring}</div>`:`<div class="streak-prop">Avg during streak: ${s.avgDuring} · Season: ${s.seasAvg}</div>`}
@@ -4437,13 +4437,13 @@ function loadAllData(){
   fetchOptionalSheet("Projections","Season projections are unavailable."),
   fetchOptionalSheet("Pick_Performance"),
   fetchOptionalSheet("Pick_Performance_Snapshots")
-]).then(([_,tonight,logs,splits,weather,pitchers,schedule,pTonight,pLogs,pSplits,currentPickSource,picksHistory,props,allBooksProps,teamRankings,projections,pickPerformance,pickPerformanceSnaps])=>{
+]).then(([_,tonight,logs,splits,weather,qbSlateRows,schedule,pTonight,pLogs,pSplits,currentPickSource,picksHistory,props,allBooksProps,teamRankings,projections,pickPerformance,pickPerformanceSnaps])=>{
   resetDerived();
   st.tonight=normalizeKeys(cleanRows(tonight));
   st.gameLogs=normalizeKeys(cleanRows(logs));
   st.splits=normalizeKeys(cleanRows(splits));
   st.weather=normalizeKeys(cleanRows(weather));
-  st.pitchers=normalizeKeys(cleanRows(pitchers));
+  st.qbSlateRows=normalizeKeys(cleanRows(qbSlateRows));
   st.schedule=normalizeKeys(cleanRows(schedule));
   st.pTonight=normalizeKeys(cleanRows(pTonight));
   st.pGameLogs=normalizeKeys(cleanRows(pLogs));
@@ -4495,7 +4495,7 @@ function loadAllData(){
 	    Daily_Picks: st.picksHistory,
 	    Player_Props: st.props,
 	    All_Books_Props: st.allBooksProps,
-	    Slate_QB: st.pitchers,
+	    Slate_QB: st.qbSlateRows,
 	    Team_Rankings: st.teamRankings,
 	  };
 	  const _schemaIssues = [];
