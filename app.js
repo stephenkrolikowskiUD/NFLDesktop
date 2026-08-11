@@ -1252,7 +1252,7 @@ function clearShortlistTray(){st.shortlistTray=[];st.shortlistTrayNotice="";pers
 function shortlistTrayCopyText(items){
   const math=calculateParlayMath(items);
   const combined=math.american>0?`+${math.american}`:`${math.american}`;
-  return`NFL Shortlist Entry — ${items.length} legs\n${items.map((item,index)=>`${index+1}. ${item.name} — ${item.metric} ${item.lean} ${item.dkLine} (${fmtOdds(item.odds)}, ${item.book})`).join("\n")}\nCombined ${combined} | $10 → $${math.return10.toFixed(2)}\nBuilt ${new Date().toLocaleString()}`;
+  return`NFL Shortlist Entry — ${items.length} legs\n${items.map((item,index)=>`${index+1}. ${item.name} — ${propTypeLabel(item.metric)} ${item.lean} ${item.dkLine} (${fmtOdds(item.odds)}, ${item.book})`).join("\n")}\nCombined ${combined} | $10 → $${math.return10.toFixed(2)}\nBuilt ${new Date().toLocaleString()}`;
 }
 function copyShortlistTray(){
   const items=getActiveShortlistTray();if(!items.length)return;
@@ -1276,7 +1276,7 @@ function renderShortlistTray(){
   if(correlated)warnings.push("Same-game legs detected; the combined probability is not independent.");
   if(books.length>1)warnings.push(`Cross-book entry: best prices are split across ${books.join(", ")}.`);
   if(weakest.edge<0.08)warnings.push(`Weakest leg is ${weakest.name} at +${(weakest.edge*100).toFixed(1)}% edge.`);
-  return`<aside class="shortlist-tray"><div class="shortlist-tray-head"><div class="shortlist-tray-title">My Shortlist Tray <span>${items.length}</span></div><div class="shortlist-tray-actions"><button class="shortlist-tray-btn" onclick="clearShortlistTray()">Clear</button><button class="shortlist-tray-btn primary" onclick="copyShortlistTray()">${window.__shortlistTrayCopied?"Copied":"Copy entry"}</button></div></div><div class="shortlist-tray-body"><div class="shortlist-tray-legs">${items.map(item=>`<div class="shortlist-tray-leg"><strong>${esc(item.name)}</strong><span>${esc(item.metric)} ${item.lean} ${esc(item.dkLine)} · ${fmtOdds(item.odds)}</span><button class="shortlist-tray-remove" title="Remove ${esc(item.name)}" onclick="removeShortlistTrayLeg('${esc(shortlistLegKey(item))}')">×</button></div>`).join("")}</div><div class="shortlist-tray-metrics"><div class="shortlist-tray-metric"><strong>${combined}</strong><span>Combined odds</span></div><div class="shortlist-tray-metric"><strong>$${math.return10.toFixed(2)}</strong><span>$10 return</span></div><div class="shortlist-tray-metric"><strong>+${(avgEdge*100).toFixed(1)}%</strong><span>Average edge</span></div><div class="shortlist-tray-metric"><strong>+${(weakest.edge*100).toFixed(1)}%</strong><span>Weakest leg</span></div></div>${warnings.map(warning=>`<div class="shortlist-tray-warning">${icon("warn")}${esc(warning)}</div>`).join("")}${st.shortlistTrayNotice?`<div class="shortlist-tray-notice">${esc(st.shortlistTrayNotice)}</div>`:""}</div></aside>`;
+  return`<aside class="shortlist-tray"><div class="shortlist-tray-head"><div class="shortlist-tray-title">My Shortlist Tray <span>${items.length}</span></div><div class="shortlist-tray-actions"><button class="shortlist-tray-btn" onclick="clearShortlistTray()">Clear</button><button class="shortlist-tray-btn primary" onclick="copyShortlistTray()">${window.__shortlistTrayCopied?"Copied":"Copy entry"}</button></div></div><div class="shortlist-tray-body"><div class="shortlist-tray-legs">${items.map(item=>`<div class="shortlist-tray-leg"><strong>${esc(item.name)}</strong><span>${esc(propTypeLabel(item.metric))} ${item.lean} ${esc(item.dkLine)} · ${fmtOdds(item.odds)}</span><button class="shortlist-tray-remove" title="Remove ${esc(item.name)}" onclick="removeShortlistTrayLeg('${esc(shortlistLegKey(item))}')">×</button></div>`).join("")}</div><div class="shortlist-tray-metrics"><div class="shortlist-tray-metric"><strong>${combined}</strong><span>Combined odds</span></div><div class="shortlist-tray-metric"><strong>$${math.return10.toFixed(2)}</strong><span>$10 return</span></div><div class="shortlist-tray-metric"><strong>+${(avgEdge*100).toFixed(1)}%</strong><span>Average edge</span></div><div class="shortlist-tray-metric"><strong>+${(weakest.edge*100).toFixed(1)}%</strong><span>Weakest leg</span></div></div>${warnings.map(warning=>`<div class="shortlist-tray-warning">${icon("warn")}${esc(warning)}</div>`).join("")}${st.shortlistTrayNotice?`<div class="shortlist-tray-notice">${esc(st.shortlistTrayNotice)}</div>`:""}</div></aside>`;
 }
 
 function renderTonightShortlist(){
@@ -1517,16 +1517,23 @@ function getVsSP(playerName){
 // ═══ STAT PARLAY ENGINE ═══
 function getPropOpponentAdjustment(player,metric){
   const normalized=normalizePropMetric(metric);
-  const field=normalized==="H"
-    ?"H_OPP_ADJ"
-    :["HR","TB"].includes(normalized)
-      ?"POWER_OPP_ADJ"
-      :normalized==="P_SO"
-        ?"P_SO_OPP_ADJ"
-        :normalized==="P_ER"
-          ?"P_ER_OPP_ADJ"
-          :null;
-  return field?optionalRowNumber(player,field):null;
+  const candidates=[
+    `${normalized}_OPP_ADJ`,
+    normalized==="ANY_TD"?"TD_OPP_ADJ":"",
+    ["REC","REC_YDS","TGT"].includes(normalized)?"REC_OPP_ADJ":"",
+    ["RUSH_YDS","RUSH_TDS","CARRIES"].includes(normalized)?"RUSH_OPP_ADJ":"",
+    ["PASS_YDS","PASS_TDS","COMP","ATT","INT"].includes(normalized)?"PASS_OPP_ADJ":"",
+    normalized==="UD_FP"?"UD_FP_OPP_ADJ":"",
+    normalized==="H"?"H_OPP_ADJ":"",
+    ["HR","TB"].includes(normalized)?"POWER_OPP_ADJ":"",
+    normalized==="P_SO"?"P_SO_OPP_ADJ":"",
+    normalized==="P_ER"?"P_ER_OPP_ADJ":""
+  ].filter(Boolean);
+  for(const field of candidates){
+    const value=optionalRowNumber(player,field);
+    if(value!==null)return value;
+  }
+  return null;
 }
 function getStatParlayBoard(stat){
   return getMemo(`statParlay:${stat}`,()=>{
@@ -2893,7 +2900,7 @@ function renderBetsBoardView(convergenceHTML){
               <div class="bet-name">${b.isP?icon('ball'):""}${playerLink(b.name,b.metric,b.dkLine)}${badges}${lockBadge(b.name,b.isP)}</div>
               <div class="bet-meta">${esc(b.team)} vs ${esc(b.opp||"TBD")} · ${b.hits}/${b.total} games</div>
               <div class="bet-prop">
-                <span class="prop-metric" style="font-size:var(--t-xs)">${b.metric}</span>
+                <span class="prop-metric" style="font-size:var(--t-xs)">${esc(propTypeLabel(b.metric))}</span>
                 <span class="${leanCls}" style="font-weight:700;font-size:var(--t-sm)">${b.lean} ${b.dkLine}</span>
                 <span style="color:var(--accent-soft);font-size:var(--t-xs)">${fmtOdds(b.odds)}</span>
                 <span class="ev-badge ev-pos ev-big ${b.returning||locked?"muted-risk":""}">+${edgePct}% EV</span>
@@ -2955,7 +2962,7 @@ function renderSlipsBoardView(convergenceHTML){
                     ${l.aiDisagreementText?`<div style="font-size:var(--t-xs);color:${l.aiConflictLevel==="strong"?"#fca5a5":"#fde68a"};margin-top:2px">${esc(l.aiDisagreementText)}</div>`:""}
                   </div>
                   <div class="slip-leg-prop">
-                    <span class="slip-leg-metric">${l.metric}</span>
+                    <span class="slip-leg-metric">${esc(propTypeLabel(l.metric))}</span>
                     <span class="slip-leg-lean ${leanCls}">${l.lean} ${l.dkLine}</span>
                     <span class="slip-leg-edge">+${(l.edge*100).toFixed(0)}%</span>
                   </div>
