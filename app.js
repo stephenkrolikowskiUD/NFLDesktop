@@ -3156,8 +3156,10 @@ function bbToggleTaken(id){
 function bbResetDraft(){
   st.bbDrafted=new Set();
   st.bbTaken=new Set();
+  st.bbQueue=new Set();
   saveBestBallDrafted();
   saveBestBallTaken();
+  saveBestBallQueue();
   render();
 }
 function bbToggleQueue(id){
