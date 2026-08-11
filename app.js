@@ -32,7 +32,6 @@ const SOFT_LINE_BOOKS = ['fanduel', 'betmgm', 'espnbet'];
 const MARKET_EDGE_MIN_ODDS = -250;
 const METRICS=["REC","REC_YDS","TGT","RUSH_YDS","CARRIES","REC_TDS","RUSH_TDS","ANY_TD","UD_FP"];
 const P_METRICS=["PASS_YDS","PASS_TDS","COMP","ATT","INT","RUSH_YDS","UD_FP"];
-const MLB_API="https://statsapi.mlb.com/api/v1";
 const SHORTLIST_TRAY_KEY="nfl-shortlist-tray";
 const DRAFT_SLATE_KEY="nfl-draft-slate-v1";
 const CALIBRATED_TIER_FLOORS = {
@@ -104,7 +103,6 @@ let st={
   streakFilter:"all",drafted:new Set(),slipLegs:"3",
   draftSlate:{signature:initialDraftSlate.signature,selectedIds:initialDraftSlate.selectedIds,panelOpen:false},
   projections:[],bbPos:"ALL",bbSort:"VORP",bbHideDrafted:false,bbDrafted:loadBestBallDrafted(),bbTaken:loadBestBallTaken(),bbQueue:loadBestBallQueue(),bbSearch:"",bbTeam:"ALL",bbDraftableOnly:true,bbScoring:"half",
-  vsSP:[],
   lkPlayer:null,lkTeam:null,lkSelectionType:"",lkResults:[],lkQuery:"",lkSubTab:"career",lkPlayerType:"skill",
   lkCareer:null,lkYby:null,lkVsTeamStats:null,lkVsPlayerId:null,
   lkVsPlayerName:"",lkVsPlayerResults:[],lkVsPlayerStats:null,
@@ -569,14 +567,10 @@ function renderModelRunHealth(rows){
   return `<div class="run-health-strip">${getModelRunHealth(rows).map(item=>`<div class="run-health-item ${item.level||""}"><div class="run-health-label">${esc(item.label)}</div><div class="run-health-value">${esc(item.value)}</div><div class="run-health-meta">${esc(item.meta)}</div></div>`).join("")}</div>`;
 }
 
-const COMBO_STATS={
-  "H+R+RBI":["H","R","RBI"],
-  "H+R":["H","R"],
-  "R+RBI":["R","RBI"],
-  "H+RBI":["H","RBI"],
-  "1B+2B":["1B","2B"],
-  "BB+H":["BB","H"],
-};
+// NFL app: no live combo markets currently depend on the old baseball combos.
+// Keep the hook in place so the scoring helpers remain generic without carrying
+// around dormant MLB market definitions.
+const COMBO_STATS={};
 
 function getMetricVal(g,m){
   if(COMBO_STATS[m])return COMBO_STATS[m].reduce((s,k)=>s+toNum(g[k]),0);
@@ -1504,14 +1498,6 @@ function renderConvergenceHTML(){
   <div class="cards-grid">
     ${board.map((p,i)=>`<div class="bet-card ${i===0?"elite":"mid"}" style="cursor:pointer;border-color:${i===0?"var(--accent)":"var(--border-1)"}" onclick="streakToDash('${esc(p.name)}')"><div class="bet-left"><div class="bet-name">${playerLink(p.name)}</div><div class="bet-meta">${esc(p.team||"")} ${p.opp?`vs ${esc(p.opp)}`:""}</div>${p.detail?`<div class="bet-prop"><span class="prop-metric" style="font-size:var(--t-xs)">Lead</span><span style="color:var(--ink-1);font-size:var(--t-xs)">${esc(p.detail)}</span></div>`:""}<div class="draft-tags" style="margin-top:6px">${p.sourceList.map(s=>`<span class="draft-tag" style="background:var(--surface-2);color:${s==="AI"?"var(--accent)":s==="Market Edge"?"var(--accent-soft)":s==="Streaks"?"#ffaa00":"var(--under)"}">${esc(s==="AI"?"Model":s)}</span>`).join("")}</div></div><div class="bet-right"><div class="bet-edge pos">${p.sourceCount}x</div><div class="bet-sub">signals</div></div></div>`).join("")}
   </div></div></details></div>`;
-}
-
-// ═══ DRAFT CHEAT SHEET ═══
-// ═══ VS STARTING PITCHER (career) ═══
-function getVsSP(playerName){
-  if(!playerName||!st.vsSP.length)return null;
-  const n=normalizePlayerName(playerName);
-  return st.vsSP.find(v=>normalizePlayerName(v.player_name)===n)||null;
 }
 
 // ═══ STAT PARLAY ENGINE ═══
@@ -4447,12 +4433,11 @@ function loadAllData(){
   fetchOptionalSheet("Daily_Picks"),
   fetchOptionalSheet("Player_Props","Sportsbook markets are unavailable."),
   fetchOptionalSheet("All_Books_Props"),
-  fetchOptionalSheet("Player_vs_Defense"),
   fetchOptionalSheet("Team_Rankings"),
   fetchOptionalSheet("Projections","Season projections are unavailable."),
   fetchOptionalSheet("Pick_Performance"),
   fetchOptionalSheet("Pick_Performance_Snapshots")
-]).then(([_,tonight,logs,splits,weather,pitchers,schedule,pTonight,pLogs,pSplits,currentPickSource,picksHistory,props,allBooksProps,vsSP,teamRankings,projections,pickPerformance,pickPerformanceSnaps])=>{
+]).then(([_,tonight,logs,splits,weather,pitchers,schedule,pTonight,pLogs,pSplits,currentPickSource,picksHistory,props,allBooksProps,teamRankings,projections,pickPerformance,pickPerformanceSnaps])=>{
   resetDerived();
   st.tonight=normalizeKeys(cleanRows(tonight));
   st.gameLogs=normalizeKeys(cleanRows(logs));
@@ -4478,10 +4463,9 @@ function loadAllData(){
   console.log(
     `📍 Picks source: ${currentPickSource.available?"Picks_Current":"Daily_Picks fallback"} `+
     `(${st.picks.length} current, ${st.picksHistory.length} history)`
-  );
+	  );
 	  st.props=normalizeKeys(cleanRows(props));
 	  st.allBooksProps=normalizeKeys(cleanRows(allBooksProps||[]));
-	  st.vsSP=normalizeKeys(cleanRows(vsSP));
 	  const teamRankingRows=normalizeKeys(cleanRows(teamRankings||[]));
 	  const teamRankingKeys=new Set(Object.keys(teamRankingRows[0]||{}).map(canonicalFieldKey));
 	  // NFL team aggregates. The MLB baseline checked for off_k_pct/pit_hr9 here,
