@@ -2596,9 +2596,19 @@ function pickStatusLine(model){
   return states.join(" · ");
 }
 function pickClick(model){return `streakToDash(${[model.pk.player,model.pk.prop_type||"",model.pk.line||""].map(v=>esc(JSON.stringify(String(v)))).join(",")})`}
+function pickMatchupContext(pk){
+  const game=String(rowField(pk,"game","matchup")||"").trim();
+  const venue=String(rowField(pk,"venue")||"").trim();
+  const opp=String(rowField(pk,"opp","opp_team","opp_abbr","defense")||"").trim().toUpperCase();
+  const bits=[game];
+  if(opp)bits.push(`vs ${opp}`);
+  if(venue)bits.push(venue);
+  return bits.filter(Boolean).join(" · ");
+}
 function renderFeaturedPick(model){
   const p=model.pk,status=pickStatusLine(model),evidence=pickEvidenceHTML(model),gameTime=gameStartTimeForText(p.game);
-  return `<section class="pick-feature ${model.tierClass}${model.locked?" locked-card":""}" onclick="${pickClick(model)}"><div class="pick-feature-kicker"><span>${icon("picks")}Top recommendation</span><span style="color:var(--${model.tierClass==="smash"?"smash":model.tierClass==="strong"?"strong":"push"})">${model.confidence}</span></div><div class="pick-feature-main"><div><div class="pick-feature-name">${playerLink(p.player,p.prop_type||"",p.line||"")}</div><div class="pick-feature-matchup">${esc(p.game||"")}${gameTime?` · ${esc(gameTime)}`:""} · vs ${esc(p.opp_pitcher||"TBD")} · ${esc(p.venue||"")}</div>${pickProvenanceHTML(model)}</div><div class="pick-feature-call"><div class="pick-feature-line ${model.leanClass}">${esc(model.leanText)} ${esc(p.line||"—")}</div><div class="pick-feature-market">${esc(propTypeLabel(p.prop_type))}</div></div></div><div class="pick-feature-evidence"><div><div class="pick-evidence">${evidence||"Model-ranked slate leader"}</div>${renderBestBookLine(model.pickProp,model.leanText)}${renderCurrentClvLine(model.pickProp,model.leanText)}${pickWhyHTML(model)}</div><div class="pick-board-form" aria-label="Last ten results">${renderPickFormBars(model.form)}</div></div>${status?`<div class="pick-board-status" style="grid-column:auto;margin-top:8px">${esc(status)}</div>`:""}${model.lineupRisk?`<div class="lineup-risk-text">${esc(model.injury)}</div>`:""}</section>`;
+  const matchup=pickMatchupContext(p);
+  return `<section class="pick-feature ${model.tierClass}${model.locked?" locked-card":""}" onclick="${pickClick(model)}"><div class="pick-feature-kicker"><span>${icon("picks")}Top recommendation</span><span style="color:var(--${model.tierClass==="smash"?"smash":model.tierClass==="strong"?"strong":"push"})">${model.confidence}</span></div><div class="pick-feature-main"><div><div class="pick-feature-name">${playerLink(p.player,p.prop_type||"",p.line||"")}</div><div class="pick-feature-matchup">${esc(matchup||p.game||"")}${gameTime?` · ${esc(gameTime)}`:""}</div>${pickProvenanceHTML(model)}</div><div class="pick-feature-call"><div class="pick-feature-line ${model.leanClass}">${esc(model.leanText)} ${esc(p.line||"—")}</div><div class="pick-feature-market">${esc(propTypeLabel(p.prop_type))}</div></div></div><div class="pick-feature-evidence"><div><div class="pick-evidence">${evidence||"Model-ranked slate leader"}</div>${renderBestBookLine(model.pickProp,model.leanText)}${renderCurrentClvLine(model.pickProp,model.leanText)}${pickWhyHTML(model)}</div><div class="pick-board-form" aria-label="Last ten results">${renderPickFormBars(model.form)}</div></div>${status?`<div class="pick-board-status" style="grid-column:auto;margin-top:8px">${esc(status)}</div>`:""}${model.lineupRisk?`<div class="lineup-risk-text">${esc(model.injury)}</div>`:""}</section>`;
 }
 function renderPickBoardRow(model,index){
   const p=model.pk,status=pickStatusLine(model),evidence=pickEvidenceHTML(model),gameTime=gameStartTimeForText(p.game);
