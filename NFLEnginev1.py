@@ -22,6 +22,7 @@ from google.oauth2.service_account import Credentials
 import nflverse_loader as nv
 import odds_client as oc
 import projections as pj
+import picks as pk
 
 # ============================================================================
 # CONFIGURATION
@@ -48,6 +49,15 @@ BEST_BALL_PAGES = ["best-overall"]
 # Underdog best ball is 0.5 PPR with 4-point passing TDs. Override with
 # NFL_SCORING=ppr|half|standard|underdog if drafting a different format.
 SCORING = os.getenv("NFL_SCORING", pj.DEFAULT_SCORING)
+
+# Picks generation runs on gamedays only — a "Wednesday practice-report" cron
+# firing shouldn't also regenerate the board. Comma-separated day names,
+# matched case-insensitively; add "Saturday,Friday" here once those become
+# real gamedays later in the season, no code change needed.
+PICKS_DAYS = {d.strip().lower() for d in
+             os.getenv("NFL_PICKS_DAYS", "Thursday,Sunday,Monday").split(",") if d.strip()}
+SKIP_PICKS = os.getenv("NFL_SKIP_PICKS", "").lower() in {"1", "true", "yes"}
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.6-flash")
 
 eastern = pytz.timezone("US/Eastern")
 
@@ -637,6 +647,78 @@ def write_to_sheets(
         print(f"   ✅ {tab_name}: {len(clean)} rows × {len(clean.columns)} cols")
 
 
+def build_week_games_str(schedule: pd.DataFrame, week: int) -> str:
+    """Plain-text matchup block for this week, fed straight into the picks
+    prompt — mirrors MLB's games_context text, simplified since NFL's weekly
+    slate doesn't need per-game weather/starter context repeated per line
+    (that's already on the per-prop player_ctx rows instead)."""
+    if schedule.empty or "week" not in schedule.columns:
+        return "(schedule unavailable)"
+    games = schedule[schedule["week"] == week]
+    if games.empty:
+        return f"(no games found for week {week})"
+    lines = []
+    for _, g in games.sort_values("gameday").iterrows():
+        lines.append(f"{g.get('away_team','?')} @ {g.get('home_team','?')} "
+                     f"— {g.get('gameday','')} {g.get('gametime','')} "
+                     f"(spread {g.get('spread_line','?')}, total {g.get('total_line','?')})")
+    return "\n".join(lines)
+
+
+def fetch_prior_daily_picks(client, sheet_id: str) -> pd.DataFrame:
+    """Existing Daily_Picks rows, read before this run's picks are built.
+
+    picks.assemble_pick_tabs() needs today's prior rows to compute RUN_NUMBER
+    (max existing + 1) and to dedup same-day repeats — that has to happen
+    before we know what to write, unlike every other tab here which is a
+    stateless full rebuild each run.
+    """
+    try:
+        sheet = client.open_by_key(sheet_id)
+        ws = sheet.worksheet("Daily_Picks")
+    except Exception:
+        return pd.DataFrame()
+    return _safe_records_df(ws)
+
+
+def append_daily_picks(client, sheet_id: str, df: pd.DataFrame, *,
+                       generated_at: str, model_version: str, model_era: str) -> None:
+    """Append-only write for Daily_Picks — the one tab that must never be
+    cleared, since it's the pick history the grader and Pick_Performance
+    depend on. Every other tab in write_to_sheets() is a full stateless
+    rebuild; this one is deliberately not.
+    """
+    if df.empty:
+        print("   ⏭️  Daily_Picks: no new picks to append")
+        return
+
+    clean = df.copy()
+    clean["_tab"] = "Daily_Picks"
+    clean["_generated_at"] = generated_at
+    clean["_model_version"] = model_version
+    clean["_model_era"] = model_era
+    clean = clean.where(pd.notna(clean), "")
+    # Fixed column order matters here in a way it doesn't for the clear+rewrite
+    # tabs: append_rows appends by POSITION, not by header name, so a reordered
+    # frame would silently write values into the wrong columns of existing rows.
+    cols = list(clean.columns)
+
+    sheet = client.open_by_key(sheet_id)
+    try:
+        ws = sheet.worksheet("Daily_Picks")
+    except gspread.exceptions.WorksheetNotFound:
+        ws = sheet.add_worksheet(title="Daily_Picks",
+                                 rows=max(len(clean) + 500, 1000),
+                                 cols=max(len(cols) + 5, 40))
+        set_with_dataframe(ws, clean[cols], include_index=False, resize=True)
+        print(f"   ➕ created Daily_Picks, {len(clean)} row(s)")
+        return
+
+    rows = clean[cols].astype(str).values.tolist()
+    ws.append_rows(rows, value_input_option="RAW")
+    print(f"   ✅ Daily_Picks: appended {len(rows)} row(s)")
+
+
 # ============================================================================
 # MAIN
 # ============================================================================
@@ -743,19 +825,59 @@ def main():
     print("\n🔧 Building tabs")
     name_map = build_team_name_map(teams)
     games_tab = build_games_tab(schedule, odds, name_map)
+    skill_logs = build_game_logs_tab(stats, SKILL_POSITIONS)
+    qb_logs = build_game_logs_tab(stats, ["QB"])
+
+    # Authorized once here rather than per-use — picks needs it early to read
+    # prior Daily_Picks state, and the final write below reuses this same
+    # client instead of re-authorizing.
+    sheets = get_gspread_client()
+
+    print("\n🎯 Weekly Picks")
+    picks_current = pd.DataFrame()
+    daily_picks_new = pd.DataFrame()
+    current_weekday = started.strftime("%A")
+    week = nv.current_week(schedule)
+
+    if SKIP_PICKS:
+        print("   ⏭️  picks skipped (NFL_SKIP_PICKS set)")
+    elif current_weekday.lower() not in PICKS_DAYS:
+        print(f"   ⏭️  {current_weekday} is not a picks day "
+              f"({', '.join(sorted(PICKS_DAYS))}) — leaving Picks_Current as-is")
+    elif week is None:
+        print("   ⚠️  could not determine current week — skipping picks")
+    elif board.empty:
+        # No real market lines yet means nothing to validate a pick against —
+        # generating anyway would mean either inventing lines or running the
+        # deterministic fallback on zero data. Neither is worth doing.
+        print("   ⏭️  no player props posted yet — skipping picks generation")
+    else:
+        gemini_key = load_secret("GEMINI_API_KEY", "🤖 Gemini API Key: ", allow_missing=True)
+        all_logs = pd.concat([skill_logs, qb_logs], ignore_index=True) if not qb_logs.empty else skill_logs
+        player_ctx = pk.build_player_context(board, all_logs, projections, injuries)
+        print(f"   player context: {len(player_ctx)} priced prop rows")
+
+        games_str = build_week_games_str(schedule, week)
+        fresh_picks = pk.generate_weekly_picks(gemini_key, GEMINI_MODEL, player_ctx,
+                                               games_str, week=week, season=schedule_season)
+        prior_daily = fetch_prior_daily_picks(sheets, SHEET_ID)
+        picks_current, daily_picks_new = pk.assemble_pick_tabs(
+            fresh_picks, prior_daily, week=week, season=schedule_season)
+        print(f"   picks: {len(picks_current)} current · {len(daily_picks_new)} new to Daily_Picks")
 
     tabs = {
         # Tabs the NFL dashboard reads
         "Schedule": build_schedule_tab(games_tab),
         "Slate_Skill": build_slate_tab(stats, snaps, SKILL_POSITIONS),
         "Slate_QB": build_slate_tab(stats, snaps, ["QB"]),
-        "Skill_Game_Logs": build_game_logs_tab(stats, SKILL_POSITIONS),
-        "QB_Game_Logs": build_game_logs_tab(stats, ["QB"]),
+        "Skill_Game_Logs": skill_logs,
+        "QB_Game_Logs": qb_logs,
         "Team_Rankings": build_team_rankings_tab(team_stats),
         "Player_Props": build_player_props_tab(board),
         "All_Books_Props": build_all_books_props_tab(props),
         "Injuries": build_injuries_tab(injuries),
         "Projections": projections,
+        "Picks_Current": picks_current,
         # Kept for reference / direct inspection
         "Games": games_tab,
         "Teams": build_teams_tab(teams),
@@ -763,7 +885,6 @@ def main():
     }
 
     print("\n📝 Writing to Google Sheets")
-    sheets = get_gspread_client()
     write_to_sheets(
         sheets,
         SHEET_ID,
@@ -772,6 +893,9 @@ def main():
         model_version=MODEL_VERSION,
         model_era=MODEL_ERA,
     )
+    append_daily_picks(sheets, SHEET_ID, daily_picks_new,
+                       generated_at=generated_at,
+                       model_version=MODEL_VERSION, model_era=MODEL_ERA)
 
     elapsed = (datetime.now(eastern) - started).total_seconds()
     print(f"\n✅ Complete in {elapsed:.1f}s")

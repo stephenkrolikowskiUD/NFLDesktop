@@ -189,6 +189,36 @@ def current_season() -> int:
     return now.year if now.month >= 9 else now.year - 1
 
 
+def current_week(schedule: pd.DataFrame, now=None) -> int | None:
+    """Active NFL week, derived from the schedule rather than nflreadpy's
+    get_current_week() — that call isn't week-precise around game windows,
+    and we already have real schedule dates loaded for this season.
+
+    Picks a week by whichever games are closest to "now": the earliest week
+    with a game still ahead, else the latest week whose games are in progress
+    or just finished (so grading/regeneration still resolves to a real week
+    right up through Monday night rather than rolling over mid-slate).
+    """
+    if schedule.empty or "week" not in schedule.columns:
+        return None
+    from datetime import datetime as _dt
+    now = now or _dt.now()
+
+    sched = schedule.copy()
+    sched["_kickoff"] = pd.to_datetime(
+        sched.get("gameday", "").astype(str) + " " + sched.get("gametime", "00:00").astype(str),
+        errors="coerce",
+    )
+    upcoming = sched[sched["_kickoff"] >= pd.Timestamp(now)]
+    if not upcoming.empty:
+        return int(upcoming.sort_values("_kickoff")["week"].iloc[0])
+
+    past = sched[sched["_kickoff"].notna()]
+    if not past.empty:
+        return int(past.sort_values("_kickoff")["week"].iloc[-1])
+    return None
+
+
 def load_schedules(seasons=None) -> pd.DataFrame:
     """Full game list. Includes spread_line and total_line — baseline market
     numbers without spending an Odds API credit."""

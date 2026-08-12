@@ -3,7 +3,7 @@
 _Last updated: 2026-08-11_
 
 ## Where We Are
-NFL is no longer a greenfield build. The core dashboard, engine, season-long projection layer, and Lookup are all live. The remaining work is the weekly picks + grading loop, which currently has real client-side UI (confidence tiers, calibration) but no backend at all — no pick generation, no grading, no data ever reaches those tabs. That's the one piece standing between here and the Week 1 Launch Bar below.
+NFL is no longer a greenfield build. The core dashboard, engine, season-long projection layer, and Lookup are all live. The weekly picks + grading backend (`picks.py`, `NFLGrader1.py`) is now **code-complete** — Gemini consensus generation, market-line validation, a deterministic no-Gemini fallback, and a full grader with per-game readiness gating and Pick_Performance aggregation. It has been tested at the function level against real nflverse/Sheet data throughout, but **has never run end-to-end in production** — no real Gemini call has been made, and no picks have actually landed in `Picks_Current`/`Daily_Picks` yet. Until a live run is confirmed, treat this as "built, not yet proven," and keep the Info page's "planned, not yet active" copy as-is rather than flipping it to describe this as running.
 
 ## Shipped
 - ✅ nflverse-first data pipeline (schedule, rosters, weekly stats, snap counts, injuries, depth-chart context)
@@ -22,16 +22,16 @@ NFL is no longer a greenfield build. The core dashboard, engine, season-long pro
 - ✅ Lookup rebuilt on nflverse-native data (projections, game logs, props, team rankings, schedule — no external API calls)
 
 ## In Progress
-- 🔴 Weekly picks generation + grading — client-side confidence-tier UI (SMASH/STRONG, historical-floor calibration) exists, but there is no engine-side pipeline at all: no Gemini integration, and nothing writes `Picks_Current`/`Daily_Picks`/`Pick_Performance`. This is backend work, not polish.
+- 🟠 Weekly picks generation + grading — code-complete, unproven in production. `picks.py` (Gemini 3-pass consensus + recovery, market-line snap-to-validation, SMASH cap, deterministic VALIDATED_MODEL fallback) and `NFLGrader1.py` (per-game kickoff-based readiness, player_id-first identity matching with ambiguity detection, Pick_Performance/Snapshots in MLB's exact schema) are both built and unit-tested against live nflverse/Sheet data. What's still open: a real Gemini call has never been made, `Picks_Current`/`Daily_Picks` have never been written for real, and the grader has never graded a real pick. The `GEMINI_API_KEY` secret needs to be confirmed set in this repo (shared with MLB) before the next Thu/Sun/Mon engine run will do anything beyond the deterministic fallback.
 - 🟡 Best Ball board layout polish and mobile compaction
 - 🟡 Game Builder presentation and entry ergonomics
 - 🟡 Season-long projection explainer / trust layer
 
 ## Current Sprint Priorities
-1. **Weekly picks generation + grader loop (backend, not polish)**
-   - Wire actual pick generation (Gemini review layer over the market/form model) so `Picks_Current`/`Daily_Picks` have real rows
-   - Build the grading loop so `Pick_Performance` gets populated and the existing SMASH/STRONG calibration UI has something to calibrate against
-   - Until this exists, the Info page describes this as planned rather than active — keep it that way rather than re-claiming it's live
+1. **Prove the picks + grader loop end to end (backend is built, needs a live pass)**
+   - Confirm `GEMINI_API_KEY` is set as a repo secret, then let a real Thu/Sun/Mon engine run populate `Picks_Current`/`Daily_Picks` with actual Gemini output
+   - Let `NFLGrader1.py` run against a completed gameday and confirm `Pick_Performance` populates with real hit/miss data
+   - Only once that's confirmed working: flip the Info page's "planned, not yet active" copy to describe this as live
 
 2. **Best Ball draft helper polish**
    - Tighten layout so the board stays primary

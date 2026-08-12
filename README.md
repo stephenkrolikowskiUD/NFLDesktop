@@ -23,7 +23,7 @@ Week 1 kickoff is **2026-09-09** (NE @ SEA).
 - ✅ Mobile navigation pass, including Best Ball access on phone
 - ✅ Age/decline and depth-chart role adjustment
 - ✅ Lookup rebuilt on nflverse-native data (no external API calls)
-- 🔴 Weekly picks generation + grading — client-side confidence-tier UI exists (SMASH/STRONG, historical-floor calibration), but no engine-side pipeline: no Gemini integration, nothing writes `Picks_Current`/`Daily_Picks`/`Pick_Performance`
+- 🟠 Weekly picks generation + grading — code-complete (`picks.py`, `NFLGrader1.py`), unit-tested against live data, but never yet run end-to-end in production (no real Gemini call made, no picks written for real). See PLAN.md.
 - 🟡 Best Ball board layout polish and mobile compaction
 - 🟡 Projection explainer layer so disagreements are easier to trust at a glance
 - 🟡 Game Builder presentation and entry ergonomics
@@ -54,15 +54,21 @@ Baseline spreads, totals, and moneylines come from nflverse at zero Odds API cos
 
 | Tab | Contents |
 |---|---|
-| `Games` | Full season schedule with spreads, totals, moneylines, venue, roof, rest |
-| `Teams` | Team metadata, colors, conference/division |
-| `PlayerForm` | Recent usage: targets, target share, air yards share, WOPR, snap %, PPR |
+| `Schedule` | This season's full schedule, with `home_abbr`/`away_abbr` aliases for the dashboard |
+| `Slate_Skill` / `Slate_QB` | Season-to-date per-player aggregates, by position group |
+| `Skill_Game_Logs` / `QB_Game_Logs` | Per-week game logs — also the grader's box-score source |
+| `Team_Rankings` | Season team aggregates for matchup context |
+| `Player_Props` | Best price per player/market/line across books (UPPER_SNAKE columns; ported dashboard renderers read these directly) |
+| `All_Books_Props` | Every prop quote per book, with no-vig fair probabilities and hold |
 | `Injuries` | Report and practice status by week |
-| `PlayerProps` | Every prop quote per book, with no-vig fair probabilities and hold |
-| `PropsBoard` | Best price per player/market/line across all five books |
 | `Projections` | Season-long projections with best-ball consensus alongside |
+| `Picks_Current` | Latest weekly picks run — full overwrite each run |
+| `Daily_Picks` | Append-only pick history; the grader writes results back into this same tab |
+| `Pick_Performance` | Aggregated hit-rate/ROI/Wilson-lower-bound stats, rebuilt by the grader |
+| `Pick_Performance_Snapshots` | Daily append-only snapshot of the `Pick_Performance` overall row |
+| `Games` / `Teams` / `PlayerForm` | Kept for reference / direct inspection |
 
-Tabs are only written when they have rows — an empty frame is skipped so a thin run can't wipe a tab that still holds usable data.
+Tabs are only written when they have rows — an empty frame is skipped so a thin run can't wipe a tab that still holds usable data. `Daily_Picks` and `Pick_Performance_Snapshots` are the exceptions: they're append-only and are never cleared regardless (see "Weekly Picks & Grading" below).
 
 ## Player Props & Odds API Cost
 
@@ -209,6 +215,39 @@ Points are computed from components rather than nflverse's `fantasy_points`, whi
 Replacement levels assume Underdog's 12-team lineup (1 QB / 2 RB / 3 WR / 1 TE / 1 FLEX), with flex spots apportioned to RB and WR. Override via `build_projections(replacement_ranks=...)`.
 
 ⚠️ Consensus ECR ordering is PPR-flavored, so in `standard` the point scale self-calibrates but the consensus *ordering* still reflects reception-heavy assumptions.
+
+## Weekly Picks & Grading
+
+`picks.py` (generation) and `NFLGrader1.py` (grading) — ported from MLBDesktop's proven pick pipeline, adapted for a weekly rather than nightly sport. **Code-complete and unit-tested against live data; never yet run end-to-end in production.** See PLAN.md for what "proven" would look like.
+
+### Generation (`picks.py`)
+
+Same mechanics as MLB, kept close to verbatim because they're what make the pipeline reliable rather than just plausible:
+
+- **3-pass Gemini consensus** at temperatures 0.35/0.55/0.75, merged and deduped by (player, prop, lean); a recovery pass at 0.45 fires only if validated survivors fall short.
+- **Confidence tiers are Gemini's own labeled output, only ever downgraded, never upgraded** — MLB's own audit found cross-run repetition isn't a reliable upgrade signal, so this doesn't try. Same SMASH/STRONG/LEAN numeric bars as MLB (SMASH: >65% hit rate, >10% EV, 2+ signals; STRONG: >55%/>5%).
+- **Every pick is snapped to a real market line** — Gemini's stated line is never trusted; a pick not backed by a real row in the player-context table is dropped.
+- **The deterministic fallback is the real guarantee of a non-empty board**, not the AI: built from real market edges alone (no Gemini call), tagged `SELECTION_METHOD=VALIDATED_MODEL` — the same value `app.js`'s `calibratedConfidenceForPick()` already special-cases as the `VALIDATED` tier, so no dashboard change was needed for it to work.
+
+What's genuinely different from MLB, not just renamed:
+
+- **One uniform hit-rate/EV signal, not per-stat heuristics.** MLB computes separate ad-hoc edge scores per stat type because it has no real projection model. NFL already has one (`projections.py`, backtested over 7 seasons), so the signal fed to Gemini is a single formula — recent-game hit rate against the real line, and EV% against the no-vig price — that works identically across every prop type, including binary ones.
+- **Binary props (anytime-TD) need no separate path.** `odds_client.BINARY_MARKETS` already gives them an implicit 0.5 line, so scoring "did they get a TD" as 1/0 against line=0.5 reuses the exact same over/under/push logic as a numeric prop, at both generation and grading time.
+- **Picks carry `player_id` (gsis_id), not just a name.** MLB only ever has a name to match on, so it detects and skips name/date collisions after the fact. NFL's pipeline is gsis_id-keyed throughout, so identity is resolved at generation time and grading matches on it directly — name matching is only a fallback for legacy rows, with the same ambiguity detection MLB uses.
+- **`PICK_BOOK`/`PICK_ODDS` snap to the best price across books**, not a single reference book — `odds_client.best_price_board()` already computes this.
+
+Runs on gamedays only, gated by `NFL_PICKS_DAYS` (default `Thursday,Sunday,Monday`; add `Saturday,Friday` later with no code change). `NFL_SKIP_PICKS=1` disables entirely. Uses the shared `GEMINI_API_KEY` secret (same value as MLBDesktop).
+
+### Grading (`NFLGrader1.py`)
+
+`Pick_Performance`'s schema, dimensions, time windows, and Wilson-lower-bound math are copied from MLB **exactly**, because `app.js`'s SMASH/STRONG confidence-tier calibration UI already expects this shape — no dashboard change needed once real data lands.
+
+What's genuinely different from MLB:
+
+- **Readiness is per-game, not per-date.** MLB skips grading anything dated today because every pick is a same-day game. NFL breaks that assumption: a Thursday pick and a Monday pick can share the same `WEEK` number while being days apart in actual kickoff. Readiness is resolved by joining each pick's team+week back to `Schedule` for a real kickoff timestamp (`GRADE_BUFFER_HOURS = 6` after kickoff), not by looking at `DATE` at all.
+- **Identity matching is player_id-first**, with the same name+date/week ambiguity detection MLB uses as a fallback — a pick whose identity can't be confirmed is left ungraded rather than risk grading the wrong person.
+
+Cron mirrors MLB's primary + morning-catchup pattern, applied per NFL gameday (Thu/Fri, Sun/Mon, Mon/Tue) rather than once daily — see `.github/workflows/nfl-grader.yml`. Add Sat/Fri pairs there once those become real gamedays.
 
 ## Setup
 

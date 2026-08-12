@@ -1,0 +1,55 @@
+name: NFL Grader
+
+on:
+  workflow_dispatch:
+  schedule:
+    # Mirrors MLB's primary + morning-catchup pattern, applied per NFL gameday
+    # rather than per calendar day — a Thursday pick and a Monday pick can
+    # share the same WEEK number while being days apart in actual kickoff, so
+    # NFLGrader1.py's readiness check is per-game (via Schedule), not per-DATE.
+    # The grader itself is safe to run more often than there's fresh data —
+    # ungraded picks just retry next run — these times exist to keep runs
+    # cheap rather than to gate correctness.
+    #
+    # Times below are ET during EDT (Sept-early Nov); like the engine's
+    # existing cron, this drifts an hour after DST ends in early November,
+    # same known/accepted approximation already in nfl-engine.yml.
+    #
+    # Thu 11:45 PM ET primary (catches TNF) -> Fri 03:45 UTC
+    - cron: "45 3 * * 5"
+    # Fri 9:00 AM ET catchup
+    - cron: "0 13 * * 5"
+    # Sun 11:45 PM ET primary (catches the full Sunday slate)
+    - cron: "45 3 * * 1"
+    # Mon 9:00 AM ET catchup (also catches SNF, which finishes too late for
+    # the Sunday-night primary run to have fresh data on)
+    - cron: "0 13 * * 1"
+    # Mon 11:45 PM ET primary (catches MNF)
+    - cron: "45 3 * * 2"
+    # Tue 9:00 AM ET catchup
+    - cron: "0 13 * * 2"
+    # Add Sat/Fri slots here once those become real gamedays later in the
+    # season, mirroring how nfl-engine.yml's Sat slot is already set up.
+
+jobs:
+  run-nfl-grader:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+    steps:
+      - name: Check out repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run NFL grader
+        run: python NFLGrader1.py
