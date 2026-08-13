@@ -215,6 +215,8 @@ def build_kickoff_lookup(schedule: pd.DataFrame) -> dict:
             kickoff = pd.NaT
         if pd.isna(kickoff):
             continue
+        if getattr(kickoff, "tzinfo", None) is None:
+            kickoff = eastern.localize(kickoff.to_pydatetime())
         key_season = g.get("season")
         key_week = g.get("week")
         for team in (g.get("home_team"), g.get("away_team")):

@@ -166,6 +166,16 @@ def _implied_prob(american_odds) -> float:
     return (-odds / (-odds + 100)) if odds < 0 else (100 / (odds + 100))
 
 
+def _line_matches(pick_line, real_line, tol: float = 1e-9) -> bool:
+    """Numeric exact-match with float tolerance for sportsbook half-lines."""
+    try:
+        pick_num = float(pick_line)
+        real_num = float(real_line)
+    except (TypeError, ValueError):
+        return False
+    return abs(pick_num - real_num) <= tol
+
+
 def build_player_context(props_board: pd.DataFrame, game_logs: pd.DataFrame,
                          projections: pd.DataFrame, injuries: pd.DataFrame,
                          max_players: int = 80) -> pd.DataFrame:
@@ -393,12 +403,23 @@ def validate_and_price_picks(raw_picks: list[dict], player_ctx: pd.DataFrame) ->
         name_norm = _norm_name(pick.get("player", ""))
         metric = str(pick.get("prop_type", "")).strip().upper()
         lean = str(pick.get("lean", "")).strip().upper()
+        pick_team = str(pick.get("team", "") or "").strip().upper()
+        pick_line = pd.to_numeric(pick.get("line"), errors="coerce")
         if lean not in {"OVER", "UNDER"}:
+            continue
+        if pd.isna(pick_line):
             continue
 
         match = ctx[(ctx["_name_norm"] == name_norm) & (ctx["_metric_norm"] == metric)]
         if match.empty:
             continue
+        match = match[match["line"].map(lambda line: _line_matches(pick_line, line))]
+        if match.empty:
+            continue
+        if pick_team and "team" in match.columns:
+            team_match = match[match["team"].astype(str).str.upper() == pick_team]
+            if not team_match.empty:
+                match = team_match
         real = match.iloc[0]
 
         odds_col = "best_over_odds" if lean == "OVER" else "best_under_odds"
@@ -417,7 +438,7 @@ def validate_and_price_picks(raw_picks: list[dict], player_ctx: pd.DataFrame) ->
             "opponent": real.get("opponent"),
             "game": pick.get("game", ""),
             "prop_type": metric,
-            "line": real["line"],  # snapped to the REAL line, never Gemini's
+            "line": real["line"],  # exact real line match, never Gemini's
             "lean": lean,
             "confidence": normalize_confidence(pick.get("confidence")),
             "rationale": str(pick.get("rationale", ""))[:200],

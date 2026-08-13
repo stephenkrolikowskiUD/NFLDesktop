@@ -714,6 +714,19 @@ def append_daily_picks(client, sheet_id: str, df: pd.DataFrame, *,
         print(f"   ➕ created Daily_Picks, {len(clean)} row(s)")
         return
 
+    sheet_header = ws.row_values(1)
+    if sheet_header:
+        missing_in_sheet = [c for c in cols if c not in sheet_header]
+        if missing_in_sheet:
+            raise RuntimeError(
+                "Daily_Picks header is missing expected column(s): "
+                f"{missing_in_sheet}. Refusing to append by position into a drifted sheet."
+            )
+        for col in sheet_header:
+            if col not in clean.columns:
+                clean[col] = ""
+        cols = sheet_header
+
     rows = clean[cols].astype(str).values.tolist()
     ws.append_rows(rows, value_input_option="RAW")
     print(f"   ✅ Daily_Picks: appended {len(rows)} row(s)")
