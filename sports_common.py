@@ -1,5 +1,7 @@
 import json
 import os
+import re
+import unicodedata
 
 import gspread
 from google.oauth2.service_account import Credentials
@@ -37,3 +39,14 @@ def normalize_confidence(val, allowed=("SMASH", "STRONG", "LEAN"), default="LEAN
     conf = str(val or "").strip().upper()
     allowed_set = {str(item).strip().upper() for item in allowed}
     return conf if conf in allowed_set else str(default).strip().upper()
+
+
+def normalize_person_name(value, *, keep_digits: bool = False, strip_chars: str = "") -> str:
+    text = unicodedata.normalize("NFKD", str(value or ""))
+    text = "".join(ch for ch in text if not unicodedata.combining(ch))
+    text = text.lower()
+    if strip_chars:
+        text = re.sub("[" + re.escape(strip_chars) + "]", "", text)
+    pattern = r"[^a-z0-9 ]" if keep_digits else r"[^a-z ]"
+    text = re.sub(pattern, " ", text)
+    return re.sub(r"\s+", " ", text).strip()

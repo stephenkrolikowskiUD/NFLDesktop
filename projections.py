@@ -231,9 +231,8 @@ RATE_COLS = [
 
 
 def _norm_name(value) -> str:
-    v = str(value or "").lower()
-    v = re.sub(r"[^a-z ]", "", v)
-    return re.sub(r"\s+", " ", v).strip()
+    from sports_common import normalize_person_name
+    return normalize_person_name(value, keep_digits=False)
 
 
 def _season_type_order(values: pd.Series) -> pd.Series:

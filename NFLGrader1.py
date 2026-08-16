@@ -29,7 +29,6 @@
 import math
 import os
 import re
-import unicodedata
 from datetime import datetime, timedelta
 
 import numpy as np
@@ -39,7 +38,7 @@ import gspread
 import json
 
 from picks import actual_value_for_metric, BINARY_METRICS  # single source of truth
-from sports_common import col_letter, get_gspread_client, normalize_confidence
+from sports_common import col_letter, get_gspread_client, normalize_confidence, normalize_person_name
 
 SHEET_ID = "1vJvcOsMyBEz1ZMJy6BKapdfG3FlvPIpB0eD_dviQBd0"
 eastern = pytz.timezone("US/Eastern")
@@ -76,15 +75,6 @@ PICK_PERFORMANCE_SNAPSHOT_COLUMNS = ["SNAPSHOT_DATE", "METRIC_KEY", "METRIC_VALU
 # ============================================================================
 # SMALL HELPERS — ported near-verbatim from MLBGrader5-4.py
 # ============================================================================
-
-def normalize_person_name(name) -> str:
-    text = unicodedata.normalize("NFKD", str(name or ""))
-    text = "".join(ch for ch in text if not unicodedata.combining(ch))
-    text = text.lower()
-    text = re.sub(r"[''`\\.]", "", text)
-    text = re.sub(r"[^a-z0-9]+", " ", text)
-    return re.sub(r"\s+", " ", text).strip()
-
 
 def safe_float(val, default=None):
     if val is None:
@@ -234,7 +224,7 @@ def build_box_lookup(game_logs: pd.DataFrame):
         if pd.notna(pid):
             by_id[(str(pid), season, week)] = row
 
-        name_key = (normalize_person_name(row.get("player_display_name")), season, week)
+        name_key = (normalize_person_name(row.get("player_display_name"), keep_digits=True, strip_chars="'`\\."), season, week)
         name_identity.setdefault(name_key, set()).add(str(pid))
         if name_key not in by_name:
             by_name[name_key] = row
@@ -254,7 +244,7 @@ def find_actual(pick: pd.Series, by_id: dict, by_name: dict, name_ambiguous: set
     if pid and (pid, season, week) in by_id:
         return by_id[(pid, season, week)], "ok"
 
-    name_key = (normalize_person_name(pick.get("player")), season, week)
+    name_key = (normalize_person_name(pick.get("player"), keep_digits=True, strip_chars="'`\\."), season, week)
     if name_key in name_ambiguous:
         return None, "ambiguous"
     if name_key in by_name:

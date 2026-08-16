@@ -38,7 +38,7 @@ import numpy as np
 import pandas as pd
 import pytz
 
-from sports_common import normalize_confidence
+from sports_common import normalize_confidence, normalize_person_name
 
 eastern = pytz.timezone("US/Eastern")
 
@@ -121,12 +121,7 @@ def _norm_name(value) -> str:
     "andr"), rather than normalizing it to plain "e". Ported from MLB's
     normalize_person_name, which hit this exact case in production.
     """
-    import unicodedata
-    text = unicodedata.normalize("NFKD", str(value or ""))
-    text = "".join(ch for ch in text if not unicodedata.combining(ch))
-    text = text.lower()
-    text = re.sub(r"[^a-z ]", "", text)
-    return re.sub(r"\s+", " ", text).strip()
+    return normalize_person_name(value, keep_digits=False)
 
 
 def parse_gemini_json_array(raw: str):
