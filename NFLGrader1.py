@@ -38,7 +38,13 @@ import gspread
 import json
 
 from picks import actual_value_for_metric, BINARY_METRICS  # single source of truth
-from sports_common import col_letter, get_gspread_client, normalize_confidence, normalize_person_name
+from sports_common import (
+    col_letter,
+    get_gspread_client,
+    load_sheet_grid,
+    normalize_confidence,
+    normalize_person_name,
+)
 
 SHEET_ID = "1vJvcOsMyBEz1ZMJy6BKapdfG3FlvPIpB0eD_dviQBd0"
 eastern = pytz.timezone("US/Eastern")
@@ -146,16 +152,6 @@ def wilson_lower_bound(p, n, z=PICK_PERF_WILSON_Z) -> float:
     centre = p + z * z / (2 * n)
     margin = z * math.sqrt((p * (1 - p) + z * z / (4 * n)) / n)
     return max(0.0, (centre - margin) / denom)
-
-
-def load_sheet_grid(ws) -> tuple[list[str], list[list[str]]]:
-    """Raw header + data rows, preserving sheet row position for batch_update
-    (get_all_records() loses that; row i of the returned data is sheet row i+2,
-    1-indexed with a header row)."""
-    values = ws.get_all_values()
-    if not values:
-        return [], []
-    return values[0], values[1:]
 
 
 # ============================================================================

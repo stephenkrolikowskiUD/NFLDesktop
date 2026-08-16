@@ -21,7 +21,7 @@ import nflverse_loader as nv
 import odds_client as oc
 import projections as pj
 import picks as pk
-from sports_common import col_letter, get_gspread_client
+from sports_common import col_letter, get_gspread_client, load_secret, safe_records_df
 
 # ============================================================================
 # CONFIGURATION
@@ -59,29 +59,6 @@ SKIP_PICKS = os.getenv("NFL_SKIP_PICKS", "").lower() in {"1", "true", "yes"}
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.6-flash")
 
 eastern = pytz.timezone("US/Eastern")
-
-# ============================================================================
-# UTILITIES
-# ============================================================================
-
-def load_secret(name: str, prompt_text: str | None = None,
-                allow_missing: bool = False) -> str:
-    """Env var first (GitHub Actions), then interactive prompt (local runs)."""
-    env_val = os.environ.get(name)
-    if env_val:
-        return env_val
-    if prompt_text:
-        try:
-            value = input(prompt_text).strip()
-            if value:
-                return value
-        except (EOFError, KeyboardInterrupt):
-            pass
-    if allow_missing:
-        print(f"⚠️  {name} not set — continuing without it")
-        return ""
-    raise RuntimeError(f"Missing required secret: {name}")
-
 
 # ============================================================================
 # ODDS API
@@ -437,14 +414,6 @@ def build_all_books_props_tab(props: pd.DataFrame) -> pd.DataFrame:
     return out.reset_index(drop=True)
 
 
-def _safe_records_df(ws) -> pd.DataFrame:
-    try:
-        records = ws.get_all_records(default_blank="")
-    except Exception:
-        return pd.DataFrame()
-    return pd.DataFrame(records or [])
-
-
 def _add_prop_opening_snapshot(current: pd.DataFrame, prior: pd.DataFrame,
                                *, key_cols: list[str],
                                over_col: str = "OVER_ODDS",
@@ -553,7 +522,7 @@ def write_to_sheets(
             print(f"   ➕ created tab {tab_name}")
             prior = pd.DataFrame()
         else:
-            prior = _safe_records_df(ws)
+            prior = safe_records_df(ws)
 
         if tab_name == "All_Books_Props":
             df = _add_prop_opening_snapshot(
@@ -630,7 +599,7 @@ def fetch_prior_daily_picks(client, sheet_id: str) -> pd.DataFrame:
         ws = sheet.worksheet("Daily_Picks")
     except Exception:
         return pd.DataFrame()
-    return _safe_records_df(ws)
+    return safe_records_df(ws)
 
 
 def refresh_clv_daily_picks(client, sheet_id: str, props_board: pd.DataFrame, *,
