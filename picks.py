@@ -644,7 +644,8 @@ PICK_OUTPUT_COLUMNS = [
     "confidence", "rationale", "injury_context", "SELECTION_METHOD",
     "PICK_BOOK", "PICK_ODDS", "IMPLIED_PROBABILITY", "MODEL_HIT_RATE",
     "MODEL_EV_PCT", "MODEL_EDGE_SCORE", "CONSENSUS_COUNT", "CONSENSUS_RUNS",
-    "CONSENSUS_TAG", "RESULT", "ACTUAL_STAT", "HIT", "REALIZED_PROFIT",
+    "CONSENSUS_TAG", "CLV_OPEN_LINE", "CLV_LATEST_LINE", "CLV_DELTA",
+    "CLV_LAST_UPDATE", "RESULT", "ACTUAL_STAT", "HIT", "REALIZED_PROFIT",
     "ACTUAL_ROI_PER_PICK", "LAST_UPDATED",
 ]
 
@@ -682,6 +683,10 @@ def assemble_pick_tabs(fresh_picks: pd.DataFrame, prior_daily: pd.DataFrame,
     out["HIT"] = ""
     out["REALIZED_PROFIT"] = ""
     out["ACTUAL_ROI_PER_PICK"] = ""
+    out["CLV_OPEN_LINE"] = out["line"]
+    out["CLV_LATEST_LINE"] = out["line"]
+    out["CLV_DELTA"] = 0
+    out["CLV_LAST_UPDATE"] = run_time
     out["LAST_UPDATED"] = run_time
 
     run_number = 1

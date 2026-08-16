@@ -59,7 +59,7 @@ PICK_PERF_TIME_WINDOWS = {"last_7d": 7, "last_30d": 30, "last_90d": 90, "all_tim
 PICK_PERF_SNAPSHOT_WINDOWS = ("all_time", "last_30d")
 PICK_PERF_DIMENSIONS = (
     "confidence_norm", "selection_method_norm", "prop_type_norm", "lean_norm",
-    "consensus_bucket", "odds_bucket", "week", "day_of_week",
+    "consensus_bucket", "odds_bucket", "clv_bucket", "week", "day_of_week",
 )
 PICK_PERFORMANCE_COLUMNS = [
     "DIMENSION_TYPE", "DIMENSION_VALUE", "TIME_WINDOW",
@@ -435,6 +435,18 @@ def pick_perf_prepare_df(df_all: pd.DataFrame) -> pd.DataFrame:
     df["odds_bucket"] = df["pick_odds_f"].map(pick_odds_bucket)
     df["realized_profit_f"] = pd.to_numeric(df.get("REALIZED_PROFIT", pd.Series(np.nan, index=idx)), errors="coerce")
     df["consensus_bucket"] = pd.to_numeric(df.get("CONSENSUS_COUNT", pd.Series(1, index=idx)), errors="coerce").fillna(1).astype(int)
+    df["clv_open_f"] = pd.to_numeric(df.get("CLV_OPEN_LINE", pd.Series(np.nan, index=idx)), errors="coerce")
+    df["clv_latest_f"] = pd.to_numeric(df.get("CLV_LATEST_LINE", pd.Series(np.nan, index=idx)), errors="coerce")
+    df["clv_edge"] = np.where(
+        df["lean_norm"].isin(["UNDER", "FADE"]),
+        df["clv_open_f"] - df["clv_latest_f"],
+        df["clv_latest_f"] - df["clv_open_f"],
+    )
+    df["clv_bucket"] = np.where(
+        df["clv_open_f"].isna() | df["clv_latest_f"].isna(),
+        "flat",
+        np.where(df["clv_edge"] > 0, "positive", np.where(df["clv_edge"] < 0, "negative", "flat")),
+    )
     df["week"] = df.get("WEEK", pd.Series("", index=idx)).astype(str)
     df["date_parsed"] = pd.to_datetime(df.get("DATE", pd.Series("", index=idx)), errors="coerce")
     df["day_of_week"] = df["date_parsed"].dt.strftime("%a").fillna("unknown")

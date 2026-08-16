@@ -84,6 +84,12 @@ def load_secret(name: str, prompt_text: str | None = None,
     raise RuntimeError(f"Missing required secret: {name}")
 
 
+def col_letter(idx: int) -> str:
+    if idx < 26:
+        return chr(65 + idx)
+    return chr(64 + idx // 26) + chr(65 + idx % 26)
+
+
 def get_gspread_client():
     """Authorize gspread from the service-account JSON.
 
@@ -681,6 +687,113 @@ def fetch_prior_daily_picks(client, sheet_id: str) -> pd.DataFrame:
     return _safe_records_df(ws)
 
 
+def refresh_clv_daily_picks(client, sheet_id: str, props_board: pd.DataFrame, *,
+                            timestamp_label: str, season: int, week: int) -> None:
+    """Refresh CLV fields for the current NFL week on still-ungraded picks.
+
+    NFL's board can stay live across Thu/Sun/Mon within the same week, so CLV
+    is tracked by (season, week, player, metric, team) rather than by DATE.
+    The current comparison line is chosen from the same player's currently
+    posted lines using the nearest available line to the original pick line.
+    """
+    if props_board is None or props_board.empty:
+        print("   ⏭️  Daily_Picks CLV: no current props board")
+        return
+
+    sheet = client.open_by_key(sheet_id)
+    try:
+        ws = sheet.worksheet("Daily_Picks")
+    except gspread.exceptions.WorksheetNotFound:
+        print("   ⏭️  Daily_Picks CLV: Daily_Picks tab missing")
+        return
+
+    values = ws.get_all_values()
+    if not values:
+        print("   ⏭️  Daily_Picks CLV: no rows yet")
+        return
+
+    header, rows = values[0], values[1:]
+    if not rows:
+        print("   ⏭️  Daily_Picks CLV: history empty")
+        return
+
+    clv_cols = ["CLV_OPEN_LINE", "CLV_LATEST_LINE", "CLV_DELTA", "CLV_LAST_UPDATE"]
+    sheet_header = list(header)
+    missing_clv = [col for col in clv_cols if col not in sheet_header]
+    if missing_clv:
+        sheet_header.extend(missing_clv)
+        end_col = col_letter(len(sheet_header) - 1)
+        ws.update(f"A1:{end_col}1", [sheet_header], value_input_option="RAW")
+        header = sheet_header
+        for row in rows:
+            row.extend([""] * len(missing_clv))
+
+    col_idx = {name: i for i, name in enumerate(header)}
+    required = {"player", "team", "prop_type", "line", "SEASON", "WEEK", "HIT"}
+    if not required.issubset(col_idx):
+        print("   ⚠️  Daily_Picks CLV: required columns missing, skipping refresh")
+        return
+
+    line_map = {}
+    for _, prop in props_board.iterrows():
+        try:
+            line_val = float(prop.get("line"))
+        except (TypeError, ValueError):
+            continue
+        teams = {str(prop.get("event_home", "")).strip().upper(),
+                 str(prop.get("event_away", "")).strip().upper()}
+        teams.discard("")
+        if not teams:
+            continue
+        key_base = (pk._norm_name(prop.get("player", "")),
+                    str(prop.get("metric", "")).strip().upper())
+        for team in teams:
+            line_map.setdefault((*key_base, team), []).append(line_val)
+
+    updates = []
+    refreshed = 0
+    for row_num, row in enumerate(rows, start=2):
+        hit_val = str(row[col_idx["HIT"]]).strip().upper()
+        if hit_val:
+            continue
+        try:
+            row_season = int(float(row[col_idx["SEASON"]]))
+            row_week = int(float(row[col_idx["WEEK"]]))
+        except (TypeError, ValueError):
+            continue
+        if row_season != season or row_week != week:
+            continue
+
+        player_key = pk._norm_name(row[col_idx["player"]])
+        metric = str(row[col_idx["prop_type"]]).strip().upper()
+        team = str(row[col_idx["team"]]).strip().upper()
+        candidates = line_map.get((player_key, metric, team), [])
+        if not candidates:
+            continue
+
+        open_raw = row[col_idx["CLV_OPEN_LINE"]] or row[col_idx["line"]]
+        try:
+            open_line = float(open_raw)
+        except (TypeError, ValueError):
+            continue
+        latest_line = min(candidates, key=lambda val: abs(val - open_line))
+        delta = round(latest_line - open_line, 1)
+
+        updates.extend([
+            {"range": f"{col_letter(col_idx['CLV_OPEN_LINE'])}{row_num}", "values": [[f"{open_line:g}"]]},
+            {"range": f"{col_letter(col_idx['CLV_LATEST_LINE'])}{row_num}", "values": [[f"{latest_line:g}"]]},
+            {"range": f"{col_letter(col_idx['CLV_DELTA'])}{row_num}", "values": [[f"{delta:g}"]]},
+            {"range": f"{col_letter(col_idx['CLV_LAST_UPDATE'])}{row_num}", "values": [[timestamp_label]]},
+        ])
+        refreshed += 1
+
+    if updates:
+        ws.batch_update(updates)
+        print(f"   ✅ Daily_Picks CLV: refreshed {refreshed} row(s)")
+    else:
+        print("   ⏭️  Daily_Picks CLV: nothing eligible to refresh")
+
+
 def append_daily_picks(client, sheet_id: str, df: pd.DataFrame, *,
                        generated_at: str, model_version: str, model_era: str) -> None:
     """Append-only write for Daily_Picks — the one tab that must never be
@@ -718,10 +831,9 @@ def append_daily_picks(client, sheet_id: str, df: pd.DataFrame, *,
     if sheet_header:
         missing_in_sheet = [c for c in cols if c not in sheet_header]
         if missing_in_sheet:
-            raise RuntimeError(
-                "Daily_Picks header is missing expected column(s): "
-                f"{missing_in_sheet}. Refusing to append by position into a drifted sheet."
-            )
+            sheet_header = sheet_header + missing_in_sheet
+            end_col = col_letter(len(sheet_header) - 1)
+            ws.update(f"A1:{end_col}1", [sheet_header], value_input_option="RAW")
         for col in sheet_header:
             if col not in clean.columns:
                 clean[col] = ""
@@ -909,6 +1021,15 @@ def main():
     append_daily_picks(sheets, SHEET_ID, daily_picks_new,
                        generated_at=generated_at,
                        model_version=MODEL_VERSION, model_era=MODEL_ERA)
+    if not board.empty and week is not None:
+        refresh_clv_daily_picks(
+            sheets,
+            SHEET_ID,
+            board,
+            timestamp_label=generated_at,
+            season=schedule_season,
+            week=week,
+        )
 
     elapsed = (datetime.now(eastern) - started).total_seconds()
     print(f"\n✅ Complete in {elapsed:.1f}s")
