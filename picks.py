@@ -38,6 +38,8 @@ import numpy as np
 import pandas as pd
 import pytz
 
+from sports_common import normalize_confidence
+
 eastern = pytz.timezone("US/Eastern")
 
 # ============================================================================
@@ -125,11 +127,6 @@ def _norm_name(value) -> str:
     text = text.lower()
     text = re.sub(r"[^a-z ]", "", text)
     return re.sub(r"\s+", " ", text).strip()
-
-
-def normalize_confidence(val) -> str:
-    conf = str(val or "").strip().upper()
-    return conf if conf in {"SMASH", "STRONG", "LEAN"} else "LEAN"
 
 
 def parse_gemini_json_array(raw: str):

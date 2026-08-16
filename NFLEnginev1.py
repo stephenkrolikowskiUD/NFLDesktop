@@ -16,13 +16,12 @@ import pandas as pd
 import pytz
 import gspread
 from gspread_dataframe import set_with_dataframe
-from google.auth import default
-from google.oauth2.service_account import Credentials
 
 import nflverse_loader as nv
 import odds_client as oc
 import projections as pj
 import picks as pk
+from sports_common import col_letter, get_gspread_client
 
 # ============================================================================
 # CONFIGURATION
@@ -82,59 +81,6 @@ def load_secret(name: str, prompt_text: str | None = None,
         print(f"⚠️  {name} not set — continuing without it")
         return ""
     raise RuntimeError(f"Missing required secret: {name}")
-
-
-def col_letter(idx: int) -> str:
-    if idx < 26:
-        return chr(65 + idx)
-    return chr(64 + idx // 26) + chr(65 + idx % 26)
-
-
-def get_gspread_client():
-    """Authorize gspread from the service-account JSON.
-
-    GOOGLE_SERVICE_ACCOUNT_JSON holds the JSON *content* (that's how it's stored
-    as a GitHub Actions secret), not a path. GOOGLE_APPLICATION_CREDENTIALS is
-    supported as a path for local runs.
-    """
-    scopes = [
-        "https://www.googleapis.com/auth/spreadsheets",
-        "https://www.googleapis.com/auth/drive",
-    ]
-    svc_json = (os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON")
-                or os.environ.get("GSPREAD_SERVICE_ACCOUNT_JSON"))
-    if svc_json:
-        try:
-            info = json.loads(svc_json)
-        except json.JSONDecodeError as e:
-            raise RuntimeError(
-                f"GOOGLE_SERVICE_ACCOUNT_JSON is set but isn't valid JSON ({e}). "
-                "It must hold the full JSON key *content*, not a file path."
-            ) from e
-        creds = Credentials.from_service_account_info(info, scopes=scopes)
-        print(f"✅ Google auth via env ({info.get('client_email', 'unknown')})")
-        return gspread.authorize(creds)
-
-    key_path = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
-    if key_path:
-        if not os.path.exists(key_path):
-            raise RuntimeError(
-                f"GOOGLE_APPLICATION_CREDENTIALS points to a missing file: {key_path}"
-            )
-        creds = Credentials.from_service_account_file(key_path, scopes=scopes)
-        print(f"✅ Google auth via key file ({os.path.basename(key_path)})")
-        return gspread.authorize(creds)
-
-    # Distinguish absent from invalid: an unset secret and a bad secret are very
-    # different problems, and "auth unavailable" doesn't say which one happened.
-    raise RuntimeError(
-        "No Google credentials found — neither GOOGLE_SERVICE_ACCOUNT_JSON nor "
-        "GOOGLE_APPLICATION_CREDENTIALS is set (both were empty, not invalid).\n"
-        "  • GitHub Actions: add a repo secret named GOOGLE_SERVICE_ACCOUNT_JSON "
-        "containing the full service-account JSON content.\n"
-        "  • Local: export GOOGLE_APPLICATION_CREDENTIALS=/path/to/key.json\n"
-        "Then confirm the Sheet is shared with that key's client_email as Editor."
-    )
 
 
 # ============================================================================
@@ -956,7 +902,27 @@ def main():
     # Authorized once here rather than per-use — picks needs it early to read
     # prior Daily_Picks state, and the final write below reuses this same
     # client instead of re-authorizing.
-    sheets = get_gspread_client()
+    try:
+        sheets = get_gspread_client()
+        svc_json = (os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON")
+                    or os.environ.get("GSPREAD_SERVICE_ACCOUNT_JSON"))
+        if svc_json:
+            info = json.loads(svc_json)
+            print(f"✅ Google auth via env ({info.get('client_email', 'unknown')})")
+        else:
+            key_path = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS", "")
+            print(f"✅ Google auth via key file ({os.path.basename(key_path)})")
+    except RuntimeError as e:
+        if "No Google credentials found" in str(e):
+            raise RuntimeError(
+                "No Google credentials found — neither GOOGLE_SERVICE_ACCOUNT_JSON nor "
+                "GOOGLE_APPLICATION_CREDENTIALS is set (both were empty, not invalid).\n"
+                "  • GitHub Actions: add a repo secret named GOOGLE_SERVICE_ACCOUNT_JSON "
+                "containing the full service-account JSON content.\n"
+                "  • Local: export GOOGLE_APPLICATION_CREDENTIALS=/path/to/key.json\n"
+                "Then confirm the Sheet is shared with that key's client_email as Editor."
+            ) from e
+        raise
 
     print("\n🎯 Weekly Picks")
     picks_current = pd.DataFrame()
