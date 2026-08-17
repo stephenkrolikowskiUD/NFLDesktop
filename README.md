@@ -39,7 +39,7 @@ See [PLAN.md](./PLAN.md) for the active sprint priorities and Week 1 launch bar.
 ## Data Sources
 
 - **nflverse** — schedule, player stats, snap counts, injuries, rosters, play-by-play. Public release assets, **no API key, no rate limit**.
-- **The Odds API** (`americanfootball_nfl`) — multi-book pricing and player props.
+- **The Odds API** (`americanfootball_nfl` / `americanfootball_nfl_preseason`) — multi-book pricing, featured game markets, and player props when books have opened them.
 - **Google Sheets workbook** — `1vJvcOsMyBEz1ZMJy6BKapdfG3FlvPIpB0eD_dviQBd0`
 
 Baseline spreads, totals, and moneylines come from nflverse at zero Odds API cost. Odds API credits are spent only on multi-book comparison and props.
@@ -60,6 +60,7 @@ Baseline spreads, totals, and moneylines come from nflverse at zero Odds API cos
 | `Team_Rankings` | Season team aggregates for matchup context |
 | `Player_Props` | Best price per player/market/line across books (UPPER_SNAKE columns; ported dashboard renderers read these directly) |
 | `All_Books_Props` | Every prop quote per book, with no-vig fair probabilities and hold |
+| `Game_Markets` | Flattened spreads, moneylines, and totals in plain-English rows so preseason still has a usable market board before player props open |
 | `Injuries` | Report and practice status by week |
 | `Projections` | Season-long projections with best-ball consensus alongside |
 | `Picks_Current` | Latest weekly picks run — full overwrite each run |

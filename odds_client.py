@@ -25,7 +25,7 @@ import pandas as pd
 import requests
 
 BASE = "https://api.the-odds-api.com/v4"
-SPORT = "americanfootball_nfl"
+DEFAULT_SPORT = "americanfootball_nfl"
 
 # Verified bookmaker keys. Note williamhill_us IS Caesars — a `caesars` key
 # does not exist and returns INVALID_BOOKMAKERS. espnbet is region us2, which
@@ -74,9 +74,11 @@ class QuotaExhausted(RuntimeError):
 
 
 class OddsClient:
-    def __init__(self, api_key: str, quota_floor: int = 100):
+    def __init__(self, api_key: str, quota_floor: int = 100, *,
+                 sport: str = DEFAULT_SPORT):
         self.api_key = api_key
         self.quota_floor = quota_floor
+        self.sport = sport
         self.remaining: int | None = None
         self.spent = 0
 
@@ -130,7 +132,7 @@ class OddsClient:
         Used to decide which events are worth paying for, so props are never
         requested for all 272 games of a season.
         """
-        resp = self._get(f"/sports/{SPORT}/events", {}, "events", free=True)
+        resp = self._get(f"/sports/{self.sport}/events", {}, "events", free=True)
         if resp is None or resp.status_code != 200:
             code = resp.status_code if resp is not None else "no response"
             print(f"   ⚠️  events fetch failed ({code})")
@@ -149,7 +151,7 @@ class OddsClient:
     def fetch_featured(self, markets: str = "h2h,spreads,totals") -> list[dict]:
         """Featured markets for every upcoming game in one call."""
         resp = self._get(
-            f"/sports/{SPORT}/odds",
+            f"/sports/{self.sport}/odds",
             {"markets": markets, "bookmakers": ",".join(US_BOOKS),
              "oddsFormat": "american"},
             "featured odds",
@@ -176,7 +178,7 @@ class OddsClient:
                 continue
             for batch in batches:
                 resp = self._get(
-                    f"/sports/{SPORT}/events/{eid}/odds",
+                    f"/sports/{self.sport}/events/{eid}/odds",
                     {"markets": ",".join(batch),
                      "bookmakers": ",".join(US_BOOKS),
                      "oddsFormat": "american"},

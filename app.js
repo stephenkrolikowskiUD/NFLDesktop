@@ -91,7 +91,7 @@ const initialDraftSlate=loadDraftSlate();
 let st={
   tonight:[],gameLogs:[],splits:[],weather:[],qbSlateRows:[],schedule:[],
   pTonight:[],pGameLogs:[],pSplits:[],
-  picks:[],picksHistory:[],props:[],allBooksProps:[],teamRankings:[],
+  picks:[],picksHistory:[],props:[],allBooksProps:[],gameMarkets:[],teamRankings:[],
   pickPerformance:[],pickPerformanceSnaps:[],statsTimeWindow:"last_30d",statsLeaderMetric:"REC",leaderMode:"final",leaderDateOffset:0,gameEntry:{selectedGame:null,legCount:GAME_ENTRY_DEFAULT_LEGS,entry:null},
   shortlistTray:loadShortlistTray(),shortlistTrayNotice:"",
   mode:"skill",
@@ -431,6 +431,14 @@ function propTypeLabel(metric){
     INT:"Interceptions"
   };
   return labels[m]||m.replace(/_/g," ");
+}
+function gameMarketTypeLabel(marketType){
+  const key=String(marketType||"").trim().toUpperCase();
+  return {
+    SPREAD:"Spread",
+    MONEYLINE:"Moneyline",
+    TOTAL:"Game Total"
+  }[key]||key.replace(/_/g," ");
 }
 function normalizeLeanText(lean){
   const l=String(lean||"").trim().toUpperCase();
@@ -1652,6 +1660,43 @@ function renderPropsTeamBoard(team,rows){
     return `<div class="team-market-card"><div class="team-market-title"><span>${market.label}</span><span>${picks.length}</span></div>${picks.length?picks.map(row=>`<div class="team-market-row" onclick="streakToDash('${esc(row.prop.PLAYER_NAME)}','${propToLogCol(row.prop.METRIC)}','${row.prop.DK_LINE}')"><div class="team-market-player">${esc(row.prop.PLAYER_NAME)}</div><div class="team-market-call"><span class="props-side ${row.side.toLowerCase()}">${row.side} ${esc(row.prop.DK_LINE)}</span><span>${(row.hitRate*100).toFixed(0)}% · ${row.score.toFixed(1)}</span></div></div>`).join(""):`<div style="padding-top:8px;color:var(--ink-muted);font-size:var(--t-xs)">No market</div>`}</div>`;
   }).join("");
   return `<section class="team-props-board"><div class="team-props-head"><div><div class="analysis-eyebrow">Team matchup board</div><div class="team-props-name">${esc(teamDisplayName(team))}</div><div class="team-props-context">${esc(team)} vs ${esc(opp||"TBD")} · best current NFL prop spots</div></div></div><div class="team-market-grid">${cards}</div></section>`;
+}
+
+function gameMarketMatchesTeam(row,team){
+  if(!team||team==="ALL")return true;
+  const target=String(team).trim().toUpperCase();
+  return [rowField(row,"TEAM"),rowField(row,"HOME_TEAM"),rowField(row,"AWAY_TEAM")]
+    .map(v=>String(v||"").trim().toUpperCase())
+    .includes(target);
+}
+
+function renderGameMarketsBoard(team,rows){
+  const marketRows=(rows||[]).filter(row=>gameMarketMatchesTeam(row,team));
+  if(!marketRows.length)return "";
+  const games=[...new Set(marketRows.map(row=>String(rowField(row,"GAME")).trim()).filter(Boolean))];
+  const orderedGames=games.sort((a,b)=>{
+    const aKick=String(rowField(marketRows.find(row=>String(rowField(row,"GAME")).trim()===a),"KICKOFF")).trim();
+    const bKick=String(rowField(marketRows.find(row=>String(rowField(row,"GAME")).trim()===b),"KICKOFF")).trim();
+    return aKick.localeCompare(bKick)||a.localeCompare(b);
+  });
+  const cards=orderedGames.map(game=>{
+    const gameRows=marketRows.filter(row=>String(rowField(row,"GAME")).trim()===game);
+    const kickoff=String(rowField(gameRows[0],"KICKOFF")).trim();
+    const book=String(rowField(gameRows[0],"BOOK")).trim();
+    const groups=["SPREAD","MONEYLINE","TOTAL"].map(type=>{
+      const typeRows=gameRows.filter(row=>String(rowField(row,"MARKET_TYPE")).trim().toUpperCase()===type);
+      if(!typeRows.length)return "";
+      const items=typeRows.map(row=>{
+        const selection=String(rowField(row,"SELECTION")).trim();
+        const odds=rowField(row,"ODDS");
+        const oddsText=odds===""||odds==null?"":" · "+fmtOdds(odds);
+        return `<div class="team-market-row"><div class="team-market-player">${esc(selection)}</div><div class="team-market-call"><span>${esc(gameMarketTypeLabel(type))}</span><span>${esc(oddsText||"Baseline line")}</span></div></div>`;
+      }).join("");
+      return `<div class="team-market-card"><div class="team-market-title"><span>${esc(gameMarketTypeLabel(type))}</span><span>${typeRows.length}</span></div>${items}</div>`;
+    }).filter(Boolean).join("");
+    return `<section class="team-props-board" style="margin-top:12px"><div class="team-props-head"><div><div class="analysis-eyebrow">Game markets</div><div class="team-props-name">${esc(game)}</div><div class="team-props-context">${esc(kickoff||"Kickoff TBD")}${book?` · ${esc(book)}`:""}</div></div></div><div class="team-market-grid">${groups}</div></section>`;
+  }).join("");
+  return `<div style="padding:0 16px 6px;color:var(--ink-muted);font-size:var(--t-xs)">Team-side markets are now broken out separately from player props, so spreads, moneylines, and totals still show up in preseason.</div>${cards}`;
 }
 
 function getStatParlayCombos(board,legs){
@@ -2964,7 +3009,14 @@ function renderSlipsBoardView(convergenceHTML){
 function renderPropExplorerView(){
   let html="";
       const allM=[...new Set(st.props.map(p=>p.METRIC).filter(Boolean))].sort();
-      const allTeams=[...new Set([...st.tonight,...st.pTonight].map(p=>String(p.team_abbr||"").toUpperCase()).filter(Boolean))].sort((a,b)=>teamDisplayName(a).localeCompare(teamDisplayName(b)));
+      const allTeams=[...new Set([
+        ...[...st.tonight,...st.pTonight].map(p=>String(p.team_abbr||"").toUpperCase()),
+        ...(st.gameMarkets||[]).flatMap(row=>[
+          String(rowField(row,"TEAM")||"").toUpperCase(),
+          String(rowField(row,"HOME_TEAM")||"").toUpperCase(),
+          String(rowField(row,"AWAY_TEAM")||"").toUpperCase()
+        ])
+      ].filter(Boolean))].sort((a,b)=>teamDisplayName(a).localeCompare(teamDisplayName(b)));
       const query=normalizePlayerName(st.propsSearch);
       const minHit=parseFloat(st.propsMinHit)/100;
       const minEdge=parseFloat(st.propsMinEdge)/100;
@@ -2983,6 +3035,7 @@ function renderPropExplorerView(){
       const sorted=filtered.slice(0,200);
       const playerCount=new Set(filtered.map(row=>normalizePlayerName(row.prop.PLAYER_NAME))).size;
       const teamBoardHTML=renderPropsTeamBoard(st.propsTeam,rankedProps);
+      const gameMarketsHTML=renderGameMarketsBoard(st.propsTeam,st.gameMarkets);
       html=`<div style="padding:14px 16px 0"><div class="analysis-eyebrow">Market research</div><div style="font-family:'Barlow Condensed',system-ui,sans-serif;font-size:var(--t-xl);font-weight:800;color:var(--ink-0)">Prop Explorer</div><div style="color:var(--ink-muted);font-size:var(--t-xs);margin-top:2px">Explore this week's available markets. Default view shows only props with at least +5% modeled edge.</div></div><div class="props-toolbar">
         <div class="props-control props-control-search"><label for="propsSearchInput">Player or team</label><input type="text" id="propsSearchInput" placeholder="Search Harper, TOR, Blue Jays..." value="${esc(st.propsSearch)}"/></div>
         <div class="props-control"><label for="propsTeamSelect">Team</label><select id="propsTeamSelect"><option value="ALL">All teams</option>${allTeams.map(team=>`<option value="${esc(team)}" ${st.propsTeam===team?"selected":""}>${esc(teamDisplayName(team))} (${esc(team)})</option>`).join("")}</select></div>
@@ -2990,6 +3043,7 @@ function renderPropExplorerView(){
         <div class="props-control"><label for="propsMinHitSelect">Minimum Hit%</label><select id="propsMinHitSelect">${[[0,"Any"],[50,"50%+"],[60,"60%+"],[70,"70%+"]].map(([v,l])=>`<option value="${v}" ${String(st.propsMinHit)===String(v)?"selected":""}>${l}</option>`).join("")}</select></div>
         <div class="props-control"><label for="propsMinEdgeSelect">Minimum Edge%</label><select id="propsMinEdgeSelect">${[[-100,"Any"],[0,"Positive"],[5,"+5%"],[10,"+10%"],[15,"+15%"]].map(([v,l])=>`<option value="${v}" ${String(st.propsMinEdge)===String(v)?"selected":""}>${l}</option>`).join("")}</select></div>
       </div>
+      ${gameMarketsHTML}
       ${teamBoardHTML}
       <div class="props-filter"><div class="pf-btn ${st.propsMetric==="ALL"?"active":""}" onclick="setPropsMetric('ALL')">All</div>${allM.map(m=>`<div class="pf-btn ${st.propsMetric===m?"active":""}" onclick="setPropsMetric('${m}')">${esc(propTypeLabel(m))}</div>`).join("")}</div>
       <div style="padding:0 16px;color:var(--ink-muted);font-size:var(--t-xs);margin-bottom:4px">${filtered.length} props across ${playerCount} players${filtered.length>200?" · showing top 200":""} · ranked by ${st.propsSort==="SCORE"?"research score":st.propsSort==="HIT"?"Hit%":st.propsSort==="EDGE"?"Edge%, then Hit%":"player"}</div>
@@ -3002,7 +3056,7 @@ function renderPropExplorerView(){
         const matchupDisplay=Math.abs(row.components.matchup)<0.5?0:row.components.matchup;
         const breakdown=`Hit ${row.components.hit.toFixed(1)} · Edge ${row.components.edge.toFixed(1)} · Form ${row.components.form.toFixed(0)} · Matchup ${matchupDisplay.toFixed(0)}`;
         const weak=row.edge===null||row.edge<0.05;
-        return`<tr class="${flags.returning?"props-returning":""}${locked?" props-locked":""}${weak?" props-weak":""}" style="cursor:pointer" onclick="streakToDash('${esc(p.PLAYER_NAME)}','${propToLogCol(p.METRIC)}','${p.DK_LINE}')"><td style="color:var(--ink-muted);font-weight:700">${i+1}</td><td style="text-align:left;font-weight:600">${playerLink(p.PLAYER_NAME,propToLogCol(p.METRIC),p.DK_LINE)}${flags.returning?` <span class="risk-badge risk-returning">⚠️</span>`:flags.limited?` <span class="risk-badge risk-limited">⚠️</span>`:""}${locked?` <span class="locked-badge">🔒</span>`:""}</td><td title="${esc(row.teamName)}"><strong>${esc(row.team||"—")}</strong>${row.opp?` <span style="color:var(--ink-muted)">vs ${esc(row.opp)}</span>`:""}</td><td><span style="color:var(--accent);font-weight:600">${esc(propTypeLabel(p.METRIC))}</span><div style="color:var(--ink-muted);font-size:9px">line ${esc(p.DK_LINE)}</div></td><td>${row.side?`<span class="props-side ${row.side.toLowerCase()}">${row.side} ${fmtOdds(row.odds)}</span>`:"—"}</td><td class="${parseInt(p.OVER_ODDS)<=-130?"odds-over":parseInt(p.OVER_ODDS)>=130?"odds-under":"odds-even"}">${fmtOdds(p.OVER_ODDS)}</td><td class="${parseInt(p.UNDER_ODDS)<=-130?"odds-over":parseInt(p.UNDER_ODDS)>=130?"odds-under":"odds-even"}">${fmtOdds(p.UNDER_ODDS)}</td><td style="font-weight:700">${hrPct}</td><td>${edgeStr}</td><td title="${esc(breakdown)}"><span class="props-score">${row.score.toFixed(1)}</span><div class="props-score-detail">H ${row.components.hit.toFixed(1)} · E ${row.components.edge.toFixed(1)} · F ${row.components.form.toFixed(0)} · M ${matchupDisplay.toFixed(0)}</div></td></tr>${renderPropBestBookTableRow(p,10,{collapsed:true})}`}).join("")}</tbody></table></div>`:`<div class="props-pass"><div class="props-pass-title">No props clear these filters</div><div class="props-pass-copy">That is a valid result, not a broken board. Lower the minimum edge or change the team/market filter to explore the wider slate.</div></div>`}`;
+        return`<tr class="${flags.returning?"props-returning":""}${locked?" props-locked":""}${weak?" props-weak":""}" style="cursor:pointer" onclick="streakToDash('${esc(p.PLAYER_NAME)}','${propToLogCol(p.METRIC)}','${p.DK_LINE}')"><td style="color:var(--ink-muted);font-weight:700">${i+1}</td><td style="text-align:left;font-weight:600">${playerLink(p.PLAYER_NAME,propToLogCol(p.METRIC),p.DK_LINE)}${flags.returning?` <span class="risk-badge risk-returning">⚠️</span>`:flags.limited?` <span class="risk-badge risk-limited">⚠️</span>`:""}${locked?` <span class="locked-badge">🔒</span>`:""}</td><td title="${esc(row.teamName)}"><strong>${esc(row.team||"—")}</strong>${row.opp?` <span style="color:var(--ink-muted)">vs ${esc(row.opp)}</span>`:""}</td><td><span style="color:var(--accent);font-weight:600">${esc(propTypeLabel(p.METRIC))}</span><div style="color:var(--ink-muted);font-size:9px">line ${esc(p.DK_LINE)}</div></td><td>${row.side?`<span class="props-side ${row.side.toLowerCase()}">${row.side} ${fmtOdds(row.odds)}</span>`:"—"}</td><td class="${parseInt(p.OVER_ODDS)<=-130?"odds-over":parseInt(p.OVER_ODDS)>=130?"odds-under":"odds-even"}">${fmtOdds(p.OVER_ODDS)}</td><td class="${parseInt(p.UNDER_ODDS)<=-130?"odds-over":parseInt(p.UNDER_ODDS)>=130?"odds-under":"odds-even"}">${fmtOdds(p.UNDER_ODDS)}</td><td style="font-weight:700">${hrPct}</td><td>${edgeStr}</td><td title="${esc(breakdown)}"><span class="props-score">${row.score.toFixed(1)}</span><div class="props-score-detail">H ${row.components.hit.toFixed(1)} · E ${row.components.edge.toFixed(1)} · F ${row.components.form.toFixed(0)} · M ${matchupDisplay.toFixed(0)}</div></td></tr>${renderPropBestBookTableRow(p,10,{collapsed:true})}`}).join("")}</tbody></table></div>`:`<div class="props-pass"><div class="props-pass-title">No player props clear these filters</div><div class="props-pass-copy">${st.gameMarkets.length?"Team-side markets above are still live, which is normal in preseason before player props fully open.":"That is a valid result, not a broken board. Lower the minimum edge or change the team/market filter to explore the wider slate."}</div></div>`}`;
   return html;
 }
 
@@ -4143,6 +4197,14 @@ function renderDashboardPage(){
   const team=rowField(pT,"team_abbr","team_now","team")||"—";
   const opp=rowField(pT,"opp_abbr_tonight","opp_abbr")||"—";
   const gameTime=gameStartTimeForTeams(team,opp);
+  const playerGameMarkets=(st.gameMarkets||[]).filter(row=>{
+    const home=String(rowField(row,"HOME_TEAM")||"").trim().toUpperCase();
+    const away=String(rowField(row,"AWAY_TEAM")||"").trim().toUpperCase();
+    const teamKey=String(team||"").trim().toUpperCase();
+    const oppKey=String(opp||"").trim().toUpperCase();
+    if(!teamKey||teamKey==="—")return false;
+    return (home===teamKey&&away===oppKey) || (home===oppKey&&away===teamKey);
+  });
   const contextBits=[team,rowField(pT,"pos","position")||"",opp!=="—"?`vs ${opp}`:"",gameTime].filter(Boolean).join(" · ");
   const teamRow=getTeamRanking(team);
   const oppRow=getTeamRanking(opp);
@@ -4188,7 +4250,11 @@ function renderDashboardPage(){
         <div class="analysis-market-best">${bestLine}${clvLine}${renderPropBestBookBlock(p)}</div>
       </div>`;
     }).join("")}</div>`
-    :`<div class="empty" style="padding:20px">No live player props yet. The NFL dashboard will light up here once preseason markets are posted.</div>`;
+    :`<div class="empty" style="padding:20px">
+      <div style="font-weight:700;color:var(--ink-1)">No live player props yet.</div>
+      <div style="margin-top:6px">${playerGameMarkets.length?"Team-side markets are already live for this matchup below, which is normal in preseason before player props open.":"The board is still waiting on player props for this matchup."}</div>
+      ${playerGameMarkets.length?`<div style="margin-top:12px;display:grid;gap:8px">${playerGameMarkets.slice(0,6).map(row=>`<div class="analysis-market-row"><div class="analysis-market-name">${esc(gameMarketTypeLabel(rowField(row,"MARKET_TYPE")))}</div><div class="analysis-market-line">${esc(String(rowField(row,"SELECTION")||"—"))}</div><div class="analysis-market-odds">${fmtOdds(rowField(row,"ODDS"))}</div><div class="analysis-market-best">${esc(String(rowField(row,"BOOK")||"baseline"))}</div></div>`).join("")}</div>`:""}
+    </div>`;
   const pickBanner=matchingPick?(()=>{
     const c=normalizeConfidence(rowField(matchingPick,"confidence"));
     const cls=c==="SMASH"?"smash":c==="STRONG"?"strong":"lean";
@@ -4434,11 +4500,12 @@ function loadAllData(){
   fetchOptionalSheet("Daily_Picks"),
   fetchOptionalSheet("Player_Props","Sportsbook markets are unavailable."),
   fetchOptionalSheet("All_Books_Props"),
+  fetchOptionalSheet("Game_Markets"),
   fetchOptionalSheet("Team_Rankings"),
   fetchOptionalSheet("Projections","Season projections are unavailable."),
   fetchOptionalSheet("Pick_Performance"),
   fetchOptionalSheet("Pick_Performance_Snapshots")
-]).then(([_,tonight,logs,splits,weather,qbSlateRows,schedule,pTonight,pLogs,pSplits,currentPickSource,picksHistory,props,allBooksProps,teamRankings,projections,pickPerformance,pickPerformanceSnaps])=>{
+]).then(([_,tonight,logs,splits,weather,qbSlateRows,schedule,pTonight,pLogs,pSplits,currentPickSource,picksHistory,props,allBooksProps,gameMarkets,teamRankings,projections,pickPerformance,pickPerformanceSnaps])=>{
   resetDerived();
   st.tonight=normalizeKeys(cleanRows(tonight));
   st.gameLogs=normalizeKeys(cleanRows(logs));
@@ -4467,6 +4534,7 @@ function loadAllData(){
 	  );
 	  st.props=normalizeKeys(cleanRows(props));
 	  st.allBooksProps=normalizeKeys(cleanRows(allBooksProps||[]));
+	  st.gameMarkets=normalizeKeys(cleanRows(gameMarkets||[]));
 	  const teamRankingRows=normalizeKeys(cleanRows(teamRankings||[]));
 	  const teamRankingKeys=new Set(Object.keys(teamRankingRows[0]||{}).map(canonicalFieldKey));
 	  // NFL team aggregates. The MLB baseline checked for off_k_pct/pit_hr9 here,
@@ -4488,6 +4556,7 @@ function loadAllData(){
 	                  'confidence', 'rationale', 'HIT'],
 	    Player_Props: ['PLAYER_NAME', 'METRIC', 'DK_LINE', 'OVER_ODDS', 'UNDER_ODDS'],
 	    All_Books_Props: ['PLAYER_NAME', 'METRIC', 'LINE', 'BOOK', 'OVER_ODDS', 'UNDER_ODDS'],
+	    Game_Markets: ['GAME', 'MARKET_TYPE', 'SELECTION', 'LINE', 'ODDS'],
 	    Team_Rankings: ['team_abbr', 'passing_yards', 'rushing_yards'],
 	  };
 	  const _schemaSources = {
@@ -4496,6 +4565,7 @@ function loadAllData(){
 	    Daily_Picks: st.picksHistory,
 	    Player_Props: st.props,
 	    All_Books_Props: st.allBooksProps,
+	    Game_Markets: st.gameMarkets,
 	    Slate_QB: st.qbSlateRows,
 	    Team_Rankings: st.teamRankings,
 	  };

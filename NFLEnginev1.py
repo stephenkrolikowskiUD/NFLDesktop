@@ -29,7 +29,8 @@ from sports_common import col_letter, get_gspread_client, load_secret, safe_reco
 
 SPORT_LABEL = "NFL"
 SHEET_ID = "1vJvcOsMyBEz1ZMJy6BKapdfG3FlvPIpB0eD_dviQBd0"
-ODDS_SPORT = "americanfootball_nfl"
+REGULAR_SEASON_ODDS_SPORT = "americanfootball_nfl"
+PRESEASON_ODDS_SPORT = "americanfootball_nfl_preseason"
 MODEL_VERSION = os.getenv("NFL_MODEL_VERSION", "nfl-2026-preseason-v1")
 MODEL_ERA = os.getenv("NFL_MODEL_ERA", MODEL_VERSION)
 QUOTA_FLOOR_THIS_SPORT = int(os.getenv(f"{SPORT_LABEL}_ODDS_CREDIT_FLOOR", "500"))
@@ -114,6 +115,39 @@ def extract_book_odds(events: list, preferred="draftkings", fallback="fanduel") 
     return pd.DataFrame(rows)
 
 
+def _schedule_kickoff_series(schedule: pd.DataFrame) -> pd.Series:
+    if schedule.empty:
+        return pd.Series(dtype="datetime64[ns]")
+    dates = schedule.get("gameday", pd.Series("", index=schedule.index)).astype(str)
+    times = schedule.get("gametime", pd.Series("00:00", index=schedule.index)).astype(str)
+    return pd.to_datetime(dates + " " + times, errors="coerce")
+
+
+def resolve_odds_sport(schedule: pd.DataFrame, now: datetime) -> str:
+    """Choose the Odds API sport key from the actual next slate.
+
+    An env override always wins. Otherwise, look at the next scheduled kickoff:
+    if that slate is preseason, request preseason odds; once the next slate is
+    regular season, switch back automatically.
+    """
+    override = os.getenv("NFL_ODDS_SPORT", "").strip()
+    if override:
+        return override
+
+    if schedule.empty or "game_type" not in schedule.columns:
+        return REGULAR_SEASON_ODDS_SPORT
+
+    sched = schedule.copy()
+    sched["_kickoff"] = _schedule_kickoff_series(sched)
+    upcoming = sched[sched["_kickoff"] >= pd.Timestamp(now)].sort_values("_kickoff")
+    sample = upcoming if not upcoming.empty else sched.sort_values("_kickoff")
+    if sample.empty:
+        return REGULAR_SEASON_ODDS_SPORT
+
+    next_type = str(sample.iloc[0].get("game_type", "")).strip().upper()
+    return PRESEASON_ODDS_SPORT if next_type == "PRE" else REGULAR_SEASON_ODDS_SPORT
+
+
 # ============================================================================
 # TRANSFORMS
 # ============================================================================
@@ -172,6 +206,168 @@ def build_games_tab(schedule: pd.DataFrame, odds: pd.DataFrame,
         ).drop(columns=["home_abbr", "away_abbr"], errors="ignore")
 
     return games
+
+
+def build_game_markets_tab(games: pd.DataFrame) -> pd.DataFrame:
+    """Flatten game-level markets into one row per bettable side.
+
+    This gives the dashboard a team-market surface that still works in
+    preseason, when the provider may post spreads/totals before player props.
+    """
+    if games.empty:
+        return pd.DataFrame()
+
+    rows = []
+    for _, game in games.iterrows():
+        home = str(game.get("home_team", "")).strip().upper()
+        away = str(game.get("away_team", "")).strip().upper()
+        week = game.get("week", "")
+        season = game.get("season", "")
+        kickoff_date = game.get("gameday", "")
+        kickoff_time = game.get("gametime", "")
+        kickoff = f"{kickoff_date} {kickoff_time}".strip()
+        matchup = f"{away} @ {home}".strip(" @")
+        book = game.get("bookmaker", "") or "baseline"
+
+        live_home_spread = game.get("live_home_spread")
+        live_away_spread = game.get("live_away_spread")
+        # nflverse `spread_line` is positive when the HOME team is favored,
+        # which is the inverse of sportsbook display convention. Normalize it
+        # here so every emitted team-market row reads like an actual bet slip.
+        baseline_home_spread = (-game.get("spread_line")
+                                if pd.notna(game.get("spread_line")) else None)
+        baseline_away_spread = (-baseline_home_spread
+                                if pd.notna(baseline_home_spread) else None)
+        home_spread = (live_home_spread if pd.notna(live_home_spread)
+                       else baseline_home_spread)
+        away_spread = (live_away_spread if pd.notna(live_away_spread)
+                       else baseline_away_spread)
+        home_spread_odds = game.get("live_home_spread_odds", "")
+        away_spread_odds = game.get("live_away_spread_odds", "")
+
+        total_line = game.get("live_total")
+        if pd.isna(total_line):
+            total_line = game.get("total_line")
+        over_odds = game.get("live_over_odds", "")
+        under_odds = game.get("live_under_odds", "")
+
+        home_ml = game.get("live_home_ml")
+        away_ml = game.get("live_away_ml")
+        if pd.isna(home_ml):
+            home_ml = game.get("home_moneyline")
+        if pd.isna(away_ml):
+            away_ml = game.get("away_moneyline")
+
+        if pd.notna(home_spread):
+            rows.append({
+                "SEASON": season,
+                "WEEK": week,
+                "GAME": matchup,
+                "GAME_TYPE": game.get("game_type", ""),
+                "KICKOFF": kickoff,
+                "BOOK": book,
+                "MARKET_TYPE": "SPREAD",
+                "TEAM": home,
+                "OPPONENT": away,
+                "SELECTION": f"{home} {home_spread:+g}",
+                "LINE": float(home_spread),
+                "ODDS": home_spread_odds,
+                "HOME_TEAM": home,
+                "AWAY_TEAM": away,
+            })
+        if pd.notna(away_spread):
+            rows.append({
+                "SEASON": season,
+                "WEEK": week,
+                "GAME": matchup,
+                "GAME_TYPE": game.get("game_type", ""),
+                "KICKOFF": kickoff,
+                "BOOK": book,
+                "MARKET_TYPE": "SPREAD",
+                "TEAM": away,
+                "OPPONENT": home,
+                "SELECTION": f"{away} {away_spread:+g}",
+                "LINE": float(away_spread),
+                "ODDS": away_spread_odds,
+                "HOME_TEAM": home,
+                "AWAY_TEAM": away,
+            })
+
+        if pd.notna(home_ml):
+            rows.append({
+                "SEASON": season,
+                "WEEK": week,
+                "GAME": matchup,
+                "GAME_TYPE": game.get("game_type", ""),
+                "KICKOFF": kickoff,
+                "BOOK": book,
+                "MARKET_TYPE": "MONEYLINE",
+                "TEAM": home,
+                "OPPONENT": away,
+                "SELECTION": f"{home} to win",
+                "LINE": "",
+                "ODDS": home_ml,
+                "HOME_TEAM": home,
+                "AWAY_TEAM": away,
+            })
+        if pd.notna(away_ml):
+            rows.append({
+                "SEASON": season,
+                "WEEK": week,
+                "GAME": matchup,
+                "GAME_TYPE": game.get("game_type", ""),
+                "KICKOFF": kickoff,
+                "BOOK": book,
+                "MARKET_TYPE": "MONEYLINE",
+                "TEAM": away,
+                "OPPONENT": home,
+                "SELECTION": f"{away} to win",
+                "LINE": "",
+                "ODDS": away_ml,
+                "HOME_TEAM": home,
+                "AWAY_TEAM": away,
+            })
+
+        if pd.notna(total_line):
+            total_value = float(total_line)
+            rows.extend([
+                {
+                    "SEASON": season,
+                    "WEEK": week,
+                    "GAME": matchup,
+                    "GAME_TYPE": game.get("game_type", ""),
+                    "KICKOFF": kickoff,
+                    "BOOK": book,
+                    "MARKET_TYPE": "TOTAL",
+                    "TEAM": "",
+                    "OPPONENT": "",
+                    "SELECTION": f"Over {total_value:g}",
+                    "LINE": total_value,
+                    "ODDS": over_odds,
+                    "HOME_TEAM": home,
+                    "AWAY_TEAM": away,
+                },
+                {
+                    "SEASON": season,
+                    "WEEK": week,
+                    "GAME": matchup,
+                    "GAME_TYPE": game.get("game_type", ""),
+                    "KICKOFF": kickoff,
+                    "BOOK": book,
+                    "MARKET_TYPE": "TOTAL",
+                    "TEAM": "",
+                    "OPPONENT": "",
+                    "SELECTION": f"Under {total_value:g}",
+                    "LINE": total_value,
+                    "ODDS": under_odds,
+                    "HOME_TEAM": home,
+                    "AWAY_TEAM": away,
+                },
+            ])
+
+    if not rows:
+        return pd.DataFrame()
+    return pd.DataFrame(rows)
 
 
 def build_teams_tab(teams: pd.DataFrame) -> pd.DataFrame:
@@ -828,12 +1024,21 @@ def main():
     odds = pd.DataFrame()
     props = pd.DataFrame()
     board = pd.DataFrame()
+    odds_sport = resolve_odds_sport(schedule, started)
 
     if not odds_api_key:
         print("   ⚠️  no Odds API key — skipping live odds and props")
     else:
-        odds_api = oc.OddsClient(odds_api_key, quota_floor=QUOTA_FLOOR_THIS_SPORT)
+        odds_api = oc.OddsClient(
+            odds_api_key,
+            quota_floor=QUOTA_FLOOR_THIS_SPORT,
+            sport=odds_sport,
+        )
         try:
+            print(f"   sport key: {odds_sport}")
+            if odds_sport == PRESEASON_ODDS_SPORT:
+                print("   ℹ️  preseason mode: team markets should populate first; "
+                      "player props may stay empty until books open them")
             odds = extract_book_odds(odds_api.fetch_featured())
             print(f"   featured odds: {len(odds)} games")
 
@@ -865,6 +1070,7 @@ def main():
     print("\n🔧 Building tabs")
     name_map = build_team_name_map(teams)
     games_tab = build_games_tab(schedule, odds, name_map)
+    game_markets_tab = build_game_markets_tab(games_tab)
     skill_logs = build_game_logs_tab(stats, SKILL_POSITIONS)
     qb_logs = build_game_logs_tab(stats, ["QB"])
 
@@ -935,6 +1141,7 @@ def main():
         "Team_Rankings": build_team_rankings_tab(team_stats),
         "Player_Props": build_player_props_tab(board),
         "All_Books_Props": build_all_books_props_tab(props),
+        "Game_Markets": game_markets_tab,
         "Injuries": build_injuries_tab(injuries),
         "Projections": projections,
         "Picks_Current": picks_current,
