@@ -232,7 +232,7 @@ RATE_COLS = [
 
 def _norm_name(value) -> str:
     from sports_common import normalize_person_name
-    return normalize_person_name(value, keep_digits=False)
+    return normalize_person_name(value, keep_digits=False, decompose_unicode=False)
 
 
 def _season_type_order(values: pd.Series) -> pd.Series:

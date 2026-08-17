@@ -22,17 +22,32 @@ def get_gspread_client():
     ]
     svc_json = os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON") or os.environ.get("GSPREAD_SERVICE_ACCOUNT_JSON")
     if svc_json:
-        creds = Credentials.from_service_account_info(json.loads(svc_json), scopes=scopes)
+        try:
+            info = json.loads(svc_json)
+        except json.JSONDecodeError as e:
+            raise RuntimeError(
+                f"GOOGLE_SERVICE_ACCOUNT_JSON is set but isn't valid JSON ({e}). "
+                "It must hold the full JSON key *content*, not a file path."
+            ) from e
+        creds = Credentials.from_service_account_info(info, scopes=scopes)
         return gspread.authorize(creds)
 
     key_path = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
-    if key_path and os.path.exists(key_path):
+    if key_path:
+        if not os.path.exists(key_path):
+            raise RuntimeError(
+                f"GOOGLE_APPLICATION_CREDENTIALS points to a missing file: {key_path}"
+            )
         creds = Credentials.from_service_account_file(key_path, scopes=scopes)
         return gspread.authorize(creds)
 
     raise RuntimeError(
-        "No Google credentials found. Set GOOGLE_SERVICE_ACCOUNT_JSON (JSON content) "
-        "or GOOGLE_APPLICATION_CREDENTIALS (path to key file)."
+        "No Google credentials found — neither GOOGLE_SERVICE_ACCOUNT_JSON nor "
+        "GOOGLE_APPLICATION_CREDENTIALS is set (both were empty, not invalid).\n"
+        "  • GitHub Actions: add a repo secret named GOOGLE_SERVICE_ACCOUNT_JSON "
+        "containing the full service-account JSON content.\n"
+        "  • Local: export GOOGLE_APPLICATION_CREDENTIALS=/path/to/key.json\n"
+        "Then confirm the Sheet is shared with that key's client_email as Editor."
     )
 
 
@@ -77,9 +92,12 @@ def normalize_confidence(val, allowed=("SMASH", "STRONG", "LEAN"), default="LEAN
     return conf if conf in allowed_set else str(default).strip().upper()
 
 
-def normalize_person_name(value, *, keep_digits: bool = False, strip_chars: str = "") -> str:
-    text = unicodedata.normalize("NFKD", str(value or ""))
-    text = "".join(ch for ch in text if not unicodedata.combining(ch))
+def normalize_person_name(value, *, keep_digits: bool = False, strip_chars: str = "",
+                          decompose_unicode: bool = True) -> str:
+    text = str(value or "")
+    if decompose_unicode:
+        text = unicodedata.normalize("NFKD", text)
+        text = "".join(ch for ch in text if not unicodedata.combining(ch))
     text = text.lower()
     if strip_chars:
         text = re.sub("[" + re.escape(strip_chars) + "]", "", text)
