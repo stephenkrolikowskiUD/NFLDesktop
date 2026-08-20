@@ -139,7 +139,13 @@ def resolve_odds_sport(schedule: pd.DataFrame, now: datetime) -> str:
 
     sched = schedule.copy()
     sched["_kickoff"] = _schedule_kickoff_series(sched)
-    upcoming = sched[sched["_kickoff"] >= pd.Timestamp(now)].sort_values("_kickoff")
+    # Schedule kickoffs are parsed as naive wall-clock timestamps from nflverse.
+    # `started` is timezone-aware Eastern, so compare on the same naive footing
+    # rather than mixing aware/naive pandas timestamps.
+    now_ts = pd.Timestamp(now)
+    if now_ts.tzinfo is not None:
+        now_ts = now_ts.tz_localize(None)
+    upcoming = sched[sched["_kickoff"] >= now_ts].sort_values("_kickoff")
     sample = upcoming if not upcoming.empty else sched.sort_values("_kickoff")
     if sample.empty:
         return REGULAR_SEASON_ODDS_SPORT
