@@ -98,7 +98,7 @@ let st={
   player:"",metric:"REC",line:"",activeTab:"picks",oppFilter:"",showFullLog:false,
   playerSearch:"",playerSuggestions:[],showPlayerSugs:false,
   loading:true,error:null,dataWarnings:[],lookupError:"",loadedAt:null,latestPickDate:"",pickGuard:null,
-  picksView:"shortlist",propsMetric:"ALL",propsSearch:"",propsTeam:"ALL",propsSort:"EDGE",propsMinHit:"0",propsMinEdge:"5",
+  picksView:"shortlist",propsMetric:"ALL",propsSearch:"",propsTeam:"ALL",propsSort:"EDGE",propsMinHit:"0",propsMinEdge:"5",gameMarketType:"ALL",gameMarketSort:"KICKOFF",
   weeklyProjPos:"ALL",weeklyProjTeam:"ALL",
   streakFilter:"all",drafted:new Set(),slipLegs:"3",
   draftSlate:{signature:initialDraftSlate.signature,selectedIds:initialDraftSlate.selectedIds,panelOpen:false},
@@ -440,6 +440,34 @@ function gameMarketTypeLabel(marketType){
     TOTAL:"Game Total"
   }[key]||key.replace(/_/g," ");
 }
+function gameMarketTypeShortLabel(marketType){
+  const key=String(marketType||"").trim().toUpperCase();
+  return {
+    SPREAD:"Spreads",
+    MONEYLINE:"Moneylines",
+    TOTAL:"Totals"
+  }[key]||gameMarketTypeLabel(key);
+}
+function gameMarketKickoffMs(row){
+  const raw=String(rowField(row,"KICKOFF")||"").trim();
+  if(!raw)return null;
+  const parsed=new Date(raw);
+  return Number.isNaN(parsed.getTime())?null:parsed.getTime();
+}
+function gameMarketDisplayTime(row){
+  const ms=gameMarketKickoffMs(row);
+  if(!Number.isFinite(ms))return String(rowField(row,"KICKOFF")||"Kickoff TBD").trim()||"Kickoff TBD";
+  return new Date(ms).toLocaleString("en-US",{
+    month:"short",day:"numeric",hour:"numeric",minute:"2-digit",
+    timeZone:"America/New_York",timeZoneName:"short"
+  });
+}
+function gameMarketOddsLabel(odds){
+  return odds===""||odds==null?"Baseline line":fmtOdds(odds);
+}
+function gameMarketSelectionText(row){
+  return String(rowField(row,"SELECTION")||"—").trim()||"—";
+}
 function normalizeLeanText(lean){
   const l=String(lean||"").trim().toUpperCase();
   return l==="FADE"?"UNDER":l;
@@ -636,6 +664,8 @@ function setPropsTeam(v){st.propsTeam=v;render()}
 function setPropsSort(v){st.propsSort=v;render()}
 function setPropsMinHit(v){st.propsMinHit=v;render()}
 function setPropsMinEdge(v){st.propsMinEdge=v;render()}
+function setGameMarketType(v){st.gameMarketType=v;render()}
+function setGameMarketSort(v){st.gameMarketSort=v;render()}
 function setWeeklyProjPos(v){st.weeklyProjPos=v;render()}
 function setWeeklyProjTeam(v){st.weeklyProjTeam=String(v||"ALL");render()}
 function getTeamRanking(teamAbbr){
@@ -1671,32 +1701,120 @@ function gameMarketMatchesTeam(row,team){
 }
 
 function renderGameMarketsBoard(team,rows){
-  const marketRows=(rows||[]).filter(row=>gameMarketMatchesTeam(row,team));
-  if(!marketRows.length)return "";
-  const games=[...new Set(marketRows.map(row=>String(rowField(row,"GAME")).trim()).filter(Boolean))];
-  const orderedGames=games.sort((a,b)=>{
-    const aKick=String(rowField(marketRows.find(row=>String(rowField(row,"GAME")).trim()===a),"KICKOFF")).trim();
-    const bKick=String(rowField(marketRows.find(row=>String(rowField(row,"GAME")).trim()===b),"KICKOFF")).trim();
-    return aKick.localeCompare(bKick)||a.localeCompare(b);
+  const query=normalizePlayerName(st.propsSearch);
+  const typeFilter=String(st.gameMarketType||"ALL").toUpperCase();
+  const totalRows=(rows||[]).filter(row=>gameMarketMatchesTeam(row,team));
+  if(!totalRows.length)return "";
+
+  let marketRows=totalRows.filter(row=>{
+    if(typeFilter!=="ALL"&&String(rowField(row,"MARKET_TYPE")).trim().toUpperCase()!==typeFilter)return false;
+    if(!query)return true;
+    const haystack=[
+      rowField(row,"GAME"),
+      rowField(row,"SELECTION"),
+      rowField(row,"TEAM"),
+      rowField(row,"HOME_TEAM"),
+      rowField(row,"AWAY_TEAM")
+    ].map(v=>String(v||"")).join(" ");
+    return normalizePlayerName(haystack).includes(query);
   });
-  const cards=orderedGames.map(game=>{
-    const gameRows=marketRows.filter(row=>String(rowField(row,"GAME")).trim()===game);
-    const kickoff=String(rowField(gameRows[0],"KICKOFF")).trim();
-    const book=String(rowField(gameRows[0],"BOOK")).trim();
+
+  const summaryCounts={
+    SPREAD: totalRows.filter(row=>String(rowField(row,"MARKET_TYPE")).trim().toUpperCase()==="SPREAD").length,
+    MONEYLINE: totalRows.filter(row=>String(rowField(row,"MARKET_TYPE")).trim().toUpperCase()==="MONEYLINE").length,
+    TOTAL: totalRows.filter(row=>String(rowField(row,"MARKET_TYPE")).trim().toUpperCase()==="TOTAL").length
+  };
+  const sortMode=String(st.gameMarketSort||"KICKOFF").toUpperCase();
+  const gameMap=new Map();
+  marketRows.forEach(row=>{
+    const key=String(rowField(row,"GAME")).trim();
+    if(!key)return;
+    if(!gameMap.has(key))gameMap.set(key,[]);
+    gameMap.get(key).push(row);
+  });
+  const gameEntries=[...gameMap.entries()].map(([game,gameRows])=>({game,rows:gameRows,first:gameRows[0]}));
+  gameEntries.sort((a,b)=>{
+    const aMs=gameMarketKickoffMs(a.first),bMs=gameMarketKickoffMs(b.first);
+    if(sortMode==="MARKETS")return b.rows.length-a.rows.length||(aMs??Infinity)-(bMs??Infinity)||a.game.localeCompare(b.game);
+    return (aMs??Infinity)-(bMs??Infinity)||a.game.localeCompare(b.game);
+  });
+
+  const typeChips=["ALL","SPREAD","MONEYLINE","TOTAL"].map(type=>{
+    const active=typeFilter===type;
+    const count=type==="ALL"?totalRows.length:summaryCounts[type];
+    const label=type==="ALL"?"All Markets":gameMarketTypeShortLabel(type);
+    return `<div class="pf-btn ${active?"active":""}" onclick="setGameMarketType('${type}')">${esc(label)}${count?` <span>${count}</span>`:""}</div>`;
+  }).join("");
+
+  const cards=gameEntries.map(({game,rows:gameRows,first})=>{
+    const kickoff=gameMarketDisplayTime(first);
+    const book=String(rowField(first,"BOOK")||"baseline").trim();
+    const home=String(rowField(first,"HOME_TEAM")||"").trim().toUpperCase();
+    const away=String(rowField(first,"AWAY_TEAM")||"").trim().toUpperCase();
     const groups=["SPREAD","MONEYLINE","TOTAL"].map(type=>{
       const typeRows=gameRows.filter(row=>String(rowField(row,"MARKET_TYPE")).trim().toUpperCase()===type);
       if(!typeRows.length)return "";
       const items=typeRows.map(row=>{
-        const selection=String(rowField(row,"SELECTION")).trim();
+        const selection=gameMarketSelectionText(row);
         const odds=rowField(row,"ODDS");
-        const oddsText=odds===""||odds==null?"":" · "+fmtOdds(odds);
-        return `<div class="team-market-row"><div class="team-market-player">${esc(selection)}</div><div class="team-market-call"><span>${esc(gameMarketTypeLabel(type))}</span><span>${esc(oddsText||"Baseline line")}</span></div></div>`;
+        const teamValue=String(rowField(row,"TEAM")||"").trim().toUpperCase();
+        const teamMeta=type==="TOTAL"
+          ?`${away} @ ${home}`
+          :teamValue&&String(team||"ALL").trim().toUpperCase()!=="ALL"
+            ?`${teamValue} side`
+            :"Team side";
+        return `<div class="game-market-row">
+          <div class="game-market-row-main">
+            <div class="game-market-row-selection">${esc(selection)}</div>
+            <div class="game-market-row-meta">${esc(teamMeta)}</div>
+          </div>
+          <div class="game-market-row-side">
+            <div class="game-market-row-odds">${esc(gameMarketOddsLabel(odds))}</div>
+            <div class="game-market-row-book">${esc(book||"baseline")}</div>
+          </div>
+        </div>`;
       }).join("");
-      return `<div class="team-market-card"><div class="team-market-title"><span>${esc(gameMarketTypeLabel(type))}</span><span>${typeRows.length}</span></div>${items}</div>`;
+      return `<div class="game-market-card"><div class="game-market-card-head"><span>${esc(gameMarketTypeLabel(type))}</span><span>${typeRows.length}</span></div>${items}</div>`;
     }).filter(Boolean).join("");
-    return `<section class="team-props-board" style="margin-top:12px"><div class="team-props-head"><div><div class="analysis-eyebrow">Game markets</div><div class="team-props-name">${esc(game)}</div><div class="team-props-context">${esc(kickoff||"Kickoff TBD")}${book?` · ${esc(book)}`:""}</div></div></div><div class="team-market-grid">${groups}</div></section>`;
+    return `<section class="game-market-shell">
+      <div class="game-market-shell-head">
+        <div>
+          <div class="analysis-eyebrow">Game markets</div>
+          <div class="game-market-shell-title">${esc(game)}</div>
+          <div class="game-market-shell-meta">${esc(kickoff)} · ${esc(book||"baseline")}</div>
+        </div>
+        <div class="game-market-shell-tags">
+          <span class="game-market-shell-tag">${esc(away||"AWAY")} @ ${esc(home||"HOME")}</span>
+          <span class="game-market-shell-tag">${gameRows.length} market rows</span>
+        </div>
+      </div>
+      <div class="game-market-grid">${groups}</div>
+    </section>`;
   }).join("");
-  return `<div style="padding:0 16px 6px;color:var(--ink-muted);font-size:var(--t-xs)">Team-side markets are now broken out separately from player props, so spreads, moneylines, and totals still show up in preseason.</div>${cards}`;
+
+  return `<section class="game-market-explorer">
+    <div class="game-market-explorer-head">
+      <div>
+        <div class="analysis-eyebrow">Preseason board</div>
+        <div class="game-market-explorer-title">Game Markets</div>
+        <div class="game-market-explorer-copy">Spreads, moneylines, and totals are live even before player props open. Use this as the preseason market board instead of waiting on a player-prop feed.</div>
+      </div>
+      <div class="game-market-summary">
+        <div class="game-market-summary-pill"><strong>${gameEntries.length}</strong><span>Games</span></div>
+        <div class="game-market-summary-pill"><strong>${summaryCounts.SPREAD}</strong><span>Spreads</span></div>
+        <div class="game-market-summary-pill"><strong>${summaryCounts.MONEYLINE}</strong><span>Moneylines</span></div>
+        <div class="game-market-summary-pill"><strong>${summaryCounts.TOTAL}</strong><span>Totals</span></div>
+      </div>
+    </div>
+    <div class="props-toolbar" style="padding-top:6px">
+      <div class="props-control">
+        <label for="gameMarketSortSelect">Game market sort</label>
+        <select id="gameMarketSortSelect"><option value="KICKOFF" ${sortMode==="KICKOFF"?"selected":""}>Kickoff</option><option value="MARKETS" ${sortMode==="MARKETS"?"selected":""}>Most rows</option></select>
+      </div>
+    </div>
+    <div class="props-filter">${typeChips}</div>
+    ${gameEntries.length?cards:`<div class="props-pass"><div class="props-pass-title">No game markets match these filters</div><div class="props-pass-copy">Try a different team or clear the search. The preseason feed is live, but this slice of the board is empty.</div></div>`}
+  </section>`;
 }
 
 function getStatParlayCombos(board,legs){
@@ -3036,7 +3154,7 @@ function renderPropExplorerView(){
       const playerCount=new Set(filtered.map(row=>normalizePlayerName(row.prop.PLAYER_NAME))).size;
       const teamBoardHTML=renderPropsTeamBoard(st.propsTeam,rankedProps);
       const gameMarketsHTML=renderGameMarketsBoard(st.propsTeam,st.gameMarkets);
-      html=`<div style="padding:14px 16px 0"><div class="analysis-eyebrow">Market research</div><div style="font-family:'Barlow Condensed',system-ui,sans-serif;font-size:var(--t-xl);font-weight:800;color:var(--ink-0)">Prop Explorer</div><div style="color:var(--ink-muted);font-size:var(--t-xs);margin-top:2px">Explore this week's available markets. Default view shows only props with at least +5% modeled edge.</div></div><div class="props-toolbar">
+      html=`<div style="padding:14px 16px 0"><div class="analysis-eyebrow">Market research</div><div style="font-family:'Barlow Condensed',system-ui,sans-serif;font-size:var(--t-xl);font-weight:800;color:var(--ink-0)">Market Explorer</div><div style="color:var(--ink-muted);font-size:var(--t-xs);margin-top:2px">Track preseason game markets first, then layer in player props once books open them.</div></div><div class="props-toolbar">
         <div class="props-control props-control-search"><label for="propsSearchInput">Player or team</label><input type="text" id="propsSearchInput" placeholder="Search Harper, TOR, Blue Jays..." value="${esc(st.propsSearch)}"/></div>
         <div class="props-control"><label for="propsTeamSelect">Team</label><select id="propsTeamSelect"><option value="ALL">All teams</option>${allTeams.map(team=>`<option value="${esc(team)}" ${st.propsTeam===team?"selected":""}>${esc(teamDisplayName(team))} (${esc(team)})</option>`).join("")}</select></div>
         <div class="props-control"><label for="propsSortSelect">Rank by</label><select id="propsSortSelect"><option value="EDGE" ${st.propsSort==="EDGE"?"selected":""}>Edge %</option><option value="HIT" ${st.propsSort==="HIT"?"selected":""}>Hit %</option><option value="SCORE" ${st.propsSort==="SCORE"?"selected":""}>Research score</option><option value="PLAYER" ${st.propsSort==="PLAYER"?"selected":""}>Player name</option></select></div>
@@ -4143,6 +4261,7 @@ function bindRenderedControls(){
   bindChange("propsSortSelect",event=>setPropsSort(event.target.value));
   bindChange("propsMinHitSelect",event=>setPropsMinHit(event.target.value));
   bindChange("propsMinEdgeSelect",event=>setPropsMinEdge(event.target.value));
+  bindChange("gameMarketSortSelect",event=>setGameMarketSort(event.target.value));
 
   document.getElementById("themeBtn")?.addEventListener("click",toggleTheme);
   document.getElementById("refreshBtn")?.addEventListener("click",loadAllData);
