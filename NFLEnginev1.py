@@ -145,12 +145,26 @@ def resolve_odds_sport(schedule: pd.DataFrame, now: datetime) -> str:
     now_ts = pd.Timestamp(now)
     if now_ts.tzinfo is not None:
         now_ts = now_ts.tz_localize(None)
+    kickoff_rows = sched[sched["_kickoff"].notna()].sort_values("_kickoff")
     upcoming = sched[sched["_kickoff"] >= now_ts].sort_values("_kickoff")
     sample = upcoming if not upcoming.empty else sched.sort_values("_kickoff")
     if sample.empty:
         return REGULAR_SEASON_ODDS_SPORT
 
     next_type = str(sample.iloc[0].get("game_type", "")).strip().upper()
+    has_preseason_rows = sched["game_type"].astype(str).str.upper().eq("PRE").any()
+    earliest_kickoff = kickoff_rows["_kickoff"].iloc[0] if not kickoff_rows.empty else None
+
+    # Some nflverse schedule pulls expose only the 272-game regular-season slate
+    # even while the real calendar is still in preseason. In that case the next
+    # visible kickoff is Week 1, but we still want preseason odds until the
+    # regular-season opener is close enough to be the actual active slate.
+    if (not has_preseason_rows and next_type == "REG" and earliest_kickoff is not None
+            and now_ts.month == 8
+            and now_ts < earliest_kickoff
+            and (earliest_kickoff - now_ts).days <= 35):
+        return PRESEASON_ODDS_SPORT
+
     return PRESEASON_ODDS_SPORT if next_type == "PRE" else REGULAR_SEASON_ODDS_SPORT
 
 
