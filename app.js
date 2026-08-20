@@ -1303,7 +1303,10 @@ function renderShortlistTray(){
 
 function renderTonightShortlist(){
   const rows=getTonightShortlist();
-  if(!rows.length)return`<section class="shortlist-shell"><div class="shortlist-head"><div><div class="analysis-eyebrow">This week's decision board</div><div class="shortlist-title">This Week's Shortlist</div><div class="shortlist-sub">Only unlocked, adequately sampled props with actionable prices, +5% edge, and no active model or lineup warning qualify.</div></div><div class="shortlist-rule">Strict mode · passing allowed</div></div>${renderShortlistTray()}<div class="props-pass" style="margin:0"><div class="props-pass-title">No play clears every gate this week</div><div class="props-pass-copy">The data loaded correctly; the board is declining to promote a weak or conflicted option. Prop Explorer still contains the wider research set.</div></div></section>`;
+  if(!rows.length){
+    const preseasonMarketsLive=!st.props.length&&(st.gameMarkets||[]).length;
+    return`<section class="shortlist-shell"><div class="shortlist-head"><div><div class="analysis-eyebrow">This week's decision board</div><div class="shortlist-title">This Week's Shortlist</div><div class="shortlist-sub">${preseasonMarketsLive?"Player props are not posted yet, so the board is surfacing preseason team markets first. Once books open player lines, this board will tighten back to qualified props only.":"Only unlocked, adequately sampled props with actionable prices, +5% edge, and no active model or lineup warning qualify."}</div></div><div class="shortlist-rule">${preseasonMarketsLive?"Preseason mode · team markets live":"Strict mode · passing allowed"}</div></div>${renderShortlistTray()}${preseasonMarketsLive?`<div class="props-pass" style="margin:0 0 18px"><div class="props-pass-title">Player props are still closed, but the board is live</div><div class="props-pass-copy">Books have posted spreads, moneylines, and totals for the preseason slate. Use these team-side markets while we wait for player props to unlock.</div></div>${renderGameMarketsBoard(st.propsTeam,st.gameMarkets)}`:`<div class="props-pass" style="margin:0"><div class="props-pass-title">No play clears every gate this week</div><div class="props-pass-copy">The data loaded correctly; the board is declining to promote a weak or conflicted option. Market Explorer still contains the wider research set.</div></div>`}</section>`;
+  }
   const avgEdge=rows.reduce((sum,row)=>sum+row.edge,0)/rows.length;
   const aiBacked=rows.filter(row=>row.hasAI).length;
   const markets=new Set(rows.map(row=>row.metric)).size;
@@ -4037,7 +4040,7 @@ function renderPicksPage(activeTab,picksHTML){
     ["streaks","Streaks"],
     ["dingers","TDs"],
     ["ks","Passing"],
-    ["props","Prop Explorer"],
+    ["props","Market Explorer"],
   ];
   const tabs=views.map(([view,label])=>`<div class="sub-tab ${st.picksView===view?"active":""}" onclick="switchPicksView('${view}')">${label}</div>`).join("");
   return`
