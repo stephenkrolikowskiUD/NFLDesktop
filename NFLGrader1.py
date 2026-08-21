@@ -37,7 +37,7 @@ import pytz
 import gspread
 import json
 
-from picks import actual_value_for_metric, BINARY_METRICS  # single source of truth
+from picks import actual_value_for_metric, BINARY_METRICS, TEAM_MARKET_METRICS  # single source of truth
 from sports_common import (
     col_letter,
     get_gspread_client,
@@ -248,6 +248,52 @@ def find_actual(pick: pd.Series, by_id: dict, by_name: dict, name_ambiguous: set
     return None, "not_found"
 
 
+def build_schedule_result_lookup(schedule: pd.DataFrame) -> dict:
+    """(season, week, team, opponent) -> schedule row for both team views."""
+    lookup = {}
+    if schedule.empty:
+        return lookup
+    for _, row in schedule.iterrows():
+        season = row.get("season")
+        week = row.get("week")
+        home = str(row.get("home_team") or "").strip().upper()
+        away = str(row.get("away_team") or "").strip().upper()
+        if home and away:
+            lookup[(season, week, home, away)] = row
+            lookup[(season, week, away, home)] = row
+    return lookup
+
+
+def actual_value_for_team_market(pick: pd.Series, game_row: pd.Series):
+    metric = str(pick.get("prop_type", "")).upper()
+    team = str(pick.get("team") or "").strip().upper()
+    home = str(game_row.get("home_team") or "").strip().upper()
+    away = str(game_row.get("away_team") or "").strip().upper()
+    home_score = safe_float(game_row.get("home_score"))
+    away_score = safe_float(game_row.get("away_score"))
+    if home_score is None or away_score is None:
+        return None
+
+    if metric == "MONEYLINE":
+        team_score = home_score if team == home else away_score if team == away else None
+        opp_score = away_score if team == home else home_score if team == away else None
+        if team_score is None or opp_score is None:
+            return None
+        return 1.0 if team_score > opp_score else 0.0
+
+    if metric == "SPREAD":
+        if team == home:
+            return float(home_score - away_score)
+        if team == away:
+            return float(away_score - home_score)
+        return None
+
+    if metric == "TOTAL":
+        return float(home_score + away_score)
+
+    return None
+
+
 # ============================================================================
 # GRADING PASS
 # ============================================================================
@@ -286,6 +332,7 @@ def grade_daily_picks(client) -> None:
     seasons_needed = sorted({int(s) for s in pd.to_numeric(ungraded["SEASON"], errors="coerce").dropna().unique()})
     schedule = pd.concat([nv.load_schedules(seasons=[s]) for s in seasons_needed], ignore_index=True) if seasons_needed else pd.DataFrame()
     kickoff_lookup = build_kickoff_lookup(schedule)
+    schedule_results = build_schedule_result_lookup(schedule)
 
     stats = pd.concat([nv.load_player_stats(seasons=[s]) for s in seasons_needed], ignore_index=True) if seasons_needed else pd.DataFrame()
     game_logs = pd.concat([
@@ -306,39 +353,50 @@ def grade_daily_picks(client) -> None:
             not_ready += 1
             continue
 
-        log_row, status = find_actual(pick, by_id, by_name, name_ambiguous)
+        metric = str(pick.get("prop_type", "")).upper()
         team_week_key = (pick.get("team"), safe_float(pick.get("SEASON")), safe_float(pick.get("WEEK")))
-
-        if status == "ambiguous":
-            ambiguous_skipped += 1
-            print(f"   ⚠️  {pick.get('player')} (wk {pick.get('WEEK')}) — name maps to >1 player_id; "
-                  f"leaving ungraded rather than risk grading the wrong person")
-            continue
-
-        if log_row is None:
-            if team_week_key not in team_week_has_data:
-                # This team's data for that week isn't published yet at all —
-                # a lag issue, not a DNP. Retry next run.
-                continue
-            # Data for the team/week exists, but not for this player specifically.
-            weeks_since = None
-            try:
-                weeks_since = int(safe_float(pick.get("WEEK")) or 0)
-            except Exception:
-                pass
-            updates.append((sheet_row, "ACTUAL_STAT", "DNP"))
-            updates.append((sheet_row, "HIT", "DNP"))
-            updates.append((sheet_row, "RESULT", "DNP"))
-            updates.append((sheet_row, "REALIZED_PROFIT", "0"))
-            updates.append((sheet_row, "ACTUAL_ROI_PER_PICK", "0"))
-            dnp += 1
-            continue
-
-        actual = actual_value_for_metric(log_row, str(pick.get("prop_type", "")).upper())
+        actual = None
         line_val = safe_float(pick.get("line"))
-        actual = safe_float(actual)
-        if actual is None or line_val is None:
-            continue
+
+        if metric in TEAM_MARKET_METRICS:
+            season = safe_float(pick.get("SEASON"))
+            week = safe_float(pick.get("WEEK"))
+            team = str(pick.get("team") or "").strip().upper()
+            opponent = str(pick.get("opponent") or "").strip().upper()
+            game_row = schedule_results.get((season, week, team, opponent))
+            if game_row is None:
+                not_ready += 1
+                continue
+            actual = actual_value_for_team_market(pick, game_row)
+            if actual is None or line_val is None:
+                continue
+            status = "ok"
+        else:
+            log_row, status = find_actual(pick, by_id, by_name, name_ambiguous)
+
+            if status == "ambiguous":
+                ambiguous_skipped += 1
+                print(f"   ⚠️  {pick.get('player')} (wk {pick.get('WEEK')}) — name maps to >1 player_id; "
+                      f"leaving ungraded rather than risk grading the wrong person")
+                continue
+
+            if log_row is None:
+                if team_week_key not in team_week_has_data:
+                    # This team's data for that week isn't published yet at all —
+                    # a lag issue, not a DNP. Retry next run.
+                    continue
+                updates.append((sheet_row, "ACTUAL_STAT", "DNP"))
+                updates.append((sheet_row, "HIT", "DNP"))
+                updates.append((sheet_row, "RESULT", "DNP"))
+                updates.append((sheet_row, "REALIZED_PROFIT", "0"))
+                updates.append((sheet_row, "ACTUAL_ROI_PER_PICK", "0"))
+                dnp += 1
+                continue
+
+            actual = actual_value_for_metric(log_row, metric)
+            actual = safe_float(actual)
+            if actual is None or line_val is None:
+                continue
 
         hit_str, result_str = grade_pick(actual, line_val, str(pick.get("lean", "")).upper())
         if hit_str == "PUSH":

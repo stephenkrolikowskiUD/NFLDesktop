@@ -31,6 +31,7 @@
 #     already computes this), not a single reference book.
 
 import json
+import math
 import re
 from datetime import datetime
 
@@ -90,6 +91,7 @@ METRIC_TO_LOG_COL = {
 }
 BINARY_METRICS = {"ANY_TD"}
 SUPPORTED_METRICS = set(METRIC_TO_LOG_COL) | BINARY_METRICS
+TEAM_MARKET_METRICS = {"SPREAD", "MONEYLINE", "TOTAL"}
 
 
 def actual_value_for_metric(log_row: pd.Series, metric: str):
@@ -166,6 +168,25 @@ def _line_matches(pick_line, real_line, tol: float = 1e-9) -> bool:
     except (TypeError, ValueError):
         return False
     return abs(pick_num - real_num) <= tol
+
+
+def _market_prob_pair(a_odds, b_odds) -> tuple[float | None, float | None]:
+    a = _implied_prob(a_odds)
+    b = _implied_prob(b_odds)
+    if pd.isna(a) or pd.isna(b) or (a + b) <= 0:
+        return None, None
+    total = a + b
+    return float(a / total), float(b / total)
+
+
+def _spread_to_win_prob(margin: float, k: float = 0.145) -> float:
+    return 1.0 / (1.0 + math.exp(-k * float(margin)))
+
+
+def _win_prob_to_margin(prob: float, k: float = 0.145) -> float | None:
+    if prob is None or prob <= 0 or prob >= 1:
+        return None
+    return math.log(prob / (1.0 - prob)) / k
 
 
 def build_player_context(props_board: pd.DataFrame, game_logs: pd.DataFrame,
@@ -532,6 +553,189 @@ def build_deterministic_fallback(player_ctx: pd.DataFrame, exclude_keys: set,
     return pd.DataFrame(rows)
 
 
+def generate_preseason_game_picks(games: pd.DataFrame, week: int, season: int,
+                                  max_picks: int = 8) -> pd.DataFrame:
+    """Deterministic preseason team-market picks from game lines alone.
+
+    This is deliberately simpler than the player-prop path: preseason often
+    has spreads/moneylines/totals posted before player props, so the goal is a
+    real non-empty board built from available market structure, not a faux-AI
+    layer pretending to know more than it does.
+
+    Heuristics:
+      - MONEYLINE: compare vig-free moneyline probability to the spread-implied
+        win probability for the same side.
+      - SPREAD: invert the vig-free moneyline back to an expected margin and
+        compare that to the posted spread.
+      - TOTAL: only use real movement vs the schedule baseline total.
+
+    Every emitted row keeps a grading-friendly numeric line:
+      - SPREAD stores the cover threshold from the selected team's perspective
+      - MONEYLINE stores 0.5 (team wins = 1, loses = 0)
+      - TOTAL stores the posted total and uses OVER/UNDER normally
+    """
+    if games is None or games.empty:
+        return pd.DataFrame()
+
+    rows = []
+    for _, game in games.iterrows():
+        home = str(game.get("home_team", "")).strip().upper()
+        away = str(game.get("away_team", "")).strip().upper()
+        if not home or not away:
+            continue
+
+        matchup = f"{away} @ {home}"
+        kickoff = f"{game.get('gameday', '')} {game.get('gametime', '')}".strip()
+        book = str(game.get("bookmaker", "") or "baseline").strip()
+
+        home_spread = pd.to_numeric(game.get("live_home_spread"), errors="coerce")
+        away_spread = pd.to_numeric(game.get("live_away_spread"), errors="coerce")
+        baseline_home_spread = pd.to_numeric(game.get("spread_line"), errors="coerce")
+        if pd.notna(baseline_home_spread):
+            baseline_home_spread = -float(baseline_home_spread)
+        baseline_total = pd.to_numeric(game.get("total_line"), errors="coerce")
+        live_total = pd.to_numeric(game.get("live_total"), errors="coerce")
+
+        home_ml = pd.to_numeric(game.get("live_home_ml"), errors="coerce")
+        away_ml = pd.to_numeric(game.get("live_away_ml"), errors="coerce")
+        if pd.isna(home_ml):
+            home_ml = pd.to_numeric(game.get("home_moneyline"), errors="coerce")
+        if pd.isna(away_ml):
+            away_ml = pd.to_numeric(game.get("away_moneyline"), errors="coerce")
+
+        fair_home_ml, fair_away_ml = _market_prob_pair(home_ml, away_ml)
+
+        # MONEYLINE picks from spread-implied win probability vs vig-free ML.
+        if pd.notna(home_spread) and fair_home_ml is not None and fair_away_ml is not None:
+            home_margin = -float(home_spread)
+            home_spread_prob = _spread_to_win_prob(home_margin)
+            away_spread_prob = 1.0 - home_spread_prob
+            home_edge = home_spread_prob - fair_home_ml
+            away_edge = away_spread_prob - fair_away_ml
+
+            if max(home_edge, away_edge) >= 0.01:
+                pick_home = home_edge >= away_edge
+                team = home if pick_home else away
+                opp = away if pick_home else home
+                edge = home_edge if pick_home else away_edge
+                fair_prob = home_spread_prob if pick_home else away_spread_prob
+                odds = home_ml if pick_home else away_ml
+                rows.append({
+                    "rank": 999,
+                    "player": f"{team} to win",
+                    "player_id": "",
+                    "team": team,
+                    "opponent": opp,
+                    "game": matchup,
+                    "prop_type": "MONEYLINE",
+                    "line": 0.5,
+                    "lean": "OVER",
+                    "confidence": "STRONG" if edge >= 0.03 else "LEAN",
+                    "rationale": f"Spread implies {fair_prob:.0%} win odds vs {fair_home_ml if pick_home else fair_away_ml:.0%} moneyline.",
+                    "injury_context": "",
+                    "SELECTION_METHOD": "VALIDATED_MODEL",
+                    "DISPLAY_SELECTION": f"{team} to win",
+                    "DISPLAY_LINE": "",
+                    "PICK_BOOK": book,
+                    "PICK_ODDS": odds,
+                    "IMPLIED_PROBABILITY": round(_implied_prob(odds), 4) if pd.notna(odds) else np.nan,
+                    "MODEL_HIT_RATE": round(fair_prob, 4),
+                    "MODEL_EV_PCT": round(edge * 100, 1),
+                    "MODEL_EDGE_SCORE": round(edge * 100, 1),
+                    "CONSENSUS_COUNT": 1,
+                    "CONSENSUS_RUNS": "",
+                    "CONSENSUS_TAG": "PRESEASON GAME MARKET",
+                })
+
+        # SPREAD picks from vig-free ML -> expected margin vs posted spread.
+        if fair_home_ml is not None and pd.notna(home_spread) and pd.notna(away_spread):
+            expected_margin = _win_prob_to_margin(fair_home_ml)
+            if expected_margin is not None:
+                home_cover_edge = expected_margin + float(home_spread)
+                away_cover_edge = -expected_margin + float(away_spread)
+                best_edge = max(home_cover_edge, away_cover_edge)
+                if best_edge >= 0.3:
+                    pick_home = home_cover_edge >= away_cover_edge
+                    team = home if pick_home else away
+                    opp = away if pick_home else home
+                    display_spread = float(home_spread if pick_home else away_spread)
+                    cover_line = -display_spread
+                    rows.append({
+                        "rank": 999,
+                        "player": f"{team} {display_spread:+g}",
+                        "player_id": "",
+                        "team": team,
+                        "opponent": opp,
+                        "game": matchup,
+                        "prop_type": "SPREAD",
+                        "line": round(float(cover_line), 3),
+                        "lean": "OVER",
+                        "confidence": "STRONG" if best_edge >= 0.9 else "LEAN",
+                        "rationale": f"Moneyline implies {expected_margin:+.1f}; spread asks only {display_spread:+.1f}.",
+                        "injury_context": "",
+                        "SELECTION_METHOD": "VALIDATED_MODEL",
+                        "DISPLAY_SELECTION": f"{team} {display_spread:+g}",
+                        "DISPLAY_LINE": f"{display_spread:+g}",
+                        "PICK_BOOK": book,
+                        "PICK_ODDS": game.get("live_home_spread_odds") if pick_home else game.get("live_away_spread_odds"),
+                        "IMPLIED_PROBABILITY": round(_implied_prob(game.get("live_home_spread_odds") if pick_home else game.get("live_away_spread_odds")), 4)
+                            if pd.notna(game.get("live_home_spread_odds") if pick_home else game.get("live_away_spread_odds")) else np.nan,
+                        "MODEL_HIT_RATE": np.nan,
+                        "MODEL_EV_PCT": round(best_edge, 2),
+                        "MODEL_EDGE_SCORE": round(best_edge, 2),
+                        "CONSENSUS_COUNT": 1,
+                        "CONSENSUS_RUNS": "",
+                        "CONSENSUS_TAG": "PRESEASON GAME MARKET",
+                    })
+
+        # TOTAL picks only from real movement vs the schedule baseline.
+        if pd.notna(live_total) and pd.notna(baseline_total):
+            total_delta = float(live_total) - float(baseline_total)
+            if abs(total_delta) >= 1.0:
+                lean = "OVER" if total_delta > 0 else "UNDER"
+                rows.append({
+                    "rank": 999,
+                    "player": f"{lean.title()} {float(live_total):g}",
+                    "player_id": "",
+                    "team": "",
+                    "opponent": "",
+                    "game": matchup,
+                    "prop_type": "TOTAL",
+                    "line": float(live_total),
+                    "lean": lean,
+                    "confidence": "STRONG" if abs(total_delta) >= 2.5 else "LEAN",
+                    "rationale": f"Total moved {total_delta:+.1f} points from the opening board.",
+                    "injury_context": "",
+                    "SELECTION_METHOD": "VALIDATED_MODEL",
+                    "DISPLAY_SELECTION": f"{lean.title()} {float(live_total):g}",
+                    "DISPLAY_LINE": f"{float(live_total):g}",
+                    "PICK_BOOK": book,
+                    "PICK_ODDS": game.get("live_over_odds") if lean == "OVER" else game.get("live_under_odds"),
+                    "IMPLIED_PROBABILITY": round(_implied_prob(game.get("live_over_odds") if lean == "OVER" else game.get("live_under_odds")), 4)
+                        if pd.notna(game.get("live_over_odds") if lean == "OVER" else game.get("live_under_odds")) else np.nan,
+                    "MODEL_HIT_RATE": np.nan,
+                    "MODEL_EV_PCT": round(abs(total_delta), 2),
+                    "MODEL_EDGE_SCORE": round(abs(total_delta), 2),
+                    "CONSENSUS_COUNT": 1,
+                    "CONSENSUS_RUNS": "",
+                    "CONSENSUS_TAG": "PRESEASON GAME MARKET",
+                })
+
+    if not rows:
+        return pd.DataFrame()
+
+    out = pd.DataFrame(rows)
+    out = out.sort_values(
+        by=["confidence", "MODEL_EDGE_SCORE"],
+        ascending=[False, False],
+        key=lambda col: col.map({"STRONG": 1, "LEAN": 0}) if col.name == "confidence" else col
+    ).head(max_picks).reset_index(drop=True)
+    out["rank"] = range(1, len(out) + 1)
+    out["SEASON"] = season
+    out["WEEK"] = week
+    return out
+
+
 # ============================================================================
 # GEMINI CALLS
 # ============================================================================
@@ -634,6 +838,7 @@ PICK_OUTPUT_COLUMNS = [
     "DATE", "SEASON", "WEEK", "RUN_NUMBER", "RUN_TIME", "rank", "game",
     "player", "player_id", "team", "opponent", "prop_type", "line", "lean",
     "confidence", "rationale", "injury_context", "SELECTION_METHOD",
+    "DISPLAY_SELECTION", "DISPLAY_LINE",
     "PICK_BOOK", "PICK_ODDS", "IMPLIED_PROBABILITY", "MODEL_HIT_RATE",
     "MODEL_EV_PCT", "MODEL_EDGE_SCORE", "CONSENSUS_COUNT", "CONSENSUS_RUNS",
     "CONSENSUS_TAG", "CLV_OPEN_LINE", "CLV_LATEST_LINE", "CLV_DELTA",

@@ -1124,28 +1124,39 @@ def main():
     daily_picks_new = pd.DataFrame()
     current_weekday = started.strftime("%A")
     week = nv.current_week(schedule)
+    preseason_team_markets_live = (
+        odds_sport == NFL_PRESEASON_SPORT
+        and board.empty
+        and not game_markets_tab.empty
+    )
 
     if SKIP_PICKS:
         print("   ⏭️  picks skipped (NFL_SKIP_PICKS set)")
-    elif current_weekday.lower() not in PICKS_DAYS:
+    elif current_weekday.lower() not in PICKS_DAYS and not preseason_team_markets_live:
         print(f"   ⏭️  {current_weekday} is not a picks day "
               f"({', '.join(sorted(PICKS_DAYS))}) — leaving Picks_Current as-is")
     elif week is None:
         print("   ⚠️  could not determine current week — skipping picks")
-    elif board.empty:
+    elif board.empty and not preseason_team_markets_live:
         # No real market lines yet means nothing to validate a pick against —
         # generating anyway would mean either inventing lines or running the
         # deterministic fallback on zero data. Neither is worth doing.
         print("   ⏭️  no player props posted yet — skipping picks generation")
     else:
-        gemini_key = load_secret("GEMINI_API_KEY", "🤖 Gemini API Key: ", allow_missing=True)
-        all_logs = pd.concat([skill_logs, qb_logs], ignore_index=True) if not qb_logs.empty else skill_logs
-        player_ctx = pk.build_player_context(board, all_logs, projections, injuries)
-        print(f"   player context: {len(player_ctx)} priced prop rows")
+        if preseason_team_markets_live:
+            print("   ℹ️  preseason team-market mode: generating picks from spreads, moneylines, and totals")
+            fresh_picks = pk.generate_preseason_game_picks(
+                games_tab, week=week, season=schedule_season
+            )
+        else:
+            gemini_key = load_secret("GEMINI_API_KEY", "🤖 Gemini API Key: ", allow_missing=True)
+            all_logs = pd.concat([skill_logs, qb_logs], ignore_index=True) if not qb_logs.empty else skill_logs
+            player_ctx = pk.build_player_context(board, all_logs, projections, injuries)
+            print(f"   player context: {len(player_ctx)} priced prop rows")
 
-        games_str = build_week_games_str(schedule, week)
-        fresh_picks = pk.generate_weekly_picks(gemini_key, GEMINI_MODEL, player_ctx,
-                                               games_str, week=week, season=schedule_season)
+            games_str = build_week_games_str(schedule, week)
+            fresh_picks = pk.generate_weekly_picks(gemini_key, GEMINI_MODEL, player_ctx,
+                                                   games_str, week=week, season=schedule_season)
         prior_daily = fetch_prior_daily_picks(sheets, SHEET_ID)
         picks_current, daily_picks_new = pk.assemble_pick_tabs(
             fresh_picks, prior_daily, week=week, season=schedule_season)
