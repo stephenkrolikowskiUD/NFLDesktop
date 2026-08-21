@@ -1752,6 +1752,7 @@ function renderGameMarketsBoard(team,rows){
   const cards=gameEntries.map(({game,rows:gameRows,first})=>{
     const kickoff=gameMarketDisplayTime(first);
     const book=String(rowField(first,"BOOK")||"baseline").trim();
+    const isBaselineBook=!book||book.toLowerCase()==="baseline";
     const home=String(rowField(first,"HOME_TEAM")||"").trim().toUpperCase();
     const away=String(rowField(first,"AWAY_TEAM")||"").trim().toUpperCase();
     const groups=["SPREAD","MONEYLINE","TOTAL"].map(type=>{
@@ -1760,20 +1761,28 @@ function renderGameMarketsBoard(team,rows){
       const items=typeRows.map(row=>{
         const selection=gameMarketSelectionText(row);
         const odds=rowField(row,"ODDS");
+        const rowBook=String(rowField(row,"BOOK")||book||"baseline").trim();
+        const rowIsBaseline=!rowBook||rowBook.toLowerCase()==="baseline";
         const teamValue=String(rowField(row,"TEAM")||"").trim().toUpperCase();
         const teamMeta=type==="TOTAL"
           ?`${away} @ ${home}`
           :teamValue&&String(team||"ALL").trim().toUpperCase()!=="ALL"
             ?`${teamValue} side`
             :"Team side";
+        const priceLabel=rowIsBaseline
+          ?type==="MONEYLINE"
+            ?"Opening price"
+            :"Opening line"
+          :gameMarketOddsLabel(odds);
+        const bookLabel=rowIsBaseline?"Preseason baseline":rowBook;
         return `<div class="game-market-row">
           <div class="game-market-row-main">
             <div class="game-market-row-selection">${esc(selection)}</div>
             <div class="game-market-row-meta">${esc(teamMeta)}</div>
           </div>
           <div class="game-market-row-side">
-            <div class="game-market-row-odds">${esc(gameMarketOddsLabel(odds))}</div>
-            <div class="game-market-row-book">${esc(book||"baseline")}</div>
+            <div class="game-market-row-odds${rowIsBaseline?" baseline":""}">${esc(priceLabel)}</div>
+            <div class="game-market-row-book">${esc(bookLabel)}</div>
           </div>
         </div>`;
       }).join("");
@@ -1784,10 +1793,11 @@ function renderGameMarketsBoard(team,rows){
         <div>
           <div class="analysis-eyebrow">Game markets</div>
           <div class="game-market-shell-title">${esc(game)}</div>
-          <div class="game-market-shell-meta">${esc(kickoff)} · ${esc(book||"baseline")}</div>
+          <div class="game-market-shell-meta">${esc(kickoff)}</div>
         </div>
         <div class="game-market-shell-tags">
           <span class="game-market-shell-tag">${esc(away||"AWAY")} @ ${esc(home||"HOME")}</span>
+          <span class="game-market-shell-tag">${esc(isBaselineBook?"Opening board":book)}</span>
           <span class="game-market-shell-tag">${gameRows.length} market rows</span>
         </div>
       </div>
