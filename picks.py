@@ -126,6 +126,69 @@ def _norm_name(value) -> str:
     return normalize_person_name(value, keep_digits=False)
 
 
+def _safe_float(value, default: float = 0.0) -> float:
+    try:
+        num = float(value)
+    except (TypeError, ValueError):
+        return default
+    return default if pd.isna(num) else num
+
+
+def pick_selection_method(pick) -> str:
+    explicit = str(pick.get("SELECTION_METHOD", "") or "").strip().upper()
+    if explicit:
+        return explicit
+    if str(pick.get("CONSENSUS_TAG", "") or "").strip().upper() == "VALIDATED FALLBACK":
+        return "VALIDATED_MODEL"
+    return "GEMINI"
+
+
+def recommendation_status(pick) -> str:
+    """Public board gate kept intentionally simple until live NFL grading exists.
+
+    MLB's status rules are sport-specific. NFL hasn't earned that level of
+    audited segmentation yet, so for launch we expose stronger convictions as
+    PLAYABLE and retain the rest for grading/research rather than pretending we
+    already know sharper positive-ROI cohorts.
+    """
+    method = pick_selection_method(pick)
+    confidence = normalize_confidence(
+        pick.get("confidence"),
+        allowed=("SMASH", "STRONG", "LEAN", "VALIDATED"),
+        default="LEAN",
+    )
+    if method == "VALIDATED_MODEL" and confidence in {"STRONG", "VALIDATED"}:
+        return "PLAYABLE"
+    if method == "GEMINI" and confidence in {"SMASH", "STRONG"}:
+        return "PLAYABLE"
+    return "RESEARCH"
+
+
+def calibrated_pick_priority(pick) -> float:
+    """Emit a stable dashboard-friendly priority score for this pick row."""
+    method = pick_selection_method(pick)
+    status = recommendation_status(pick)
+    confidence = normalize_confidence(
+        pick.get("confidence"),
+        allowed=("SMASH", "STRONG", "LEAN", "VALIDATED"),
+        default="LEAN",
+    )
+    base = 100.0 if status == "PLAYABLE" else 0.0
+    if confidence == "VALIDATED":
+        base += 20.0
+    elif confidence == "SMASH":
+        base += 18.0
+    elif confidence == "STRONG":
+        base += 10.0
+    elif confidence == "LEAN":
+        base += 3.0
+    if method == "VALIDATED_MODEL":
+        base += 6.0
+    base += min(_safe_float(pick.get("CONSENSUS_COUNT"), 0.0), 3.0) * 0.5
+    base += min(max(_safe_float(pick.get("MODEL_EDGE_SCORE"), 0.0), 0.0), 25.0) * 0.2
+    return round(base, 3)
+
+
 def parse_gemini_json_array(raw: str):
     """Parse Gemini's JSON output, salvaging a truncated array if needed.
 
@@ -842,6 +905,7 @@ PICK_OUTPUT_COLUMNS = [
     "DATE", "SEASON", "WEEK", "RUN_NUMBER", "RUN_TIME", "rank", "game",
     "player", "player_id", "team", "opponent", "prop_type", "line", "lean",
     "confidence", "rationale", "injury_context", "SELECTION_METHOD",
+    "RECOMMENDATION_STATUS", "CALIBRATION_SCORE",
     "DISPLAY_SELECTION", "DISPLAY_LINE",
     "PICK_BOOK", "PICK_ODDS", "IMPLIED_PROBABILITY", "MODEL_HIT_RATE",
     "MODEL_EV_PCT", "MODEL_EDGE_SCORE", "CONSENSUS_COUNT", "CONSENSUS_RUNS",
@@ -889,6 +953,9 @@ def assemble_pick_tabs(fresh_picks: pd.DataFrame, prior_daily: pd.DataFrame,
     out["CLV_DELTA"] = 0
     out["CLV_LAST_UPDATE"] = run_time
     out["LAST_UPDATED"] = run_time
+    out["SELECTION_METHOD"] = out.apply(pick_selection_method, axis=1)
+    out["RECOMMENDATION_STATUS"] = out.apply(recommendation_status, axis=1)
+    out["CALIBRATION_SCORE"] = out.apply(calibrated_pick_priority, axis=1)
 
     run_number = 1
     today_prior = pd.DataFrame()
