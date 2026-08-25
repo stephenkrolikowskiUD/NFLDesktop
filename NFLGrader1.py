@@ -264,6 +264,28 @@ def build_schedule_result_lookup(schedule: pd.DataFrame) -> dict:
     return lookup
 
 
+def fallback_matchup_pair(pick: pd.Series) -> tuple[str, str]:
+    """Recover a concrete team/opponent pair from the stored matchup text.
+
+    Early preseason TOTAL rows were emitted as game-level picks with blank team
+    fields (e.g. game="NE @ SEA"). The grader keys schedule lookup through a
+    real team/opponent pair, so parsing the stored matchup lets those legacy
+    rows grade instead of staying pending forever.
+    """
+    team = str(pick.get("team") or "").strip().upper()
+    opponent = str(pick.get("opponent") or "").strip().upper()
+    if team and opponent:
+        return team, opponent
+
+    matchup = str(pick.get("game") or "").strip().upper()
+    if "@" not in matchup:
+        return team, opponent
+    away, home = [part.strip() for part in matchup.split("@", 1)]
+    if away and home:
+        return away, home
+    return team, opponent
+
+
 def actual_value_for_team_market(pick: pd.Series, game_row: pd.Series):
     metric = str(pick.get("prop_type", "")).upper()
     team = str(pick.get("team") or "").strip().upper()
@@ -361,8 +383,7 @@ def grade_daily_picks(client) -> None:
         if metric in TEAM_MARKET_METRICS:
             season = safe_float(pick.get("SEASON"))
             week = safe_float(pick.get("WEEK"))
-            team = str(pick.get("team") or "").strip().upper()
-            opponent = str(pick.get("opponent") or "").strip().upper()
+            team, opponent = fallback_matchup_pair(pick)
             game_row = schedule_results.get((season, week, team, opponent))
             if game_row is None:
                 not_ready += 1

@@ -697,8 +697,12 @@ def generate_preseason_game_picks(games: pd.DataFrame, week: int, season: int,
                     "rank": 999,
                     "player": f"{lean.title()} {float(live_total):g}",
                     "player_id": "",
-                    "team": "",
-                    "opponent": "",
+                    # Totals are game-level picks, but the grader still keys
+                    # readiness/results through a concrete team/opponent pair.
+                    # Keeping the matchup attached here lets TOTAL grade on
+                    # the same schedule lookup path as spreads/moneylines.
+                    "team": away,
+                    "opponent": home,
                     "game": matchup,
                     "prop_type": "TOTAL",
                     "line": float(live_total),
