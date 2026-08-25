@@ -1125,7 +1125,7 @@ def main():
     current_weekday = started.strftime("%A")
     week = nv.current_week(schedule)
     preseason_team_markets_live = (
-        odds_sport == NFL_PRESEASON_SPORT
+        odds_sport == PRESEASON_ODDS_SPORT
         and board.empty
         and not game_markets_tab.empty
     )
