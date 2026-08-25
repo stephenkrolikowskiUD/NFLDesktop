@@ -218,12 +218,57 @@ def build_games_tab(schedule: pd.DataFrame, odds: pd.DataFrame,
         odds = odds.dropna(subset=["home_abbr", "away_abbr"])
         odds_cols = [c for c in odds.columns
                      if c.startswith("live_") or c == "bookmaker"]
+        schedule_keys = set(zip(games["home_team"], games["away_team"]))
         games = games.merge(
             odds[["home_abbr", "away_abbr"] + odds_cols],
             how="left",
             left_on=["home_team", "away_team"],
             right_on=["home_abbr", "away_abbr"],
         ).drop(columns=["home_abbr", "away_abbr"], errors="ignore")
+
+        # In late August the schedule feed can still be regular-season only
+        # even while the Odds API correctly returns live preseason games. When
+        # that happens, none of those odds rows have a schedule spine to merge
+        # onto, so the live preseason board would otherwise disappear inside
+        # games_tab and the preseason picker would emit 0 rows. Preserve those
+        # unmatched odds rows as odds-only PRE games instead.
+        unmatched = odds[
+            ~odds.apply(
+                lambda row: (row.get("home_abbr"), row.get("away_abbr")) in schedule_keys,
+                axis=1,
+            )
+        ].copy()
+        if not unmatched.empty:
+            kickoff = pd.to_datetime(unmatched["commence_time"], utc=True, errors="coerce")
+            kickoff_est = kickoff.dt.tz_convert(eastern)
+            extras = pd.DataFrame({
+                "game_id": "",
+                "season": kickoff_est.dt.year.fillna(pd.Timestamp.now(tz=eastern).year).astype(int),
+                "game_type": "PRE",
+                "week": "",
+                "gameday": kickoff_est.dt.strftime("%Y-%m-%d"),
+                "weekday": kickoff_est.dt.strftime("%A"),
+                "gametime": kickoff_est.dt.strftime("%I:%M %p").str.lstrip("0"),
+                "away_team": unmatched["away_abbr"].astype(str),
+                "home_team": unmatched["home_abbr"].astype(str),
+                "away_score": pd.NA,
+                "home_score": pd.NA,
+                "spread_line": pd.NA,
+                "total_line": pd.NA,
+                "away_moneyline": pd.NA,
+                "home_moneyline": pd.NA,
+                "roof": "",
+                "surface": "",
+                "temp": pd.NA,
+                "wind": pd.NA,
+                "stadium": "",
+                "div_game": pd.NA,
+                "away_rest": pd.NA,
+                "home_rest": pd.NA,
+            })
+            for col in odds_cols:
+                extras[col] = unmatched[col].values
+            games = pd.concat([games, extras], ignore_index=True, sort=False)
 
     return games
 
