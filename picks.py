@@ -1026,6 +1026,12 @@ def assemble_pick_tabs(fresh_picks: pd.DataFrame, prior_daily: pd.DataFrame,
     out["SELECTION_METHOD"] = out.apply(pick_selection_method, axis=1)
     out["RECOMMENDATION_STATUS"] = out.apply(recommendation_status, axis=1)
     out["CALIBRATION_SCORE"] = out.apply(calibrated_pick_priority, axis=1)
+    out = out.sort_values(
+        by=["CALIBRATION_SCORE", "rank"],
+        ascending=[False, True],
+        kind="stable",
+    ).reset_index(drop=True)
+    out["rank"] = range(1, len(out) + 1)
 
     run_number = 1
     today_prior = pd.DataFrame()

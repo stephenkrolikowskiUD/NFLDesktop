@@ -269,6 +269,7 @@ def build_games_tab(schedule: pd.DataFrame, odds: pd.DataFrame,
             for col in odds_cols:
                 extras[col] = unmatched[col].values
             games = pd.concat([games, extras], ignore_index=True, sort=False)
+            print(f"   ℹ️  preserved {len(unmatched)} unmatched odds row(s) as synthetic PRE games")
 
     return games
 
@@ -1193,6 +1194,7 @@ def main():
             fresh_picks = pk.generate_preseason_game_picks(
                 games_tab, week=week, season=schedule_season
             )
+            print(f"   preseason picker: {len(fresh_picks)} candidate row(s)")
         else:
             gemini_key = load_secret("GEMINI_API_KEY", "🤖 Gemini API Key: ", allow_missing=True)
             all_logs = pd.concat([skill_logs, qb_logs], ignore_index=True) if not qb_logs.empty else skill_logs
