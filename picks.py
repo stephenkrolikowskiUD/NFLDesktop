@@ -975,6 +975,7 @@ PICK_OUTPUT_COLUMNS = [
     "DATE", "SEASON", "WEEK", "RUN_NUMBER", "RUN_TIME", "rank", "game",
     "player", "player_id", "team", "opponent", "prop_type", "line", "lean",
     "confidence", "rationale", "injury_context", "SELECTION_METHOD",
+    "MODEL_VERSION", "MODEL_ERA",
     "RECOMMENDATION_STATUS", "CALIBRATION_SCORE",
     "DISPLAY_SELECTION", "DISPLAY_LINE",
     "PICK_BOOK", "PICK_ODDS", "IMPLIED_PROBABILITY", "MODEL_HIT_RATE",
@@ -991,7 +992,8 @@ def _pick_key(row) -> tuple:
 
 
 def assemble_pick_tabs(fresh_picks: pd.DataFrame, prior_daily: pd.DataFrame,
-                       week: int, season: int) -> tuple[pd.DataFrame, pd.DataFrame]:
+                       week: int, season: int, *, model_version: str = "",
+                       model_era: str = "") -> tuple[pd.DataFrame, pd.DataFrame]:
     """Stamp DATE/RUN_NUMBER, dedup against today's existing Daily_Picks rows,
     and return (Picks_Current, Daily_Picks-rows-to-append).
 
@@ -1024,6 +1026,8 @@ def assemble_pick_tabs(fresh_picks: pd.DataFrame, prior_daily: pd.DataFrame,
     out["CLV_LAST_UPDATE"] = run_time
     out["LAST_UPDATED"] = run_time
     out["SELECTION_METHOD"] = out.apply(pick_selection_method, axis=1)
+    out["MODEL_VERSION"] = str(model_version or "")
+    out["MODEL_ERA"] = str(model_era or model_version or "")
     out["RECOMMENDATION_STATUS"] = out.apply(recommendation_status, axis=1)
     out["CALIBRATION_SCORE"] = out.apply(calibrated_pick_priority, axis=1)
     out = out.sort_values(

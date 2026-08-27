@@ -1206,7 +1206,8 @@ def main():
                                                    games_str, week=week, season=schedule_season)
         prior_daily = fetch_prior_daily_picks(sheets, SHEET_ID)
         picks_current, daily_picks_new = pk.assemble_pick_tabs(
-            fresh_picks, prior_daily, week=week, season=schedule_season)
+            fresh_picks, prior_daily, week=week, season=schedule_season,
+            model_version=MODEL_VERSION, model_era=MODEL_ERA)
         print(f"   picks: {len(picks_current)} current · {len(daily_picks_new)} new to Daily_Picks")
 
     tabs = {

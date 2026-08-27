@@ -63,8 +63,10 @@ PICK_PERF_WILSON_Z = 1.96
 PICK_PERF_TIME_WINDOWS = {"last_7d": 7, "last_30d": 30, "last_90d": 90, "all_time": None}
 PICK_PERF_SNAPSHOT_WINDOWS = ("all_time", "last_30d")
 PICK_PERF_DIMENSIONS = (
-    "confidence_norm", "selection_method_norm", "prop_type_norm", "lean_norm",
-    "consensus_bucket", "odds_bucket", "clv_bucket", "week", "day_of_week",
+    "model_era", "cohort_norm", "confidence_norm", "selection_method_norm",
+    "recommendation_status_norm", "prop_type_norm", "lean_norm",
+    "consensus_bucket", "odds_bucket", "clv_bucket", "has_lineup_risk",
+    "week", "day_of_week", "RUN_NUMBER",
 )
 PICK_PERFORMANCE_COLUMNS = [
     "DIMENSION_TYPE", "DIMENSION_VALUE", "TIME_WINDOW",
@@ -463,10 +465,13 @@ def pick_perf_prepare_df(df_all: pd.DataFrame) -> pd.DataFrame:
     df["prop_type_norm"] = df.get("prop_type", pd.Series("", index=idx)).fillna("").astype(str).str.upper()
     df["lean_norm"] = df.get("lean", pd.Series("", index=idx)).fillna("").astype(str).str.upper()
     df["selection_method_norm"] = df.get("SELECTION_METHOD", pd.Series("", index=idx)).fillna("").astype(str).str.upper().replace({"": "GEMINI"})
+    raw_status = df.get("RECOMMENDATION_STATUS", pd.Series("", index=idx)).fillna("").astype(str).str.strip().str.upper()
+    df["recommendation_status_norm"] = np.where(raw_status.ne(""), raw_status, "LEGACY_RESEARCH")
     df["confidence_norm"] = df.get("confidence", pd.Series("", index=idx)).map(
         lambda v: normalize_confidence(v, allowed=("SMASH", "STRONG", "LEAN", "VALIDATED"))
     )
     df.loc[df["selection_method_norm"].eq("VALIDATED_MODEL"), "confidence_norm"] = "VALIDATED"
+    df["cohort_norm"] = df["recommendation_status_norm"] + " · " + df["selection_method_norm"]
     df["pick_odds_f"] = pd.to_numeric(df.get("PICK_ODDS", pd.Series(np.nan, index=idx)), errors="coerce")
     df["odds_bucket"] = df["pick_odds_f"].map(pick_odds_bucket)
     df["realized_profit_f"] = pd.to_numeric(df.get("REALIZED_PROFIT", pd.Series(np.nan, index=idx)), errors="coerce")
@@ -486,12 +491,30 @@ def pick_perf_prepare_df(df_all: pd.DataFrame) -> pd.DataFrame:
     df["week"] = df.get("WEEK", pd.Series("", index=idx)).astype(str)
     df["date_parsed"] = pd.to_datetime(df.get("DATE", pd.Series("", index=idx)), errors="coerce")
     df["day_of_week"] = df["date_parsed"].dt.strftime("%a").fillna("unknown")
+    df["has_lineup_risk"] = df.get("injury_context", pd.Series("", index=idx)).fillna("").astype(str).str.upper().str.startswith("LINEUP RISK")
+    df["model_era"] = df.apply(pick_model_era, axis=1)
+    df["RUN_NUMBER"] = pd.to_numeric(df.get("RUN_NUMBER", pd.Series(np.nan, index=idx)), errors="coerce").fillna(0).astype(int).astype(str)
     return df
 
 
 def pick_perf_rate(hits: int, misses: int) -> float:
     n = hits + misses
     return np.nan if n <= 0 else hits / n
+
+
+def pick_model_era(row: pd.Series) -> str:
+    explicit = str(row.get("MODEL_ERA") or row.get("MODEL_VERSION") or "").strip()
+    if explicit:
+        return explicit
+    date = row.get("date_parsed")
+    if pd.isna(date):
+        return "legacy_unknown"
+    date = pd.Timestamp(date)
+    if date < pd.Timestamp("2026-08-01"):
+        return "legacy_pre_nfl_launch"
+    if date < pd.Timestamp("2026-08-17"):
+        return "nfl_foundation_v1"
+    return "nfl_preseason_v1"
 
 
 def pick_perf_metrics_row(df_slice: pd.DataFrame, dim_type: str, dim_value, window_name: str, timestamp_est: str) -> dict:
