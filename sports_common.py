@@ -8,6 +8,12 @@ import pandas as pd
 from google.oauth2.service_account import Credentials
 
 
+DEFAULT_GOOGLE_CREDENTIAL_PATHS = [
+    os.path.expanduser("~/Desktop/nba_project/smartslip-481220-b4b410f79a40.json"),
+    os.path.expanduser("~/Desktop/nba_project/service_account.json"),
+]
+
+
 def col_letter(idx: int) -> str:
     if idx < 26:
         return chr(65 + idx)
@@ -32,7 +38,10 @@ def get_gspread_client():
         creds = Credentials.from_service_account_info(info, scopes=scopes)
         return gspread.authorize(creds)
 
-    key_path = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
+    key_path = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS") or next(
+        (path for path in DEFAULT_GOOGLE_CREDENTIAL_PATHS if os.path.exists(path)),
+        "",
+    )
     if key_path:
         if not os.path.exists(key_path):
             raise RuntimeError(

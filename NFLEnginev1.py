@@ -21,7 +21,13 @@ import nflverse_loader as nv
 import odds_client as oc
 import projections as pj
 import picks as pk
-from sports_common import col_letter, get_gspread_client, load_secret, safe_records_df
+from sports_common import (
+    col_letter,
+    DEFAULT_GOOGLE_CREDENTIAL_PATHS,
+    get_gspread_client,
+    load_secret,
+    safe_records_df,
+)
 
 # ============================================================================
 # CONFIGURATION
@@ -1152,7 +1158,10 @@ def main():
             info = json.loads(svc_json)
             print(f"✅ Google auth via env ({info.get('client_email', 'unknown')})")
         else:
-            key_path = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS", "")
+            key_path = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS", "") or next(
+                (path for path in DEFAULT_GOOGLE_CREDENTIAL_PATHS if os.path.exists(path)),
+                "",
+            )
             print(f"✅ Google auth via key file ({os.path.basename(key_path)})")
     except RuntimeError as e:
         if "No Google credentials found" in str(e):

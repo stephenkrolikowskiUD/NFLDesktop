@@ -255,11 +255,14 @@ Cron mirrors MLB's primary + morning-catchup pattern, applied per NFL gameday (T
 ### Local
 ```bash
 pip install -r requirements.txt
-python NFLEnginev1.py
+python3 NFLEnginev1.py
 ```
 Prompts for the Odds API key if it isn't in the environment. For the Sheets write, set either:
 - `GOOGLE_SERVICE_ACCOUNT_JSON` — the service-account JSON **content**, or
 - `GOOGLE_APPLICATION_CREDENTIALS` — a **path** to the key file
+
+If neither env var is set, local runs also check the known desktop service-account
+paths used in this workspace before failing.
 
 ### GitHub Secrets (for Actions)
 - `ODDS_API_KEY`
