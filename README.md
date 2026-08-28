@@ -23,7 +23,7 @@ Week 1 kickoff is **2026-09-09** (NE @ SEA).
 - ✅ Mobile navigation pass, including Best Ball access on phone
 - ✅ Age/decline and depth-chart role adjustment
 - ✅ Lookup rebuilt on nflverse-native data (no external API calls)
-- 🟠 Weekly picks generation + grading — code-complete (`picks.py`, `NFLGrader1.py`), including preseason team-market fallback when player props are not posted yet. The remaining gap is a fully proven live player-prop run plus a completed grader loop on real results. See `PLAN.md`.
+- 🟠 Weekly picks generation + grading — code-complete (`picks.py`, `NFLGrader1.py`), including preseason team-market fallback when player props are not posted yet. The highest-risk preseason data-corruption bugs have been fixed, but the remaining gap is still a fully proven live player-prop run, a completed grader loop on real results, and one deliberate sportsbook-outage dry run before Week 1. See `PLAN.md`.
 - 🟡 Best Ball board layout polish and mobile compaction
 - 🟡 Projection explainer layer so disagreements are easier to trust at a glance
 - 🟡 Game Builder presentation and entry ergonomics

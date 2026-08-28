@@ -841,16 +841,9 @@ def generate_preseason_game_picks(games: pd.DataFrame, week: int, season: int,
 
     combined = rows[:]
     if len(combined) < max_picks and fallback_rows:
-        seen = {
-            (str(r.get("game", "")).upper(), str(r.get("prop_type", "")).upper(), str(r.get("player", "")).upper())
-            for r in combined
-        }
+        seen = {_market_fallback_key(r) for r in combined}
         for row in fallback_rows:
-            key = (
-                str(row.get("game", "")).upper(),
-                str(row.get("prop_type", "")).upper(),
-                str(row.get("player", "")).upper(),
-            )
+            key = _market_fallback_key(row)
             if key in seen:
                 continue
             seen.add(key)
@@ -991,6 +984,14 @@ def _pick_key(row) -> tuple:
             str(row.get("lean", "")).upper())
 
 
+def _market_fallback_key(row) -> tuple:
+    prop_type = str(row.get("prop_type", "")).upper()
+    game = str(row.get("game", "")).upper()
+    if prop_type == "MONEYLINE":
+        return (game, prop_type)
+    return (game, prop_type, str(row.get("player", "")).upper())
+
+
 def assemble_pick_tabs(fresh_picks: pd.DataFrame, prior_daily: pd.DataFrame,
                        week: int, season: int, *, model_version: str = "",
                        model_era: str = "") -> tuple[pd.DataFrame, pd.DataFrame]:
@@ -1012,8 +1013,8 @@ def assemble_pick_tabs(fresh_picks: pd.DataFrame, prior_daily: pd.DataFrame,
 
     out = fresh_picks.copy()
     out["DATE"] = date_str
-    out["SEASON"] = season
-    out["WEEK"] = week
+    out["SEASON"] = pd.to_numeric(out.get("SEASON"), errors="coerce").fillna(season).astype(int)
+    out["WEEK"] = pd.to_numeric(out.get("WEEK"), errors="coerce").fillna(week).astype(int)
     out["RUN_TIME"] = run_time
     out["RESULT"] = ""
     out["ACTUAL_STAT"] = ""
@@ -1026,8 +1027,10 @@ def assemble_pick_tabs(fresh_picks: pd.DataFrame, prior_daily: pd.DataFrame,
     out["CLV_LAST_UPDATE"] = run_time
     out["LAST_UPDATED"] = run_time
     out["SELECTION_METHOD"] = out.apply(pick_selection_method, axis=1)
-    out["MODEL_VERSION"] = str(model_version or "")
-    out["MODEL_ERA"] = str(model_era or model_version or "")
+    out["MODEL_VERSION"] = out.get("MODEL_VERSION", "").astype(str).replace({"nan": "", "None": ""})
+    out.loc[out["MODEL_VERSION"].str.strip() == "", "MODEL_VERSION"] = str(model_version or "")
+    out["MODEL_ERA"] = out.get("MODEL_ERA", "").astype(str).replace({"nan": "", "None": ""})
+    out.loc[out["MODEL_ERA"].str.strip() == "", "MODEL_ERA"] = str(model_era or model_version or "")
     out["RECOMMENDATION_STATUS"] = out.apply(recommendation_status, axis=1)
     out["CALIBRATION_SCORE"] = out.apply(calibrated_pick_priority, axis=1)
     out = out.sort_values(

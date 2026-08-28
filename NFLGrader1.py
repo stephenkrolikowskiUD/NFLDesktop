@@ -514,7 +514,9 @@ def pick_model_era(row: pd.Series) -> str:
         return "legacy_pre_nfl_launch"
     if date < pd.Timestamp("2026-08-17"):
         return "nfl_foundation_v1"
-    return "nfl_preseason_v1"
+    if date < pd.Timestamp("2026-09-01"):
+        return "nfl_preseason_v1"
+    return "nfl_regular_season_v1"
 
 
 def pick_perf_metrics_row(df_slice: pd.DataFrame, dim_type: str, dim_value, window_name: str, timestamp_est: str) -> dict:
