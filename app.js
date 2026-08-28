@@ -2842,6 +2842,15 @@ function renderPickBoardRow(model,index){
     :esc(propTypeLabel(p.prop_type));
   return `<div class="pick-board-row${model.locked?" locked-card":""}" onclick="${model.isGameMarket?"void(0)":pickClick(model)}"><div class="pick-board-rank">${String(p.rank||index+2).padStart(2,"0")}</div><div class="pick-board-player"><div class="pick-board-name">${nameHTML}</div><div class="pick-board-meta">${metaHTML}</div>${pickProvenanceHTML(model)}</div><div class="pick-board-form" aria-label="Last ten results">${renderPickFormBars(model.form)}</div><div class="pick-evidence">${evidence||"No recent sample"}</div><div class="pick-board-decision"><div class="pick-board-call ${model.leanClass}">${callText}</div><div class="pick-board-market">${marketHTML}</div><div class="pick-board-tier ${model.tierClass}">${model.confidence}</div></div><div class="pick-board-rationale">${pickWhyHTML(model)}</div>${status?`<div class="pick-board-status">${esc(status)}</div>`:""}</div>`;
 }
+function renderPickSection(title,subtitle,pickModels,{emptyMessage=""}={}){
+  if(!pickModels.length)return emptyMessage?`<div class="empty" style="padding:22px 16px">${esc(emptyMessage)}</div>`:"";
+  const featured=pickModels[0];
+  const remaining=pickModels.slice(1);
+  const board=remaining.length
+    ?`<div class="pick-board"><div class="pick-board-head"><span>#</span><span>Player / matchup</span><span>L10</span><span>Evidence</span><span style="text-align:right">Decision</span></div>${remaining.map((model,index)=>renderPickBoardRow(model,index)).join("")}</div>`
+    :"";
+  return `<section style="padding:0 16px 18px"><div style="display:flex;justify-content:space-between;gap:12px;align-items:end;margin-bottom:8px"><div><div style="color:var(--accent);font-size:var(--t-sm);font-weight:800">${esc(title)}</div>${subtitle?`<div style="color:var(--push);font-size:var(--t-xs);margin-top:2px">${esc(subtitle)}</div>`:""}</div><div style="color:var(--ink-muted);font-size:var(--t-xs)">${pickModels.length} pick${pickModels.length===1?"":"s"}</div></div><div class="pick-editorial">${renderFeaturedPick(featured)}${board}</div></section>`;
+}
 function bestBookKeyForLean(prop,lean){const b=getBestBookForLean(prop,lean);return b?formatBookName(b.book):""}
 function renderCrossBookWarning(legs){const books=[...new Set((legs||[]).map(l=>bestBookKeyForLean(l.prop,l.lean)).filter(Boolean))];return books.length>=2?`<div class="cross-book-warning" style="margin-top:6px;font-size:var(--t-xs);color:var(--warn);background:color-mix(in srgb, var(--warn) 8%, transparent);border:1px solid var(--warn-line);border-radius:6px;padding:6px">${icon('warn')}Best book differs across legs (${books.join(", ")}). Single-book parlay may not match leg-by-leg EV.</div>`:""}
 
@@ -2894,12 +2903,33 @@ function renderModelPicksView(convergenceHTML){
 
   const rankedPicks=[...todayPicks].sort((a,b)=>toNum(a.rank||999)-toNum(b.rank||999));
   const pickModels=rankedPicks.map(getPickDisplayModel);
-  const featured=pickModels[0];
-  const remaining=pickModels.slice(1);
-  const board=remaining.length
-    ?`<div class="pick-board"><div class="pick-board-head"><span>#</span><span>Player / matchup</span><span>L10</span><span>Evidence</span><span style="text-align:right">Decision</span></div>${remaining.map((model,index)=>renderPickBoardRow(model,index)).join("")}</div>`
-    :"";
-  return html+`<div class="pick-editorial">${featured?renderFeaturedPick(featured):""}${board}</div>`;
+  const playerPickModels=pickModels.filter(model=>!model.isGameMarket);
+  const gameMarketModels=pickModels.filter(model=>model.isGameMarket);
+  if(playerPickModels.length&&gameMarketModels.length){
+    html+=renderPickSection(
+      "Player Props",
+      "Primary board for player-specific props once books have opened them.",
+      playerPickModels
+    );
+    html+=renderPickSection(
+      "Game Markets",
+      "Separate team-side plays from spreads, moneylines, and totals.",
+      gameMarketModels
+    );
+    return html;
+  }
+  if(gameMarketModels.length){
+    return html+renderPickSection(
+      "Game Markets",
+      "Preseason fallback board while player props are still closed.",
+      gameMarketModels
+    );
+  }
+  return html+renderPickSection(
+    "Player Props",
+    "Ranked recommendations from the current player-prop board.",
+    playerPickModels
+  );
 }
 
 function renderDingerBoardView(convergenceHTML){
