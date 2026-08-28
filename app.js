@@ -558,12 +558,17 @@ function getPickGuard(latestDate,picksCount){
   const tonightCount=st.mode==="qb"?st.pTonight.length:st.tonight.length;
   if(!tonightCount)return null;
   const today=easternTodayISO();
+  const currentRows=latestDate
+    ?(st.picks||[]).filter(p=>normalizeDate(rowField(p,"DATE"))===latestDate&&toNum(rowField(p,"RUN_NUMBER"))===getLatestPickRun())
+    :(st.picks||[]);
+  const currentPlayerPickCount=currentRows.filter(p=>!isGameMarketMetric(rowField(p,"prop_type"))).length;
   if(!picksCount){
     return st.props.length
       ?{level:"warn",text:"Engine issue — model picks are missing or incomplete for this week's slate."}
       :{level:"info",text:"No model picks for this week yet. Props may still be loading."};
   }
   if(latestDate&&latestDate!==today)return{level:"warn",text:`Showing stale model picks from ${latestDate}. Engine may be incomplete.`};
+  if(st.props.length&&currentPlayerPickCount===0)return{level:"warn",text:"Player props are live, but current picks are still preseason team markets. Run the engine again."};
   if(picksCount<3&&st.props.length>=12)return{level:"warn",text:`Model picks look incomplete for this week (${picksCount} loaded).`};
   return null;
 }
@@ -1395,6 +1400,14 @@ function preseasonGamePickMap(){
   });
   return map;
 }
+function latestPlayerPropPicks(){
+  const latestDate=getLatestPickDate();
+  const latestRun=getLatestPickRun();
+  const latestRows=latestDate
+    ?(st.picks||[]).filter(p=>normalizeDate(rowField(p,"DATE"))===latestDate&&toNum(rowField(p,"RUN_NUMBER"))===latestRun)
+    :(st.picks||[]);
+  return latestRows.filter(p=>!isGameMarketMetric(rowField(p,"prop_type")));
+}
 
 function renderPreseasonShortlist(rows){
   const markets=new Set(rows.map(row=>normalizePropMetric(rowField(row,"prop_type")))).size;
@@ -1404,9 +1417,11 @@ function renderPreseasonShortlist(rows){
 function renderTonightShortlist(){
   const rows=getTonightShortlist();
   if(!rows.length){
+    const hasLivePlayerProps=!!(st.props||[]).length;
+    const livePlayerPickRows=latestPlayerPropPicks();
     const preseasonPickRows=latestPreseasonGamePicks();
-    if(preseasonPickRows.length)return renderPreseasonShortlist(preseasonPickRows);
-    const preseasonMarketsLive=!st.props.length&&(st.gameMarkets||[]).length;
+    if(preseasonPickRows.length&&!hasLivePlayerProps&&!livePlayerPickRows.length)return renderPreseasonShortlist(preseasonPickRows);
+    const preseasonMarketsLive=!hasLivePlayerProps&&(st.gameMarkets||[]).length;
     return`<section class="shortlist-shell"><div class="shortlist-head"><div><div class="analysis-eyebrow">This week's decision board</div><div class="shortlist-title">This Week's Shortlist</div><div class="shortlist-sub">${preseasonMarketsLive?"Player props are not posted yet, so the board is surfacing preseason team markets first. Once books open player lines, this board will tighten back to qualified props only.":"Only unlocked, adequately sampled props with actionable prices, +5% edge, and no active model or lineup warning qualify."}</div></div><div class="shortlist-rule">${preseasonMarketsLive?"Preseason mode · team markets live":"Strict mode · passing allowed"}</div></div>${renderShortlistTray()}${preseasonMarketsLive?`<div class="props-pass" style="margin:0 0 18px"><div class="props-pass-title">Player props are still closed, but the board is live</div><div class="props-pass-copy">Books have posted spreads, moneylines, and totals for the preseason slate. Use these team-side markets while we wait for player props to unlock.</div></div>${renderGameMarketsBoard(st.propsTeam,st.gameMarkets)}`:`<div class="props-pass" style="margin:0"><div class="props-pass-title">No play clears every gate this week</div><div class="props-pass-copy">The data loaded correctly; the board is declining to promote a weak or conflicted option. Market Explorer still contains the wider research set.</div></div>`}</section>`;
   }
   const avgEdge=rows.reduce((sum,row)=>sum+row.edge,0)/rows.length;
