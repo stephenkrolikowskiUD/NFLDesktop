@@ -120,14 +120,21 @@ function fetchOptionalSheet(name,userMessage=""){
     return[];
   });
 }
+function hasPricedSportsbookRows(rows,oddsFields){
+  return (rows||[]).some(row=>oddsFields.some(field=>{
+    const value=rowField(row,field);
+    return value!==""&&value!==null&&value!==undefined&&String(value).trim()!=="";
+  }));
+}
 function visibleDataWarnings(){
   const warnings=[...(st.dataWarnings||[])];
-  const hasGameMarkets=!!((st.gameMarkets||[]).length);
-  const hasPreseasonPicks=latestPreseasonGamePicks().length>0;
+  const hasPricedPlayerProps=hasPricedSportsbookRows(st.props,["OVER_ODDS","UNDER_ODDS","BEST_OVER_ODDS","BEST_UNDER_ODDS"]);
+  const hasPricedGameMarkets=hasPricedSportsbookRows(st.gameMarkets,["ODDS"]);
+  const hasLiveSportsbookMarkets=hasPricedPlayerProps||hasPricedGameMarkets;
   const activeTab=String(st.activeTab||"").toLowerCase();
   return warnings.filter(msg=>{
     if(!msg)return false;
-    if(msg==="Sportsbook markets are unavailable."&&(hasGameMarkets||hasPreseasonPicks))return false;
+    if(msg==="Sportsbook markets are unavailable."&&hasLiveSportsbookMarkets)return false;
     if(msg==="Starting quarterbacks are unavailable."&&activeTab==="picks")return false;
     return true;
   });
