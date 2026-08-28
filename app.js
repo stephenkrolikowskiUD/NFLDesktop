@@ -1752,7 +1752,8 @@ function gameMarketMatchesTeam(row,team){
     .includes(target);
 }
 
-function renderGameMarketsBoard(team,rows){
+function renderGameMarketsBoard(team,rows,options={}){
+  const {showHeader=true}=options;
   const query=normalizePlayerName(st.propsSearch);
   const typeFilter=String(st.gameMarketType||"ALL").toUpperCase();
   const totalRows=(rows||[]).filter(row=>gameMarketMatchesTeam(row,team));
@@ -1855,7 +1856,7 @@ function renderGameMarketsBoard(team,rows){
   }).join("");
 
   return `<section class="game-market-explorer">
-    <div class="game-market-explorer-head">
+    ${showHeader?`<div class="game-market-explorer-head">
       <div>
         <div class="analysis-eyebrow">Preseason board</div>
         <div class="game-market-explorer-title">Game Markets</div>
@@ -1867,7 +1868,12 @@ function renderGameMarketsBoard(team,rows){
         <div class="game-market-summary-pill"><strong>${summaryCounts.MONEYLINE}</strong><span>Moneylines</span></div>
         <div class="game-market-summary-pill"><strong>${summaryCounts.TOTAL}</strong><span>Totals</span></div>
       </div>
-    </div>
+    </div>`:`<div class="game-market-summary" style="padding:0 16px 18px">
+      <div class="game-market-summary-pill"><strong>${gameEntries.length}</strong><span>Games</span></div>
+      <div class="game-market-summary-pill"><strong>${summaryCounts.SPREAD}</strong><span>Spreads</span></div>
+      <div class="game-market-summary-pill"><strong>${summaryCounts.MONEYLINE}</strong><span>Moneylines</span></div>
+      <div class="game-market-summary-pill"><strong>${summaryCounts.TOTAL}</strong><span>Totals</span></div>
+    </div>`}
     <div class="props-toolbar" style="padding-top:6px">
       <div class="props-control">
         <label for="gameMarketSortSelect">Game market sort</label>
@@ -3302,7 +3308,7 @@ function renderPropExplorerView(){
 }
 
 function renderGameMarketsOnlyView(){
-  return `<div style="padding:14px 16px 0"><div class="analysis-eyebrow">Preseason board</div><div style="font-family:'Barlow Condensed',system-ui,sans-serif;font-size:var(--t-xl);font-weight:800;color:var(--ink-0)">Game Markets</div><div style="color:var(--ink-muted);font-size:var(--t-xs);margin-top:2px">Spreads, moneylines, and totals get their own board so team-side markets stay separate from the player-prop workflow.</div></div>${renderGameMarketsBoard(st.propsTeam,st.gameMarkets)}`;
+  return `<div style="padding:14px 16px 0"><div class="analysis-eyebrow">Preseason board</div><div style="font-family:'Barlow Condensed',system-ui,sans-serif;font-size:var(--t-xl);font-weight:800;color:var(--ink-0)">Game Markets</div><div style="color:var(--ink-muted);font-size:var(--t-xs);margin-top:2px">Spreads, moneylines, and totals get their own board so team-side markets stay separate from the player-prop workflow.</div></div>${renderGameMarketsBoard(st.propsTeam,st.gameMarkets,{showHeader:false})}`;
 }
 
 // ============================================================================
