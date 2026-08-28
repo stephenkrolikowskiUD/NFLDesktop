@@ -28,7 +28,7 @@ from sports_common import col_letter, get_gspread_client, load_secret, safe_reco
 # ============================================================================
 
 SPORT_LABEL = "NFL"
-SHEET_ID = "1vJvcOsMyBEz1ZMJy6BKapdfG3FlvPIpB0eD_dviQBd0"
+SHEET_ID = os.getenv("NFL_SHEET_ID", "1lcwCUprWZA8JWTfuI8cTGaKXZwvDmQ80E0bH3AVimkY")
 REGULAR_SEASON_ODDS_SPORT = "americanfootball_nfl"
 PRESEASON_ODDS_SPORT = "americanfootball_nfl_preseason"
 MODEL_VERSION = os.getenv("NFL_MODEL_VERSION", "nfl-2026-preseason-v1")
