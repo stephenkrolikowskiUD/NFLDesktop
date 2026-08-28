@@ -509,6 +509,44 @@ function selectionMethodLabel(method){
     MARKET_MODEL:"Market model",
   }[key]||key.replace(/_/g," ").toLowerCase().replace(/\b\w/g,ch=>ch.toUpperCase());
 }
+function teamMarketEdgeLabel(pk){
+  const metric=normalizePropMetric(rowField(pk,"prop_type"));
+  const edge=Number(rowField(pk,"MODEL_EDGE_SCORE","MODEL_EV_PCT"));
+  if(!Number.isFinite(edge))return "Opening board";
+  if(metric==="MONEYLINE")return `${edge.toFixed(1)} win-probability points`;
+  if(metric==="SPREAD")return `${edge.toFixed(1)} points vs spread`;
+  if(metric==="TOTAL")return `${edge.toFixed(1)} points from opener`;
+  return `${edge.toFixed(1)} edge`;
+}
+function teamMarketSummary(pk){
+  const metric=normalizePropMetric(rowField(pk,"prop_type"));
+  const modelProb=Number(rowField(pk,"MODEL_HIT_RATE"));
+  const marketProb=Number(rowField(pk,"IMPLIED_PROBABILITY"));
+  const fairOdds=Number.isFinite(modelProb)?impliedToAmerican(modelProb):null;
+  const bookOdds=rowField(pk,"PICK_ODDS");
+  if(metric==="MONEYLINE"&&Number.isFinite(modelProb)&&Number.isFinite(marketProb)){
+    return `${(modelProb*100).toFixed(0)}% model win odds vs ${(marketProb*100).toFixed(0)}% market${fairOdds!==null?` · fair ${fmtOdds(fairOdds)}`:""}`;
+  }
+  if(metric==="SPREAD"&&fairOdds!==null&&bookOdds!==""&&bookOdds!=null){
+    return `Book ${fmtOdds(bookOdds)} vs fair ${fmtOdds(fairOdds)} on the selected side`;
+  }
+  if(metric==="TOTAL"){
+    return Number.isFinite(Number(rowField(pk,"MODEL_EDGE_SCORE","MODEL_EV_PCT")))
+      ?`${teamMarketEdgeLabel(pk)} backs this total move`
+      :"Opening-total signal";
+  }
+  return String(rowField(pk,"rationale")||"").trim()||"Current preseason market signal";
+}
+function teamMarketTags(pk){
+  const metric=normalizePropMetric(rowField(pk,"prop_type"));
+  const tags=[selectionMethodLabel(rowField(pk,"SELECTION_METHOD")||"VALIDATED_MODEL"),propTypeLabel(metric)];
+  const conf=normalizeConfidence(rowField(pk,"confidence"));
+  if(conf)tags.push(conf==="STRONG"?"Strong conviction":"Lean only");
+  if(metric==="MONEYLINE")tags.push("Win probability edge");
+  if(metric==="SPREAD")tags.push("Spread cushion");
+  if(metric==="TOTAL")tags.push("Opening total move");
+  return [...new Set(tags)];
+}
 function aiAgreesWithBet(aiPick,betLikeObject){
   if(!aiPick||!betLikeObject)return false;
   return normalizePlayerName(rowField(aiPick,"player","PLAYER_NAME"))===normalizePlayerName(rowField(betLikeObject,"name","player","PLAYER_NAME"))
@@ -1360,7 +1398,7 @@ function preseasonGamePickMap(){
 
 function renderPreseasonShortlist(rows){
   const markets=new Set(rows.map(row=>normalizePropMetric(rowField(row,"prop_type")))).size;
-  return `<section class="shortlist-shell"><div class="shortlist-head"><div><div class="analysis-eyebrow">This week's decision board</div><div class="shortlist-title">Preseason Shortlist</div><div class="shortlist-sub">Player props are still thin, so the engine is promoting the best available spreads, moneylines, and totals from the preseason board.</div></div><div class="shortlist-rule">Preseason mode · team markets ranked</div></div><div class="shortlist-kpis"><div class="shortlist-kpi"><strong>${rows.length}</strong><span>Qualified</span></div><div class="shortlist-kpi"><strong>${markets}</strong><span>Markets</span></div><div class="shortlist-kpi"><strong>${rows.filter(r=>normalizeConfidence(rowField(r,"confidence"))==="STRONG").length}</strong><span>Strong</span></div><div class="shortlist-kpi"><strong>${rows.filter(r=>rowField(r,"PICK_ODDS")!==""&&rowField(r,"PICK_ODDS")!=null).length}</strong><span>Priced</span></div></div><div class="shortlist-grid">${rows.map((row,index)=>`<article class="shortlist-card${index===0?" top":""}"><div><div class="shortlist-rank">${index===0?"Top play":`#${String(index+1).padStart(2,"0")}`}</div><div class="shortlist-name">${esc(pickDisplaySelection(row)||rowField(row,"game")||"Game market")}</div><div class="shortlist-meta">${esc(rowField(row,"game")||"")} · ${esc(propTypeLabel(rowField(row,"prop_type")))}${rowField(row,"PICK_ODDS")!==""&&rowField(row,"PICK_ODDS")!=null?` · ${fmtOdds(rowField(row,"PICK_ODDS"))}`:""}</div></div><div class="shortlist-call"><span class="shortlist-market">${esc(propTypeLabel(rowField(row,"prop_type")))}</span><strong class="prop-over">${esc(pickDisplaySelection(row)||"Play")}</strong><span>${esc(rowField(row,"confidence")||"LEAN")} · ${Number.isFinite(Number(rowField(row,"MODEL_EDGE_SCORE")))?`edge ${Number(rowField(row,"MODEL_EDGE_SCORE")).toFixed(1)}`:"opening board"}</span></div><div class="shortlist-evidence"><span><strong>Why it ranks:</strong> ${esc(rowField(row,"rationale")||"Opening preseason market signal.")}</span><span><strong>Book:</strong> ${esc(rowField(row,"PICK_BOOK")||"Opening board")}${rowField(row,"PICK_ODDS")!==""&&rowField(row,"PICK_ODDS")!=null?` · ${fmtOdds(rowField(row,"PICK_ODDS"))}`:""}</span></div><div class="shortlist-tags"><span class="shortlist-tag">${esc(selectionMethodLabel(rowField(row,"SELECTION_METHOD")||"Validated model"))}</span><span class="shortlist-tag">${esc(propTypeLabel(rowField(row,"prop_type")))}</span></div></article>`).join("")}</div></section>`;
+  return `<section class="shortlist-shell"><div class="shortlist-head"><div><div class="analysis-eyebrow">This week's decision board</div><div class="shortlist-title">Preseason Shortlist</div><div class="shortlist-sub">Player props are still thin, so the engine is promoting the best available spreads, moneylines, and totals from the preseason board.</div></div><div class="shortlist-rule">Preseason mode · team markets ranked</div></div><div class="shortlist-kpis"><div class="shortlist-kpi"><strong>${rows.length}</strong><span>Qualified</span></div><div class="shortlist-kpi"><strong>${markets}</strong><span>Markets</span></div><div class="shortlist-kpi"><strong>${rows.filter(r=>normalizeConfidence(rowField(r,"confidence"))==="STRONG").length}</strong><span>Strong</span></div><div class="shortlist-kpi"><strong>${rows.filter(r=>rowField(r,"PICK_ODDS")!==""&&rowField(r,"PICK_ODDS")!=null).length}</strong><span>Priced</span></div></div><div class="shortlist-grid">${rows.map((row,index)=>`<article class="shortlist-card${index===0?" top":""}"><div><div class="shortlist-rank">${index===0?"Top play":`#${String(index+1).padStart(2,"0")}`}</div><div class="shortlist-name">${esc(pickDisplaySelection(row)||rowField(row,"game")||"Game market")}</div><div class="shortlist-meta">${esc(rowField(row,"game")||"")} · ${esc(propTypeLabel(rowField(row,"prop_type")))}${rowField(row,"PICK_ODDS")!==""&&rowField(row,"PICK_ODDS")!=null?` · ${fmtOdds(rowField(row,"PICK_ODDS"))}`:""}</div></div><div class="shortlist-call"><span class="shortlist-market">${esc(propTypeLabel(rowField(row,"prop_type")))}</span><strong class="prop-over">${esc(pickDisplaySelection(row)||"Play")}</strong><span>${esc(rowField(row,"confidence")||"LEAN")} · ${esc(teamMarketEdgeLabel(row))}</span></div><div class="shortlist-evidence"><span><strong>Why it ranks:</strong> ${esc(rowField(row,"rationale")||"Opening preseason market signal.")}</span><span><strong>Price view:</strong> ${esc(teamMarketSummary(row))}</span><span><strong>Book:</strong> ${esc(rowField(row,"PICK_BOOK")||"Opening board")}${rowField(row,"PICK_ODDS")!==""&&rowField(row,"PICK_ODDS")!=null?` · ${fmtOdds(rowField(row,"PICK_ODDS"))}`:""}</span></div><div class="shortlist-tags">${teamMarketTags(row).map(tag=>`<span class="shortlist-tag">${esc(tag)}</span>`).join("")}</div></article>`).join("")}</div></section>`;
 }
 
 function renderTonightShortlist(){
@@ -1872,7 +1910,7 @@ function renderGameMarketsBoard(team,rows,options={}){
         const bookLabel=rowIsBaseline?"Preseason baseline":rowBook;
         const metaBits=[teamMeta];
         if(matchingPick)metaBits.push(normalizeConfidence(rowField(matchingPick,"confidence")));
-        if(matchingPick&&Number.isFinite(Number(rowField(matchingPick,"MODEL_EDGE_SCORE","MODEL_EV_PCT"))))metaBits.push(`edge ${Number(rowField(matchingPick,"MODEL_EDGE_SCORE","MODEL_EV_PCT")).toFixed(1)}`);
+        if(matchingPick&&Number.isFinite(Number(rowField(matchingPick,"MODEL_EDGE_SCORE","MODEL_EV_PCT"))))metaBits.push(teamMarketEdgeLabel(matchingPick));
         return `<div class="game-market-row${isPreferred?" preferred":""}" style="${isPreferred?"border:1px solid color-mix(in srgb, var(--strong) 40%, var(--border-1));background:color-mix(in srgb, var(--strong) 9%, transparent);border-radius:10px;padding:10px 12px;margin:0 -12px 8px;":""}">
           <div class="game-market-row-main">
             <div class="game-market-row-selection">${esc(selection)}${isPreferred?` <span class="shortlist-tag" style="margin-left:8px">Model lean</span>`:""}</div>
@@ -1888,12 +1926,12 @@ function renderGameMarketsBoard(team,rows,options={}){
         .map(row=>pickMap.get(gameMarketPickKey(rowField(row,"GAME"),rowField(row,"MARKET_TYPE"),gameMarketSelectionText(row))))
         .filter(Boolean)[0]||null;
       const typeSummary=featuredTypePick
-        ?`<div class="pick-why" style="margin:0 0 10px"><strong>Model says:</strong> ${esc(pickDisplaySelection(featuredTypePick)||gameMarketTypeLabel(type))}${Number.isFinite(Number(rowField(featuredTypePick,"MODEL_HIT_RATE")))&&Number.isFinite(Number(rowField(featuredTypePick,"IMPLIED_PROBABILITY")))?` · ${(Number(rowField(featuredTypePick,"MODEL_HIT_RATE"))*100).toFixed(0)}% model vs ${(Number(rowField(featuredTypePick,"IMPLIED_PROBABILITY"))*100).toFixed(0)}% market`:""}${Number.isFinite(Number(rowField(featuredTypePick,"MODEL_EDGE_SCORE","MODEL_EV_PCT")))?` · edge ${Number(rowField(featuredTypePick,"MODEL_EDGE_SCORE","MODEL_EV_PCT")).toFixed(1)}`:""}</div>`
+        ?`<div class="pick-why" style="margin:0 0 10px"><strong>Best side:</strong> ${esc(pickDisplaySelection(featuredTypePick)||gameMarketTypeLabel(type))} · ${esc(teamMarketSummary(featuredTypePick))}</div>`
         :"";
       return `<div class="game-market-card"><div class="game-market-card-head"><span>${esc(gameMarketTypeLabel(type))}</span><span>${typeRows.length}</span></div>${typeSummary}${items}</div>`;
     }).filter(Boolean).join("");
     const featuredSummary=bestPick
-      ?`<div class="props-pass" style="margin:0 0 18px"><div class="props-pass-title">Top game lean: ${esc(featuredSelection||game)}</div><div class="props-pass-copy">${esc(featuredReason||"Current preseason board lean.")}${Number.isFinite(featuredModelHit)&&Number.isFinite(featuredImplied)?` Model ${(featuredModelHit*100).toFixed(0)}% vs market ${(featuredImplied*100).toFixed(0)}%.`:""}${Number.isFinite(featuredEdge)?` Edge ${featuredEdge.toFixed(1)}.`:""}${featuredSource?` ${featuredSource}.`:""}</div></div>`
+      ?`<div class="props-pass" style="margin:0 0 18px"><div class="props-pass-title">Top game lean: ${esc(featuredSelection||game)}</div><div class="props-pass-copy">${esc(featuredReason||"Current preseason board lean.")} ${esc(teamMarketSummary(bestPick))}.${featuredSource?` ${featuredSource}.`:""}</div></div>`
       :"";
     return `<section class="game-market-shell">
       <div class="game-market-shell-head">
