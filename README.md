@@ -40,7 +40,7 @@ See [PLAN.md](./PLAN.md) for the active sprint priorities and Week 1 launch bar.
 
 - **nflverse** — schedule, player stats, snap counts, injuries, rosters, play-by-play. Public release assets, **no API key, no rate limit**.
 - **The Odds API** (`americanfootball_nfl` / `americanfootball_nfl_preseason`) — multi-book pricing, featured game markets, and player props when books have opened them.
-- **Google Sheets workbook** — `1vJvcOsMyBEz1ZMJy6BKapdfG3FlvPIpB0eD_dviQBd0`
+- **Google Sheets workbook** — `1lcwCUprWZA8JWTfuI8cTGaKXZwvDmQ80E0bH3AVimkY`
 
 Baseline spreads, totals, and moneylines come from nflverse at zero Odds API cost. Odds API credits are spent only on multi-book comparison and props.
 

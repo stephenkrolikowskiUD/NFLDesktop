@@ -16,7 +16,7 @@ const ICONS = {
   warn:   '<svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2l6 11H2z"/><path d="M8 6.5v3.5M8 12v0.1"/></svg>'
 };
 function icon(name){return `<span class="icon-inline">${ICONS[name]||''}</span>`}
-const SHEET_ID="1vJvcOsMyBEz1ZMJy6BKapdfG3FlvPIpB0eD_dviQBd0";
+const SHEET_ID="1lcwCUprWZA8JWTfuI8cTGaKXZwvDmQ80E0bH3AVimkY";
 
 const GAME_ENTRY_TIER_WEIGHTS = { SMASH: 1.5, STRONG: 1.0, LEAN: 0.7 };
 const GAME_ENTRY_DEFAULT_WLB = 0.42;

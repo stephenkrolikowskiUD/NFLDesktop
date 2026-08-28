@@ -46,7 +46,7 @@ from sports_common import (
     normalize_person_name,
 )
 
-SHEET_ID = "1vJvcOsMyBEz1ZMJy6BKapdfG3FlvPIpB0eD_dviQBd0"
+SHEET_ID = "1lcwCUprWZA8JWTfuI8cTGaKXZwvDmQ80E0bH3AVimkY"
 eastern = pytz.timezone("US/Eastern")
 
 # Buffer after scheduled kickoff before attempting to grade — covers game
