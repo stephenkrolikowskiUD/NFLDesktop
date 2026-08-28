@@ -58,6 +58,7 @@ PICKS_DAYS = {d.strip().lower() for d in
              os.getenv("NFL_PICKS_DAYS", "Thursday,Sunday,Monday").split(",") if d.strip()}
 SKIP_PICKS = os.getenv("NFL_SKIP_PICKS", "").lower() in {"1", "true", "yes"}
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.6-flash")
+KEEP_REFERENCE_TABS = os.getenv("NFL_KEEP_REFERENCE_TABS", "").lower() in {"1", "true", "yes"}
 
 eastern = pytz.timezone("US/Eastern")
 
@@ -1221,16 +1222,22 @@ def main():
         "Player_Props": build_player_props_tab(board),
         "All_Books_Props": build_all_books_props_tab(props),
         "Game_Markets": game_markets_tab,
-        "Injuries": build_injuries_tab(injuries),
         "Projections": projections,
         "Picks_Current": picks_current,
-        # Kept for reference / direct inspection
-        "Games": games_tab,
-        "Teams": build_teams_tab(teams),
-        "PlayerForm": build_player_form_tab(stats, snaps),
     }
+    if KEEP_REFERENCE_TABS:
+        tabs.update({
+            # Reference-only tabs are useful for manual inspection, but the
+            # live dashboard itself does not read them.
+            "Injuries": build_injuries_tab(injuries),
+            "Games": games_tab,
+            "Teams": build_teams_tab(teams),
+            "PlayerForm": build_player_form_tab(stats, snaps),
+        })
 
     print("\n📝 Writing to Google Sheets")
+    if not KEEP_REFERENCE_TABS:
+        print("   ℹ️  dashboard-only sheet mode: skipping reference tabs (Injuries, Games, Teams, PlayerForm)")
     write_to_sheets(
         sheets,
         SHEET_ID,

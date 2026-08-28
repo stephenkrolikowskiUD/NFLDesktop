@@ -1342,6 +1342,21 @@ function latestPreseasonGamePicks(){
     :(st.picks||[]);
   return latestRows.filter(p=>isGameMarketMetric(rowField(p,"prop_type")));
 }
+function gameMarketPickKey(game,marketType,selection){
+  return [
+    normalizePlayerName(game),
+    normalizePropMetric(marketType),
+    normalizePlayerName(selection)
+  ].join("|");
+}
+function preseasonGamePickMap(){
+  const map=new Map();
+  latestPreseasonGamePicks().forEach(pk=>{
+    const key=gameMarketPickKey(rowField(pk,"game"),rowField(pk,"prop_type"),pickDisplaySelection(pk));
+    if(key&&!map.has(key))map.set(key,pk);
+  });
+  return map;
+}
 
 function renderPreseasonShortlist(rows){
   const markets=new Set(rows.map(row=>normalizePropMetric(rowField(row,"prop_type")))).size;
@@ -1758,8 +1773,9 @@ function renderGameMarketsBoard(team,rows,options={}){
   const typeFilter=String(st.gameMarketType||"ALL").toUpperCase();
   const totalRows=(rows||[]).filter(row=>gameMarketMatchesTeam(row,team));
   if(!totalRows.length)return "";
+  const pickMap=preseasonGamePickMap();
 
-  let marketRows=totalRows.filter(row=>{
+  const marketRows=totalRows.filter(row=>{
     if(typeFilter!=="ALL"&&String(rowField(row,"MARKET_TYPE")).trim().toUpperCase()!==typeFilter)return false;
     if(!query)return true;
     const haystack=[
@@ -1785,9 +1801,22 @@ function renderGameMarketsBoard(team,rows,options={}){
     if(!gameMap.has(key))gameMap.set(key,[]);
     gameMap.get(key).push(row);
   });
-  const gameEntries=[...gameMap.entries()].map(([game,gameRows])=>({game,rows:gameRows,first:gameRows[0]}));
+  const gameEntries=[...gameMap.entries()].map(([game,gameRows])=>{
+    const bestPick=gameRows
+      .map(row=>pickMap.get(gameMarketPickKey(rowField(row,"GAME"),rowField(row,"MARKET_TYPE"),gameMarketSelectionText(row))))
+      .filter(Boolean)
+      .sort((a,b)=>toNum(rowField(a,"rank"))-toNum(rowField(b,"rank")))[0]||null;
+    return {game,rows:gameRows,first:gameRows[0],bestPick};
+  });
   gameEntries.sort((a,b)=>{
     const aMs=gameMarketKickoffMs(a.first),bMs=gameMarketKickoffMs(b.first);
+    const aRank=toNum(rowField(a.bestPick,"rank"));
+    const bRank=toNum(rowField(b.bestPick,"rank"));
+    if(Number.isFinite(aRank)||Number.isFinite(bRank)){
+      if(!Number.isFinite(aRank))return 1;
+      if(!Number.isFinite(bRank))return -1;
+      if(aRank!==bRank)return aRank-bRank;
+    }
     if(sortMode==="MARKETS")return b.rows.length-a.rows.length||(aMs??Infinity)-(bMs??Infinity)||a.game.localeCompare(b.game);
     return (aMs??Infinity)-(bMs??Infinity)||a.game.localeCompare(b.game);
   });
@@ -1799,20 +1828,36 @@ function renderGameMarketsBoard(team,rows,options={}){
     return `<div class="pf-btn ${active?"active":""}" onclick="setGameMarketType('${type}')">${esc(label)}${count?` <span>${count}</span>`:""}</div>`;
   }).join("");
 
-  const cards=gameEntries.map(({game,rows:gameRows,first})=>{
+  const cards=gameEntries.map(({game,rows:gameRows,first,bestPick})=>{
     const kickoff=gameMarketDisplayTime(first);
     const book=String(rowField(first,"BOOK")||"baseline").trim();
     const isBaselineBook=!book||book.toLowerCase()==="baseline";
     const home=String(rowField(first,"HOME_TEAM")||"").trim().toUpperCase();
     const away=String(rowField(first,"AWAY_TEAM")||"").trim().toUpperCase();
+    const featuredSelection=bestPick?pickDisplaySelection(bestPick):"";
+    const featuredConfidence=bestPick?normalizeConfidence(rowField(bestPick,"confidence")):"";
+    const featuredEdge=bestPick?Number(rowField(bestPick,"MODEL_EDGE_SCORE","MODEL_EV_PCT")):NaN;
+    const featuredModelHit=bestPick?Number(rowField(bestPick,"MODEL_HIT_RATE")):NaN;
+    const featuredImplied=bestPick?Number(rowField(bestPick,"IMPLIED_PROBABILITY")):NaN;
+    const featuredReason=bestPick?String(rowField(bestPick,"rationale")||"").trim():"";
+    const featuredSource=bestPick?selectionMethodLabel(rowField(bestPick,"SELECTION_METHOD")||"VALIDATED_MODEL"):"";
     const groups=["SPREAD","MONEYLINE","TOTAL"].map(type=>{
-      const typeRows=gameRows.filter(row=>String(rowField(row,"MARKET_TYPE")).trim().toUpperCase()===type);
+      const typeRows=gameRows
+        .filter(row=>String(rowField(row,"MARKET_TYPE")).trim().toUpperCase()===type)
+        .sort((a,b)=>{
+          const aSelected=!!pickMap.get(gameMarketPickKey(rowField(a,"GAME"),rowField(a,"MARKET_TYPE"),gameMarketSelectionText(a)));
+          const bSelected=!!pickMap.get(gameMarketPickKey(rowField(b,"GAME"),rowField(b,"MARKET_TYPE"),gameMarketSelectionText(b)));
+          if(aSelected!==bSelected)return aSelected?-1:1;
+          return gameMarketSelectionText(a).localeCompare(gameMarketSelectionText(b));
+        });
       if(!typeRows.length)return "";
       const items=typeRows.map(row=>{
         const selection=gameMarketSelectionText(row);
         const odds=rowField(row,"ODDS");
         const rowBook=String(rowField(row,"BOOK")||book||"baseline").trim();
         const rowIsBaseline=!rowBook||rowBook.toLowerCase()==="baseline";
+        const matchingPick=pickMap.get(gameMarketPickKey(rowField(row,"GAME"),rowField(row,"MARKET_TYPE"),selection));
+        const isPreferred=!!matchingPick;
         const teamValue=String(rowField(row,"TEAM")||"").trim().toUpperCase();
         const teamMeta=type==="TOTAL"
           ?`${away} @ ${home}`
@@ -1825,10 +1870,13 @@ function renderGameMarketsBoard(team,rows,options={}){
             :"Opening line"
           :gameMarketOddsLabel(odds);
         const bookLabel=rowIsBaseline?"Preseason baseline":rowBook;
-        return `<div class="game-market-row">
+        const metaBits=[teamMeta];
+        if(matchingPick)metaBits.push(normalizeConfidence(rowField(matchingPick,"confidence")));
+        if(matchingPick&&Number.isFinite(Number(rowField(matchingPick,"MODEL_EDGE_SCORE","MODEL_EV_PCT"))))metaBits.push(`edge ${Number(rowField(matchingPick,"MODEL_EDGE_SCORE","MODEL_EV_PCT")).toFixed(1)}`);
+        return `<div class="game-market-row${isPreferred?" preferred":""}" style="${isPreferred?"border:1px solid color-mix(in srgb, var(--strong) 40%, var(--border-1));background:color-mix(in srgb, var(--strong) 9%, transparent);border-radius:10px;padding:10px 12px;margin:0 -12px 8px;":""}">
           <div class="game-market-row-main">
-            <div class="game-market-row-selection">${esc(selection)}</div>
-            <div class="game-market-row-meta">${esc(teamMeta)}</div>
+            <div class="game-market-row-selection">${esc(selection)}${isPreferred?` <span class="shortlist-tag" style="margin-left:8px">Model lean</span>`:""}</div>
+            <div class="game-market-row-meta">${esc(metaBits.join(" · "))}</div>
           </div>
           <div class="game-market-row-side">
             <div class="game-market-row-odds${rowIsBaseline?" baseline":""}">${esc(priceLabel)}</div>
@@ -1836,8 +1884,17 @@ function renderGameMarketsBoard(team,rows,options={}){
           </div>
         </div>`;
       }).join("");
-      return `<div class="game-market-card"><div class="game-market-card-head"><span>${esc(gameMarketTypeLabel(type))}</span><span>${typeRows.length}</span></div>${items}</div>`;
+      const featuredTypePick=typeRows
+        .map(row=>pickMap.get(gameMarketPickKey(rowField(row,"GAME"),rowField(row,"MARKET_TYPE"),gameMarketSelectionText(row))))
+        .filter(Boolean)[0]||null;
+      const typeSummary=featuredTypePick
+        ?`<div class="pick-why" style="margin:0 0 10px"><strong>Model says:</strong> ${esc(pickDisplaySelection(featuredTypePick)||gameMarketTypeLabel(type))}${Number.isFinite(Number(rowField(featuredTypePick,"MODEL_HIT_RATE")))&&Number.isFinite(Number(rowField(featuredTypePick,"IMPLIED_PROBABILITY")))?` · ${(Number(rowField(featuredTypePick,"MODEL_HIT_RATE"))*100).toFixed(0)}% model vs ${(Number(rowField(featuredTypePick,"IMPLIED_PROBABILITY"))*100).toFixed(0)}% market`:""}${Number.isFinite(Number(rowField(featuredTypePick,"MODEL_EDGE_SCORE","MODEL_EV_PCT")))?` · edge ${Number(rowField(featuredTypePick,"MODEL_EDGE_SCORE","MODEL_EV_PCT")).toFixed(1)}`:""}</div>`
+        :"";
+      return `<div class="game-market-card"><div class="game-market-card-head"><span>${esc(gameMarketTypeLabel(type))}</span><span>${typeRows.length}</span></div>${typeSummary}${items}</div>`;
     }).filter(Boolean).join("");
+    const featuredSummary=bestPick
+      ?`<div class="props-pass" style="margin:0 0 18px"><div class="props-pass-title">Top game lean: ${esc(featuredSelection||game)}</div><div class="props-pass-copy">${esc(featuredReason||"Current preseason board lean.")}${Number.isFinite(featuredModelHit)&&Number.isFinite(featuredImplied)?` Model ${(featuredModelHit*100).toFixed(0)}% vs market ${(featuredImplied*100).toFixed(0)}%.`:""}${Number.isFinite(featuredEdge)?` Edge ${featuredEdge.toFixed(1)}.`:""}${featuredSource?` ${featuredSource}.`:""}</div></div>`
+      :"";
     return `<section class="game-market-shell">
       <div class="game-market-shell-head">
         <div>
@@ -1848,9 +1905,11 @@ function renderGameMarketsBoard(team,rows,options={}){
         <div class="game-market-shell-tags">
           <span class="game-market-shell-tag">${esc(away||"AWAY")} @ ${esc(home||"HOME")}</span>
           <span class="game-market-shell-tag">${esc(isBaselineBook?"Opening board":book)}</span>
+          ${bestPick?`<span class="game-market-shell-tag">${esc(featuredConfidence||"LEAN")} pick</span>`:""}
           <span class="game-market-shell-tag">${gameRows.length} market rows</span>
         </div>
       </div>
+      ${featuredSummary}
       <div class="game-market-grid">${groups}</div>
     </section>`;
   }).join("");
