@@ -126,10 +126,18 @@ function hasPricedSportsbookRows(rows,oddsFields){
     return value!==""&&value!==null&&value!==undefined&&String(value).trim()!=="";
   }));
 }
+function hasLiveSportsbookGameMarkets(rows){
+  return (rows||[]).some(row=>{
+    const book=String(rowField(row,"BOOK","book")).trim().toLowerCase();
+    const odds=rowField(row,"ODDS","odds");
+    const hasOdds=odds!==""&&odds!==null&&odds!==undefined&&String(odds).trim()!=="";
+    return book!==""&&book!=="baseline"&&hasOdds;
+  });
+}
 function visibleDataWarnings(){
   const warnings=[...(st.dataWarnings||[])];
   const hasPricedPlayerProps=hasPricedSportsbookRows(st.props,["OVER_ODDS","UNDER_ODDS","BEST_OVER_ODDS","BEST_UNDER_ODDS"]);
-  const hasPricedGameMarkets=hasPricedSportsbookRows(st.gameMarkets,["ODDS"]);
+  const hasPricedGameMarkets=hasLiveSportsbookGameMarkets(st.gameMarkets);
   const hasLiveSportsbookMarkets=hasPricedPlayerProps||hasPricedGameMarkets;
   const activeTab=String(st.activeTab||"").toLowerCase();
   return warnings.filter(msg=>{
@@ -1428,7 +1436,7 @@ function renderTonightShortlist(){
     const livePlayerPickRows=latestPlayerPropPicks();
     const preseasonPickRows=latestPreseasonGamePicks();
     if(preseasonPickRows.length&&!hasLivePlayerProps&&!livePlayerPickRows.length)return renderPreseasonShortlist(preseasonPickRows);
-    const preseasonMarketsLive=!hasLivePlayerProps&&(st.gameMarkets||[]).length;
+    const preseasonMarketsLive=!hasLivePlayerProps&&hasLiveSportsbookGameMarkets(st.gameMarkets);
     return`<section class="shortlist-shell"><div class="shortlist-head"><div><div class="analysis-eyebrow">This week's decision board</div><div class="shortlist-title">This Week's Shortlist</div><div class="shortlist-sub">${preseasonMarketsLive?"Player props are not posted yet, so the board is surfacing preseason team markets first. Once books open player lines, this board will tighten back to qualified props only.":"Only unlocked, adequately sampled props with actionable prices, +5% edge, and no active model or lineup warning qualify."}</div></div><div class="shortlist-rule">${preseasonMarketsLive?"Preseason mode · team markets live":"Strict mode · passing allowed"}</div></div>${renderShortlistTray()}${preseasonMarketsLive?`<div class="props-pass" style="margin:0 0 18px"><div class="props-pass-title">Player props are still closed, but the board is live</div><div class="props-pass-copy">Books have posted spreads, moneylines, and totals for the preseason slate. Use these team-side markets while we wait for player props to unlock.</div></div>${renderGameMarketsBoard(st.propsTeam,st.gameMarkets)}`:`<div class="props-pass" style="margin:0"><div class="props-pass-title">No play clears every gate this week</div><div class="props-pass-copy">The data loaded correctly; the board is declining to promote a weak or conflicted option. Market Explorer still contains the wider research set.</div></div>`}</section>`;
   }
   const avgEdge=rows.reduce((sum,row)=>sum+row.edge,0)/rows.length;
@@ -1834,6 +1842,7 @@ function renderGameMarketsBoard(team,rows,options={}){
   const totalRows=(rows||[]).filter(row=>gameMarketMatchesTeam(row,team));
   if(!totalRows.length)return "";
   const pickMap=preseasonGamePickMap();
+  const hasLiveBookRows=hasLiveSportsbookGameMarkets(totalRows);
 
   const marketRows=totalRows.filter(row=>{
     if(typeFilter!=="ALL"&&String(rowField(row,"MARKET_TYPE")).trim().toUpperCase()!==typeFilter)return false;
@@ -1974,12 +1983,17 @@ function renderGameMarketsBoard(team,rows,options={}){
     </section>`;
   }).join("");
 
+  const boardContext=hasLiveBookRows
+    ?"Live sportsbook prices are posted for these preseason team markets."
+    :"Only baseline schedule-market context is available right now. Live sportsbook prices have not loaded yet.";
+
   return `<section class="game-market-explorer">
     ${showHeader?`<div class="game-market-explorer-head">
       <div>
         <div class="analysis-eyebrow">Preseason board</div>
         <div class="game-market-explorer-title">Game Markets</div>
         <div class="game-market-explorer-copy">Spreads, moneylines, and totals are live even before player props open. Use this as the preseason market board instead of waiting on a player-prop feed.</div>
+        <div class="game-market-explorer-copy" style="margin-top:6px">${esc(boardContext)}</div>
       </div>
       <div class="game-market-summary">
         <div class="game-market-summary-pill"><strong>${gameEntries.length}</strong><span>Games</span></div>
@@ -2000,7 +2014,7 @@ function renderGameMarketsBoard(team,rows,options={}){
       </div>
     </div>
     <div class="props-filter">${typeChips}</div>
-    ${gameEntries.length?cards:`<div class="props-pass"><div class="props-pass-title">No game markets match these filters</div><div class="props-pass-copy">Try a different team or clear the search. The preseason feed is live, but this slice of the board is empty.</div></div>`}
+    ${gameEntries.length?cards:`<div class="props-pass"><div class="props-pass-title">No game markets match these filters</div><div class="props-pass-copy">${hasLiveBookRows?"Try a different team or clear the search. Live preseason team markets exist, but this slice of the board is empty.":"Try a different team or clear the search. Only baseline market context is available right now, so a live sportsbook slice may still be empty."}</div></div>`}
   </section>`;
 }
 
