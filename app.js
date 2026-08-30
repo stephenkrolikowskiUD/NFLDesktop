@@ -34,6 +34,7 @@ const METRICS=["REC","REC_YDS","TGT","RUSH_YDS","CARRIES","REC_TDS","RUSH_TDS","
 const P_METRICS=["PASS_YDS","PASS_TDS","COMP","ATT","INT","RUSH_YDS","UD_FP"];
 const SHORTLIST_TRAY_KEY="nfl-shortlist-tray";
 const DRAFT_SLATE_KEY="nfl-draft-slate-v1";
+const DRAFT_SLATE_WINDOW_DAYS = 10;
 const CALIBRATED_TIER_FLOORS = {
   SMASH: { wlb: 0.57, roi: 0.04 },
   STRONG:{ wlb: 0.54, roi: 0.00 },
@@ -2073,14 +2074,16 @@ function draftGameId(row){
 
 function getDraftSlateGames(){
   return getMemo("draftSlateGames",()=>{
+    const nowMs=Date.now();
+    const cutoffMs=nowMs+(DRAFT_SLATE_WINDOW_DAYS*24*60*60*1000);
     const games=[];const seen=new Set();
     for(const row of st.schedule||[]){
       const id=draftGameId(row);
-      if(!id||seen.has(id))continue;
+      const startMs=parseStartMs(rowField(row,"game_time","commence_time","start_time"));
+      if(!id||seen.has(id)||!Number.isFinite(startMs)||startMs<nowMs||startMs>cutoffMs)continue;
       seen.add(id);
       const home=String(rowField(row,"home_abbr","HOME_ABBR")||"").trim().toUpperCase();
       const away=String(rowField(row,"away_abbr","AWAY_ABBR")||"").trim().toUpperCase();
-      const startMs=parseStartMs(rowField(row,"game_time","commence_time","start_time"));
       games.push({id,home,away,label:`${away} @ ${home}`,startMs,started:!!(startMs&&Date.now()>=startMs)});
     }
     if(!games.length){
@@ -2092,6 +2095,7 @@ function getDraftSlateGames(){
         if(!id||seen.has(id))continue;
         seen.add(id);
         const startMs=getScheduleStartMs(team,opp);
+        if(Number.isFinite(startMs)&&(startMs<nowMs||startMs>cutoffMs))continue;
         games.push({id,home:"",away:"",label:`${team} vs ${opp}`,startMs,started:!!(startMs&&Date.now()>=startMs)});
       }
     }
@@ -2185,7 +2189,7 @@ function renderDraftSlateSelector(){
   const range=starts.length?starts.length===1?draftDisplayTime(starts[0]):`${draftDisplayTime(starts[0])}–${draftDisplayTime(starts[starts.length-1])}`:"No start window";
   const preset=draftSlatePreset();
   const summary=selectedGames.length?`${selectedGames.length} of ${games.length} games · ${range}`:`0 of ${games.length} games selected`;
-  return`<section class="draft-slate"><div class="draft-slate-head"><div><div class="draft-slate-title">Contest slate</div><div class="draft-slate-summary">${summary}</div></div><button class="draft-slate-toggle" onclick="toggleDraftSlatePanel()">${st.draftSlate.panelOpen?"Done":"Choose games"}</button></div>${selectedGames.length?`<div class="draft-slate-games">${selectedGames.map(game=>`<span class="draft-slate-chip">${esc(game.label)} · ${draftDisplayTime(game.startMs)||"Time TBD"}</span>`).join("")}</div>`:""}${st.draftSlate.panelOpen?`<div class="draft-slate-panel"><div class="draft-slate-presets"><button class="draft-slate-preset${preset==="all"?" active":""}" onclick="setDraftSlatePreset('all')">Full slate</button><button class="draft-slate-preset${preset==="open"?" active":""}" onclick="setDraftSlatePreset('open')">Open games</button><button class="draft-slate-preset${preset==="after7"?" active":""}" onclick="setDraftSlatePreset('after7')">7 PM+</button><button class="draft-slate-preset${preset==="after9"?" active":""}" onclick="setDraftSlatePreset('after9')">9 PM+</button><button class="draft-slate-preset${preset==="clear"?" active":""}" onclick="setDraftSlatePreset('clear')">Clear</button></div><div class="draft-game-grid">${games.map(game=>`<button class="draft-game-option${selected.has(game.id)?" selected":""}" onclick="toggleDraftSlateGame('${esc(game.id)}')"><span class="draft-game-check">✓</span><span><span class="draft-game-matchup">${esc(game.label)}</span><span class="draft-game-status">${game.started?"Started / locked":"Available"}</span></span><span class="draft-game-time">${draftDisplayTime(game.startMs)||"TBD"}</span></button>`).join("")}</div><div class="draft-slate-note">Use this to narrow the board to TNF, SNF, MNF, showdown, or any custom contest slice.</div></div>`:""}</section>`;
+  return`<section class="draft-slate"><div class="draft-slate-head"><div><div class="draft-slate-title">Contest slate</div><div class="draft-slate-summary">${summary}</div></div><button class="draft-slate-toggle" onclick="toggleDraftSlatePanel()">${st.draftSlate.panelOpen?"Done":"Choose games"}</button></div>${selectedGames.length?`<div class="draft-slate-games">${selectedGames.map(game=>`<span class="draft-slate-chip">${esc(game.label)} · ${draftDisplayTime(game.startMs)||"Time TBD"}</span>`).join("")}</div>`:""}${st.draftSlate.panelOpen?`<div class="draft-slate-panel"><div class="draft-slate-presets"><button class="draft-slate-preset${preset==="all"?" active":""}" onclick="setDraftSlatePreset('all')">Next ${DRAFT_SLATE_WINDOW_DAYS} days</button><button class="draft-slate-preset${preset==="open"?" active":""}" onclick="setDraftSlatePreset('open')">Open games</button><button class="draft-slate-preset${preset==="after7"?" active":""}" onclick="setDraftSlatePreset('after7')">7 PM+</button><button class="draft-slate-preset${preset==="after9"?" active":""}" onclick="setDraftSlatePreset('after9')">9 PM+</button><button class="draft-slate-preset${preset==="clear"?" active":""}" onclick="setDraftSlatePreset('clear')">Clear</button></div><div class="draft-game-grid">${games.map(game=>`<button class="draft-game-option${selected.has(game.id)?" selected":""}" onclick="toggleDraftSlateGame('${esc(game.id)}')"><span class="draft-game-check">✓</span><span><span class="draft-game-matchup">${esc(game.label)}</span><span class="draft-game-status">${game.started?"Started / locked":"Available"}</span></span><span class="draft-game-time">${draftDisplayTime(game.startMs)||"TBD"}</span></button>`).join("")}</div><div class="draft-slate-note">Use this to narrow the board to the next ${DRAFT_SLATE_WINDOW_DAYS} days of TNF, SNF, MNF, showdown, or any custom contest slice.</div></div>`:""}</section>`;
 }
 
 function nflMetricLabel(metric){
