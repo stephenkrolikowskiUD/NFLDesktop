@@ -218,6 +218,19 @@ def resolve_model_identity(schedule_season: int, odds_sport: str) -> tuple[str, 
     return model_version, model_era
 
 
+def log_launch_readiness(odds_sport: str, model_version: str, model_era: str) -> None:
+    """Make launch-sensitive config obvious in the run log."""
+    if odds_sport != PRESEASON_ODDS_SPORT:
+        if not MODEL_VERSION_OVERRIDE or not MODEL_ERA_OVERRIDE:
+            print("⚠️  regular-season model identity is using code defaults — "
+                  "set NFL_MODEL_VERSION and NFL_MODEL_ERA explicitly in the workflow before Week 1")
+        if model_version == model_era:
+            print("   ℹ️  model era matches model version for this run")
+    else:
+        if MODEL_VERSION_OVERRIDE or MODEL_ERA_OVERRIDE:
+            print("   ℹ️  preseason run is using explicit model identity overrides")
+
+
 def resolve_odds_sport(schedule: pd.DataFrame, now: datetime) -> str:
     """Choose the Odds API sport key from the actual next slate.
 
@@ -1187,6 +1200,7 @@ def main():
     odds_sport = resolve_odds_sport(schedule, started)
     model_version, model_era = resolve_model_identity(schedule_season, odds_sport)
     print(f"🧬 model version: {model_version} · era: {model_era}")
+    log_launch_readiness(odds_sport, model_version, model_era)
 
     if not odds_api_key:
         print("   ⚠️  no Odds API key — skipping live odds and props")
