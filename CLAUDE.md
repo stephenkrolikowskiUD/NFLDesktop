@@ -104,6 +104,26 @@ scratch and reintroduce raw interpolation. If a value is ultimately row data,
 escape it in the last template that renders it, even if an upstream helper
 already "should" have normalized it.
 
+## Team metadata is a real dashboard dependency, not optional garnish
+
+The NFL UI now uses the `Teams` sheet for visible product features: team logos,
+nickname lookups, matchup identity, and branded game-market / shortlist cards.
+That means `loadTeams()` in `app.js` cannot stay a stub, and dashboard-only
+engine runs cannot skip writing `Teams` just because the page can technically
+render without it. If logos disappear, check both sides: whether the frontend
+is actually loading `Teams`, and whether `NFLEnginev1.py` is still publishing
+that tab in every mode.
+
+## Picks boards should read like editorial boards, not audit tables
+
+The easiest way for this dashboard to look "AI-generated" is to render every
+pick surface as a grid of repeated pills and flat fact rows. The better pattern
+for NFL Picks is: strong hierarchy for the featured play, quieter footer-style
+provenance, logos/matchup identity where relevant, and one clear reason-to-bet
+sentence instead of repeating the same fact three ways. When touching
+`renderFeaturedPick`, `renderPickBoardRow`, or the related CSS, preserve that
+editorial feel instead of drifting back toward a spreadsheet-shaped layout.
+
 ## No real project/account identifiers in fallback paths, even for convenience
 
 Local credential auto-detection (`sports_common.py`'s
