@@ -980,7 +980,10 @@ PICK_OUTPUT_COLUMNS = [
 
 
 def _pick_key(row) -> tuple:
-    return (_norm_name(row.get("player")), str(row.get("prop_type", "")).upper(),
+    prop_type = str(row.get("prop_type", "")).upper()
+    if prop_type in TEAM_MARKET_METRICS:
+        return _market_fallback_key(row)
+    return (_norm_name(row.get("player")), prop_type,
             str(row.get("lean", "")).upper())
 
 
