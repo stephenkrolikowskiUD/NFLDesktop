@@ -470,20 +470,48 @@ td.push{color:var(--push);font-weight:700}
 .game-market-explorer-head{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;padding:0 0 10px}
 .game-market-explorer-title{font-family:"Barlow Condensed",system-ui,sans-serif;font-size:var(--t-xl);font-weight:800;color:var(--ink-0)}
 .game-market-explorer-copy{color:var(--ink-muted);font-size:var(--t-xs);margin-top:3px;max-width:760px}
-.game-market-summary{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;min-width:min(420px,100%)}
-.game-market-summary-pill{padding:10px 12px;border:1px solid var(--border-1);background:linear-gradient(180deg,color-mix(in srgb,var(--surface-1) 92%, var(--accent) 8%),var(--surface-1));border-radius:7px}
-.game-market-summary-pill strong{display:block;font-family:"Barlow Condensed",system-ui,sans-serif;font-size:20px;line-height:1;color:var(--accent)}
-.game-market-summary-pill span{display:block;margin-top:4px;color:var(--ink-muted);font-size:10px;letter-spacing:.06em;text-transform:uppercase}
-.game-market-shell{margin:12px 0 0;padding:16px 14px;border:1px solid var(--border-1);background:linear-gradient(180deg,color-mix(in srgb,var(--surface-1) 92%, transparent),var(--surface-0));border-radius:10px}
-.game-market-shell-head{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;margin-bottom:12px}
+.game-market-summary{display:flex;gap:14px;flex-wrap:wrap;min-width:min(420px,100%);padding-top:6px}
+.game-market-summary-pill{display:flex;align-items:baseline;gap:6px;padding:0;border:0;background:none;border-radius:0}
+.game-market-summary-pill strong{display:block;font-family:"Barlow Condensed",system-ui,sans-serif;font-size:22px;line-height:1;color:var(--ink-0);font-variant-numeric:tabular-nums}
+.game-market-summary-pill span{display:block;color:var(--ink-muted);font-size:10px;letter-spacing:.08em;text-transform:uppercase}
+.game-market-shell{margin:12px 0 0;padding:14px 0 0;border-top:1px solid color-mix(in srgb,var(--border-1) 70%, transparent);background:none;border-radius:0}
+.game-market-shell-head{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;margin-bottom:8px;padding:0 2px}
 .game-market-shell-title-row{display:flex;align-items:center;gap:10px}
 .game-market-shell-title{font-family:"Barlow Condensed",system-ui,sans-serif;font-size:var(--t-lg);font-weight:800;color:var(--ink-0)}
 .game-market-shell-meta{color:var(--ink-muted);font-size:var(--t-xs);margin-top:2px}
-.game-market-shell-tags{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}
-.game-market-shell-tag{display:inline-flex;align-items:center;padding:5px 8px;border:1px solid var(--border-1);background:var(--surface-1);border-radius:999px;color:var(--ink-1);font-size:10px;font-weight:800;letter-spacing:.05em;text-transform:uppercase}
-.game-market-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
-.game-market-card{min-width:0;padding:12px;border:1px solid var(--border-1);background:color-mix(in srgb,var(--surface-1) 88%, var(--surface-0));border-radius:8px}
-.game-market-card-head{display:flex;justify-content:space-between;gap:6px;color:var(--accent);font-size:var(--t-xs);font-weight:800;text-transform:uppercase;letter-spacing:.06em;padding-bottom:7px;border-bottom:1px solid var(--border-1)}
+.game-market-shell-tape{display:flex;gap:12px;flex-wrap:wrap;justify-content:flex-end;color:var(--ink-muted);font-size:10px;letter-spacing:.08em;text-transform:uppercase}
+.game-market-shell-tape span+span::before{content:"·";margin-right:12px;color:var(--ink-quiet)}
+.game-market-hero{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:16px;padding:10px 0 12px;border-top:1px solid var(--border-1);border-bottom:1px solid var(--border-1);margin:10px 0 6px}
+.game-market-hero-label{color:var(--ink-muted);font-size:10px;letter-spacing:.1em;text-transform:uppercase;font-weight:700}
+.game-market-hero-selection{margin-top:4px;font-family:"Barlow Condensed",system-ui,sans-serif;font-size:26px;line-height:1;font-weight:800;color:var(--ink-0)}
+.game-market-hero-reason{margin-top:6px;color:var(--ink-muted);font-size:var(--t-xs);line-height:1.45;max-width:720px}
+.game-market-hero-side{text-align:right;align-self:start}
+.game-market-hero-tier{font-size:10px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--accent)}
+.game-market-hero-rank{margin-top:8px;font-family:"Barlow Condensed",system-ui,sans-serif;font-size:24px;line-height:1;color:var(--ink-0);font-variant-numeric:tabular-nums}
+.game-market-matrix{margin-top:6px;border-top:1px solid var(--border-1)}
+.game-market-matrix-head{display:grid;grid-template-columns:82px minmax(0,1.5fr) 96px 110px 150px 110px 24px;gap:10px;padding:8px 0;color:var(--ink-quiet);font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase}
+.game-market-matrix-row{border-bottom:1px solid color-mix(in srgb,var(--border-1) 60%, transparent)}
+.game-market-matrix-summary{list-style:none;display:grid;grid-template-columns:82px minmax(0,1.5fr) 96px 110px 150px 110px 24px;gap:10px;align-items:center;padding:11px 0;cursor:pointer;transition:background var(--dur-fast)}
+.game-market-matrix-summary::-webkit-details-marker{display:none}
+.game-market-matrix-row:hover .game-market-matrix-summary{background:color-mix(in srgb,var(--surface-1) 72%, transparent)}
+.game-market-matrix-row.preferred{border-left:2px solid var(--over);padding-left:10px;margin-left:-10px}
+.game-market-matrix-row.lean{border-left-color:var(--warn)}
+.game-market-matrix-row.smash{border-left-color:var(--smash)}
+.game-market-cell{min-width:0}
+.game-market-cell-type{color:var(--ink-muted);font-size:10px;letter-spacing:.08em;text-transform:uppercase;font-weight:800}
+.game-market-cell-selection{color:var(--ink-0);font-size:var(--t-sm);font-weight:800}
+.game-market-cell-team,.game-market-cell-book{color:var(--ink-muted);font-size:10px;letter-spacing:.04em;text-transform:uppercase}
+.game-market-cell-price,.game-market-cell-edge{color:var(--ink-1);font-size:var(--t-xs);font-weight:700;font-variant-numeric:tabular-nums}
+.game-market-cell-status{display:flex;justify-content:flex-end}
+.market-status-dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--ink-quiet)}
+.market-status-dot.preferred,.market-status-dot.strong{background:var(--over)}
+.market-status-dot.smash{background:var(--smash)}
+.market-status-dot.lean{background:var(--warn)}
+.market-status-dot.idle{background:color-mix(in srgb,var(--ink-quiet) 80%, transparent)}
+.game-market-matrix-detail{padding:0 0 12px 92px;color:var(--ink-muted);font-size:var(--t-xs);line-height:1.45}
+.game-market-matrix-detail-grid{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:16px}
+.game-market-detail-metrics{color:var(--ink-1);font-size:10px;letter-spacing:.04em;text-transform:uppercase;font-variant-numeric:tabular-nums}
+.game-market-detail-source{margin-top:6px;color:var(--ink-quiet);font-size:10px;letter-spacing:.08em;text-transform:uppercase}
 .game-market-row{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;padding:9px 0;border-bottom:1px solid var(--border-1)}
 .game-market-row:last-child{border-bottom:0;padding-bottom:0}
 .game-market-row-main{min-width:0}
@@ -922,10 +950,22 @@ td.push{color:var(--push);font-weight:700}
   .team-market-grid{grid-template-columns:1fr 1fr}
   .game-market-explorer{margin-left:10px;margin-right:10px}
   .game-market-explorer-head{align-items:flex-start;flex-direction:column}
-  .game-market-summary{grid-template-columns:1fr 1fr;min-width:0;width:100%}
+  .game-market-summary{gap:10px;min-width:0;width:100%}
   .game-market-shell-head{align-items:flex-start;flex-direction:column}
-  .game-market-shell-tags{justify-content:flex-start}
-  .game-market-grid{grid-template-columns:1fr}
+  .game-market-shell-tape{justify-content:flex-start}
+  .game-market-hero{grid-template-columns:1fr}
+  .game-market-hero-side{text-align:left}
+  .game-market-matrix-head{display:none}
+  .game-market-matrix-summary{grid-template-columns:minmax(0,1fr) auto;grid-template-areas:"selection price" "team edge" "book status";row-gap:5px}
+  .game-market-cell-type{display:none}
+  .game-market-cell-selection{grid-area:selection}
+  .game-market-cell-team{grid-area:team}
+  .game-market-cell-price{grid-area:price;text-align:right}
+  .game-market-cell-edge{grid-area:edge}
+  .game-market-cell-book{grid-area:book}
+  .game-market-cell-status{grid-area:status}
+  .game-market-matrix-detail{padding:0 0 12px}
+  .game-market-matrix-detail-grid{grid-template-columns:1fr}
   .analysis-shell{padding:0 10px 14px}
   .analysis-hero{padding-top:14px}
   .analysis-player{font-size:28px}
