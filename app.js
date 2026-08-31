@@ -2986,6 +2986,13 @@ function pickWhyHTML(model){
   const demotion=model.calibration?.demoted?`<div class="pick-why" style="margin-top:4px;color:var(--warn)"><strong>Tier floor:</strong> ${esc(model.calibration.reason)}</div>`:"";
   return `<div class="pick-why"><strong>Why it ranks:</strong> ${esc(reason||model.provenance.description)}${esc(scoreText)}</div>${demotion}`;
 }
+function pickFooterLine(model){
+  const p=model.pk;
+  if(model.isGameMarket){
+    return `${esc(rowField(p,"PICK_BOOK")||"opening board")} · ${esc(propTypeLabel(p.prop_type))} · ${esc(selectionMethodLabel(rowField(p,"SELECTION_METHOD")||"VALIDATED_MODEL"))}`;
+  }
+  return `${esc(propTypeLabel(p.prop_type))} · ${esc(model.provenance.label)}${model.provenance.consensusCount>=2?` · consensus ${model.provenance.consensusCount}`:""}`;
+}
 function getPickDisplayModel(pk){
   const calibration=calibratedConfidenceForPick(pk);
   const confidence=calibration.confidence,rawConfidence=calibration.raw,tierClass=confidence==="SMASH"?"smash":confidence==="STRONG"?"strong":"lean";
@@ -3031,13 +3038,17 @@ function renderFeaturedPick(model){
   const metaHTML=model.isGameMarket
     ?`${esc(pickDisplaySelection(p)||"Opening board")} · ${esc(propTypeLabel(p.prop_type))}${gameTime?` · ${esc(gameTime)}`:""}`
     :`${esc(matchup||p.game||"")}${gameTime?` · ${esc(gameTime)}`:""}`;
+  const teams=model.isGameMarket?teamPairForRow(p):null;
   const callText=model.isGameMarket
     ?esc(oddsMetaText(rowField(p,"PICK_ODDS")))
     :`${esc(model.leanText)} ${esc(p.line||"—")}`;
   const marketText=model.isGameMarket
     ?`${esc(propTypeLabel(p.prop_type))} · ${esc(rowField(p,"PICK_BOOK")||"opening board")} · ${esc(teamMarketEdgeLabel(p))}`
     :esc(propTypeLabel(p.prop_type));
-  return `<section class="pick-feature ${model.tierClass}${model.locked?" locked-card":""}" onclick="${model.isGameMarket?"void(0)":pickClick(model)}"><div class="pick-feature-kicker"><span>${icon("picks")}Top recommendation</span><span class="pick-feature-tier ${model.tierClass}">${esc(model.confidence)}</span></div><div class="pick-feature-main"><div><div class="pick-feature-name">${nameHTML}</div><div class="pick-feature-matchup">${metaHTML}</div>${pickProvenanceHTML(model)}</div><div class="pick-feature-call"><div class="pick-feature-line ${model.leanClass}">${callText}</div><div class="pick-feature-market">${marketText}</div></div></div><div class="pick-feature-evidence"><div><div class="pick-evidence">${evidence||"Model-ranked slate leader"}</div>${renderBestBookLine(model.pickProp,model.leanText)}${renderCurrentClvLine(model.pickProp,model.leanText)}${pickWhyHTML(model)}</div><div class="pick-board-form" aria-label="Last ten results">${renderPickFormBars(model.form)}</div></div>${status?`<div class="pick-board-status" style="grid-column:auto;margin-top:8px">${esc(status)}</div>`:""}${model.lineupRisk?`<div class="lineup-risk-text">${esc(model.injury)}</div>`:""}</section>`;
+  const identityHTML=model.isGameMarket
+    ?`<div class="pick-feature-name-row">${renderTeamLogoStack(teams.away,teams.home)}<div><div class="pick-feature-name">${nameHTML}</div><div class="pick-feature-matchup">${metaHTML}</div></div></div>`
+    :`<div class="pick-feature-name">${nameHTML}</div><div class="pick-feature-matchup">${metaHTML}</div>${pickProvenanceHTML(model)}`;
+  return `<section class="pick-feature ${model.tierClass}${model.locked?" locked-card":""}" onclick="${model.isGameMarket?"void(0)":pickClick(model)}"><div class="pick-feature-kicker"><span>${icon("picks")}Top play</span><span class="pick-feature-tier ${model.tierClass}">${esc(model.confidence)}</span></div><div class="pick-feature-main"><div class="pick-feature-identity">${identityHTML}</div><div class="pick-feature-call"><div class="pick-feature-line ${model.leanClass}">${callText}</div><div class="pick-feature-market">${marketText}</div></div></div><div class="pick-feature-evidence"><div><div class="pick-evidence">${evidence||"Model-ranked slate leader"}</div>${renderBestBookLine(model.pickProp,model.leanText)}${renderCurrentClvLine(model.pickProp,model.leanText)}${pickWhyHTML(model)}</div><div class="pick-board-form" aria-label="Last ten results">${renderPickFormBars(model.form)}</div></div><div class="pick-feature-footer">${pickFooterLine(model)}</div>${status?`<div class="pick-board-status" style="grid-column:auto;margin-top:8px">${esc(status)}</div>`:""}${model.lineupRisk?`<div class="lineup-risk-text">${esc(model.injury)}</div>`:""}</section>`;
 }
 function renderPickBoardRow(model,index){
   const p=model.pk,status=pickStatusLine(model),evidence=pickEvidenceHTML(model),gameTime=gameStartTimeForText(p.game);
@@ -3045,20 +3056,24 @@ function renderPickBoardRow(model,index){
   const metaHTML=model.isGameMarket
     ?`${esc(p.game||"")}${gameTime?` · ${esc(gameTime)}`:""} · ${esc(propTypeLabel(p.prop_type))}`
     :`${esc(p.game||"")}${gameTime?` · ${esc(gameTime)}`:""} · ${esc(propTypeLabel(p.prop_type))}`;
+  const teams=model.isGameMarket?teamPairForRow(p):null;
   const callText=model.isGameMarket?esc(pickDisplaySelection(p)||"Play"):esc(`${model.leanText} ${p.line||"—"}`);
   const marketHTML=model.isGameMarket&&rowField(p,"PICK_ODDS")!==""&&rowField(p,"PICK_ODDS")!=null
     ?`${esc(propTypeLabel(p.prop_type))} · ${fmtOdds(rowField(p,"PICK_ODDS"))}`
     :esc(propTypeLabel(p.prop_type));
-  return `<div class="pick-board-row${model.locked?" locked-card":""}" onclick="${model.isGameMarket?"void(0)":pickClick(model)}"><div class="pick-board-rank">${String(p.rank||index+2).padStart(2,"0")}</div><div class="pick-board-player"><div class="pick-board-name">${nameHTML}</div><div class="pick-board-meta">${metaHTML}</div>${pickProvenanceHTML(model)}</div><div class="pick-board-form" aria-label="Last ten results">${renderPickFormBars(model.form)}</div><div class="pick-evidence">${evidence||"No recent sample"}</div><div class="pick-board-decision"><div class="pick-board-call ${model.leanClass}">${callText}</div><div class="pick-board-market">${marketHTML}</div><div class="pick-board-tier ${model.tierClass}">${model.confidence}</div></div><div class="pick-board-rationale">${pickWhyHTML(model)}</div>${status?`<div class="pick-board-status">${esc(status)}</div>`:""}</div>`;
+  const identityHTML=model.isGameMarket
+    ?`<div class="pick-board-name-row">${renderTeamLogoStack(teams.away,teams.home)}<div><div class="pick-board-rank">#${String(p.rank||index+2).padStart(2,"0")}</div><div class="pick-board-name">${nameHTML}</div><div class="pick-board-meta">${metaHTML}</div></div></div>`
+    :`<div class="pick-board-rank">#${String(p.rank||index+2).padStart(2,"0")}</div><div class="pick-board-name">${nameHTML}</div><div class="pick-board-meta">${metaHTML}</div>${pickProvenanceHTML(model)}`;
+  return `<article class="pick-board-card ${model.tierClass}${model.locked?" locked-card":""}" onclick="${model.isGameMarket?"void(0)":pickClick(model)}"><div class="pick-board-card-top"><div>${identityHTML}</div><div class="pick-board-decision"><div class="pick-board-tier ${model.tierClass}">${model.confidence}</div><div class="pick-board-call ${model.leanClass}">${callText}</div><div class="pick-board-market">${marketHTML}</div></div></div><div class="pick-board-card-mid"><div><div class="pick-evidence">${evidence||"No recent sample"}</div><div class="pick-board-rationale">${pickWhyHTML(model)}</div></div><div class="pick-board-form" aria-label="Last ten results">${renderPickFormBars(model.form)}</div></div><div class="pick-board-footer">${pickFooterLine(model)}</div>${status?`<div class="pick-board-status">${esc(status)}</div>`:""}</article>`;
 }
 function renderPickSection(title,subtitle,pickModels,{emptyMessage=""}={}){
   if(!pickModels.length)return emptyMessage?`<div class="empty" style="padding:22px 16px">${esc(emptyMessage)}</div>`:"";
   const featured=pickModels[0];
   const remaining=pickModels.slice(1);
   const board=remaining.length
-    ?`<div class="pick-board"><div class="pick-board-head"><span>#</span><span>Player / matchup</span><span>L10</span><span>Evidence</span><span style="text-align:right">Decision</span></div>${remaining.map((model,index)=>renderPickBoardRow(model,index)).join("")}</div>`
+    ?`<div class="pick-board-grid">${remaining.map((model,index)=>renderPickBoardRow(model,index)).join("")}</div>`
     :"";
-  return `<section style="padding:0 16px 18px"><div style="display:flex;justify-content:space-between;gap:12px;align-items:end;margin-bottom:8px"><div><div style="color:var(--accent);font-size:var(--t-sm);font-weight:800">${esc(title)}</div>${subtitle?`<div style="color:var(--push);font-size:var(--t-xs);margin-top:2px">${esc(subtitle)}</div>`:""}</div><div style="color:var(--ink-muted);font-size:var(--t-xs)">${pickModels.length} pick${pickModels.length===1?"":"s"}</div></div><div class="pick-editorial">${renderFeaturedPick(featured)}${board}</div></section>`;
+  return `<section class="pick-section"><div class="pick-section-head"><div><div class="pick-section-title">${esc(title)}</div>${subtitle?`<div class="pick-section-sub">${esc(subtitle)}</div>`:""}</div><div class="pick-section-count">${pickModels.length} pick${pickModels.length===1?"":"s"}</div></div><div class="pick-editorial">${renderFeaturedPick(featured)}${board}</div></section>`;
 }
 function bestBookKeyForLean(prop,lean){const b=getBestBookForLean(prop,lean);return b?formatBookName(b.book):""}
 function renderCrossBookWarning(legs){const books=[...new Set((legs||[]).map(l=>bestBookKeyForLean(l.prop,l.lean)).filter(Boolean))];return books.length>=2?`<div class="cross-book-warning" style="margin-top:6px;font-size:var(--t-xs);color:var(--warn);background:color-mix(in srgb, var(--warn) 8%, transparent);border:1px solid var(--warn-line);border-radius:6px;padding:6px">${icon('warn')}Best book differs across legs (${books.join(", ")}). Single-book parlay may not match leg-by-leg EV.</div>`:""}
