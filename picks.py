@@ -992,6 +992,18 @@ def _market_fallback_key(row) -> tuple:
     return (game, prop_type, str(row.get("player", "")).upper())
 
 
+def _column_or_default(frame: pd.DataFrame, column: str, default) -> pd.Series:
+    """Return a frame column or a same-index default Series.
+
+    DataFrame.get(..., scalar) returns the scalar unchanged, which is exactly
+    what caused assemble_pick_tabs() to crash when MODEL_VERSION / MODEL_ERA
+    were absent. This keeps missing-column defaults vector-shaped.
+    """
+    if column in frame.columns:
+        return frame[column]
+    return pd.Series([default] * len(frame), index=frame.index)
+
+
 def assemble_pick_tabs(fresh_picks: pd.DataFrame, prior_daily: pd.DataFrame,
                        week: int, season: int, *, model_version: str = "",
                        model_era: str = "") -> tuple[pd.DataFrame, pd.DataFrame]:
@@ -1013,8 +1025,8 @@ def assemble_pick_tabs(fresh_picks: pd.DataFrame, prior_daily: pd.DataFrame,
 
     out = fresh_picks.copy()
     out["DATE"] = date_str
-    out["SEASON"] = pd.to_numeric(out.get("SEASON"), errors="coerce").fillna(season).astype(int)
-    out["WEEK"] = pd.to_numeric(out.get("WEEK"), errors="coerce").fillna(week).astype(int)
+    out["SEASON"] = pd.to_numeric(_column_or_default(out, "SEASON", season), errors="coerce").fillna(season).astype(int)
+    out["WEEK"] = pd.to_numeric(_column_or_default(out, "WEEK", week), errors="coerce").fillna(week).astype(int)
     out["RUN_TIME"] = run_time
     out["RESULT"] = ""
     out["ACTUAL_STAT"] = ""
@@ -1027,9 +1039,9 @@ def assemble_pick_tabs(fresh_picks: pd.DataFrame, prior_daily: pd.DataFrame,
     out["CLV_LAST_UPDATE"] = run_time
     out["LAST_UPDATED"] = run_time
     out["SELECTION_METHOD"] = out.apply(pick_selection_method, axis=1)
-    out["MODEL_VERSION"] = out.get("MODEL_VERSION", "").astype(str).replace({"nan": "", "None": ""})
+    out["MODEL_VERSION"] = _column_or_default(out, "MODEL_VERSION", "").astype(str).replace({"nan": "", "None": ""})
     out.loc[out["MODEL_VERSION"].str.strip() == "", "MODEL_VERSION"] = str(model_version or "")
-    out["MODEL_ERA"] = out.get("MODEL_ERA", "").astype(str).replace({"nan": "", "None": ""})
+    out["MODEL_ERA"] = _column_or_default(out, "MODEL_ERA", "").astype(str).replace({"nan": "", "None": ""})
     out.loc[out["MODEL_ERA"].str.strip() == "", "MODEL_ERA"] = str(model_era or model_version or "")
     out["RECOMMENDATION_STATUS"] = out.apply(recommendation_status, axis=1)
     out["CALIBRATION_SCORE"] = out.apply(calibrated_pick_priority, axis=1)

@@ -27,8 +27,6 @@ jobs:
       GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
       OPENWEATHER_API_KEY: ${{ secrets.OPENWEATHER_API_KEY }}
       GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
-      NFL_MODEL_VERSION: nfl-2026-regular-season-v1
-      NFL_MODEL_ERA: nfl-2026-regular-season-v1
     steps:
       - name: Check out repo
         uses: actions/checkout@v4
