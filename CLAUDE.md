@@ -11,7 +11,7 @@ because violating them has already caused real, shipped bugs.
 "Are we in preseason or regular season?" must be answered in one place and
 read everywhere else. As of the 2026-08-30 review, it was answered five
 different ways at once — `resolve_odds_sport`'s calendar heuristic,
-`resolve_model_identity`'s phase branch, a static workflow env override,
+`resolve_model_identity`'s phase branch, a workflow env override,
 `NFLGrader1.py`'s hardcoded date-literal fallback, and a per-row
 `game_type == "PRE"` check — and they disagreed with each other on the same
 row on the same day (WEEK correctly said preseason while MODEL_ERA said
@@ -22,6 +22,11 @@ regular season, live, 10 days before kickoff).
 `game_type.*PRE`, and `MODEL_ERA`/`MODEL_VERSION` first. If the answer you
 need isn't already available from one of those, extend the single function
 that owns this decision — don't add a sixth independent guess.
+
+Update on 2026-08-30: the unconditional regular-season `NFL_MODEL_VERSION` /
+`NFL_MODEL_ERA` workflow override was removed because it was forcing
+preseason runs to wear a regular-season label. The broader "one phase
+function, read everywhere" cleanup is still open.
 
 ## A static override must be at least as phase-aware as what it overrides
 
@@ -34,6 +39,9 @@ regular-season value did this — it overrode the correct preseason answer for
 the ~10 days between setting it and Week 1 actually starting. An override
 should either compute its own phase check before applying, or be added only
 once the condition it assumes is actually true.
+
+Update on 2026-08-30: that unconditional override has already been removed.
+Do not re-add it unless the override logic itself is phase-aware.
 
 ## One identity/dedup concept, one key function
 
@@ -72,6 +80,19 @@ once a pick is actually generated, which hadn't happened yet in production.
 Before trusting a fix to `picks.py`, `NFLEnginev1.py`, or `NFLGrader1.py`,
 construct one fake row of the shape the changed path will see in prod and
 run the actual function against it, not just read the diff.
+
+Concrete example from 2026-08-30: `assemble_pick_tabs()` crashed because
+`DataFrame.get("MODEL_VERSION", "")` returned a scalar string, not a Series,
+and the next `.astype(...)` exploded the moment a real pick row was built.
+The fix was to use a same-index default Series helper and then verify it by
+executing `assemble_pick_tabs()` against a constructed one-row preseason
+moneyline pick.
+
+## Current launch status lives in PLAN.md
+
+This file is for durable repo rules and bug-shaped lessons. For date-sensitive
+status, pre-kickoff checklists, and "what is still open right now," read
+`PLAN.md` first.
 
 ## No real project/account identifiers in fallback paths, even for convenience
 
