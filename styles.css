@@ -631,7 +631,8 @@ td.push{color:var(--push);font-weight:700}
 .draft-slate-summary{margin-top:2px;color:var(--ink-muted);font-size:var(--t-xs)}
 .draft-slate-toggle{border:1px solid var(--accent);background:transparent;color:var(--accent);padding:6px 9px;font-size:var(--t-xs);font-weight:800;cursor:pointer}
 .draft-slate-games{display:flex;gap:5px;flex-wrap:wrap;padding:0 12px 10px}
-.draft-slate-chip{padding:3px 7px;border:1px solid var(--border-1);background:var(--surface-2);color:var(--ink-1);font-size:var(--t-xs);font-weight:700}
+.draft-slate-chip{padding:3px 7px;border:1px solid var(--border-1);background:var(--surface-2);color:var(--ink-1);font-size:var(--t-xs);font-weight:700;max-width:220px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.draft-slate-chip.more{border-style:dashed;color:var(--ink-muted);background:transparent}
 .draft-slate-panel{padding:10px 12px 12px;border-top:1px solid var(--border-1)}
 .draft-slate-presets{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px}
 .draft-slate-preset{border:1px solid var(--border-1);background:var(--surface-2);color:var(--ink-1);padding:5px 8px;font-size:var(--t-xs);font-weight:700;cursor:pointer}

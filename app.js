@@ -379,6 +379,19 @@ function parseStartMs(v){
   const d=new Date(v);
   return Number.isNaN(d.getTime())?null:d.getTime();
 }
+function scheduleRowStartMs(row){
+  const fullStart=rowField(row,"commence_time","start_time");
+  const parsedFull=parseStartMs(fullStart);
+  if(Number.isFinite(parsedFull))return parsedFull;
+  const gameDate=String(rowField(row,"game_date","GAME_DATE","gameday","GAME_DAY","date","DATE")||"").trim();
+  const gameTime=String(rowField(row,"game_time","GAME_TIME")||"").trim();
+  if(gameDate&&gameTime){
+    const combined=parseEasternTimestamp(`${gameDate} ${gameTime}`);
+    if(Number.isFinite(combined))return combined;
+  }
+  const parsedTimeOnly=parseStartMs(gameTime);
+  return Number.isFinite(parsedTimeOnly)?parsedTimeOnly:null;
+}
 function getScheduleRow(team,opp){
   const t=String(team||"").trim().toUpperCase();
   const o=String(opp||"").trim().toUpperCase();
@@ -391,7 +404,7 @@ function getScheduleRow(team,opp){
 }
 function getScheduleStartMs(team,opp){
   const row=getScheduleRow(team,opp)||{};
-  return parseStartMs(rowField(row,"game_time","commence_time","start_time"));
+  return scheduleRowStartMs(row);
 }
 function getLockInfo(name,isP){
   const row=getTonightPlayerRow(name,!!isP)||{};
@@ -2124,7 +2137,7 @@ function getDraftSlateGames(){
     const games=[];const seen=new Set();
     for(const row of st.schedule||[]){
       const id=draftGameId(row);
-      const startMs=parseStartMs(rowField(row,"game_time","commence_time","start_time"));
+      const startMs=scheduleRowStartMs(row);
       if(!id||seen.has(id)||!Number.isFinite(startMs)||startMs<nowMs||startMs>cutoffMs)continue;
       seen.add(id);
       const home=String(rowField(row,"home_abbr","HOME_ABBR")||"").trim().toUpperCase();
@@ -2230,11 +2243,17 @@ function renderDraftSlateSelector(){
   const games=getDraftSlateGames();
   const selected=draftSlateSelection();
   const selectedGames=games.filter(game=>selected.has(game.id));
+  const previewGames=selectedGames.slice(0,6);
+  const hiddenCount=Math.max(0,selectedGames.length-previewGames.length);
   const starts=selectedGames.map(game=>game.startMs).filter(Boolean).sort((a,b)=>a-b);
   const range=starts.length?starts.length===1?draftDisplayTime(starts[0]):`${draftDisplayTime(starts[0])}–${draftDisplayTime(starts[starts.length-1])}`:"No start window";
   const preset=draftSlatePreset();
-  const summary=selectedGames.length?`${selectedGames.length} of ${games.length} games · ${range}`:`0 of ${games.length} games selected`;
-  return`<section class="draft-slate"><div class="draft-slate-head"><div><div class="draft-slate-title">Contest slate</div><div class="draft-slate-summary">${summary}</div></div><button class="draft-slate-toggle" onclick="toggleDraftSlatePanel()">${st.draftSlate.panelOpen?"Done":"Choose games"}</button></div>${selectedGames.length?`<div class="draft-slate-games">${selectedGames.map(game=>`<span class="draft-slate-chip">${esc(game.label)} · ${draftDisplayTime(game.startMs)||"Time TBD"}</span>`).join("")}</div>`:""}${st.draftSlate.panelOpen?`<div class="draft-slate-panel"><div class="draft-slate-presets"><button class="draft-slate-preset${preset==="all"?" active":""}" onclick="setDraftSlatePreset('all')">Next ${DRAFT_SLATE_WINDOW_DAYS} days</button><button class="draft-slate-preset${preset==="open"?" active":""}" onclick="setDraftSlatePreset('open')">Open games</button><button class="draft-slate-preset${preset==="after7"?" active":""}" onclick="setDraftSlatePreset('after7')">7 PM+</button><button class="draft-slate-preset${preset==="after9"?" active":""}" onclick="setDraftSlatePreset('after9')">9 PM+</button><button class="draft-slate-preset${preset==="clear"?" active":""}" onclick="setDraftSlatePreset('clear')">Clear</button></div><div class="draft-game-grid">${games.map(game=>`<button class="draft-game-option${selected.has(game.id)?" selected":""}" onclick="toggleDraftSlateGame('${esc(game.id)}')"><span class="draft-game-check">✓</span><span><span class="draft-game-matchup">${esc(game.label)}</span><span class="draft-game-status">${game.started?"Started / locked":"Available"}</span></span><span class="draft-game-time">${draftDisplayTime(game.startMs)||"TBD"}</span></button>`).join("")}</div><div class="draft-slate-note">Use this to narrow the board to the next ${DRAFT_SLATE_WINDOW_DAYS} days of TNF, SNF, MNF, showdown, or any custom contest slice.</div></div>`:""}</section>`;
+  const summary=selectedGames.length===games.length&&games.length
+    ?`All ${games.length} upcoming games · ${range}`
+    :selectedGames.length
+      ?`${selectedGames.length} of ${games.length} games · ${range}`
+      :`0 of ${games.length} games selected`;
+  return`<section class="draft-slate"><div class="draft-slate-head"><div><div class="draft-slate-title">Contest slate</div><div class="draft-slate-summary">${summary}</div></div><button class="draft-slate-toggle" onclick="toggleDraftSlatePanel()">${st.draftSlate.panelOpen?"Done":"Choose games"}</button></div>${selectedGames.length?`<div class="draft-slate-games">${previewGames.map(game=>`<span class="draft-slate-chip">${esc(game.label)} · ${draftDisplayTime(game.startMs)||"Time TBD"}</span>`).join("")}${hiddenCount?`<span class="draft-slate-chip more">+${hiddenCount} more</span>`:""}</div>`:""}${st.draftSlate.panelOpen?`<div class="draft-slate-panel"><div class="draft-slate-presets"><button class="draft-slate-preset${preset==="all"?" active":""}" onclick="setDraftSlatePreset('all')">Next ${DRAFT_SLATE_WINDOW_DAYS} days</button><button class="draft-slate-preset${preset==="open"?" active":""}" onclick="setDraftSlatePreset('open')">Open games</button><button class="draft-slate-preset${preset==="after7"?" active":""}" onclick="setDraftSlatePreset('after7')">7 PM+</button><button class="draft-slate-preset${preset==="after9"?" active":""}" onclick="setDraftSlatePreset('after9')">9 PM+</button><button class="draft-slate-preset${preset==="clear"?" active":""}" onclick="setDraftSlatePreset('clear')">Clear</button></div><div class="draft-game-grid">${games.map(game=>`<button class="draft-game-option${selected.has(game.id)?" selected":""}" onclick="toggleDraftSlateGame('${esc(game.id)}')"><span class="draft-game-check">✓</span><span><span class="draft-game-matchup">${esc(game.label)}</span><span class="draft-game-status">${game.started?"Started / locked":"Available"}</span></span><span class="draft-game-time">${draftDisplayTime(game.startMs)||"TBD"}</span></button>`).join("")}</div><div class="draft-slate-note">Use this to narrow the board to the next ${DRAFT_SLATE_WINDOW_DAYS} days of TNF, SNF, MNF, showdown, or any custom contest slice.</div></div>`:""}</section>`;
 }
 
 function nflMetricLabel(metric){
