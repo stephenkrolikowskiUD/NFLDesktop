@@ -231,6 +231,40 @@ def log_launch_readiness(odds_sport: str, model_version: str, model_era: str) ->
             print("   ℹ️  preseason run is using explicit model identity overrides")
 
 
+def log_pick_generation_outcome(*, preseason_team_markets_live: bool, board: pd.DataFrame,
+                                player_ctx: pd.DataFrame | None = None,
+                                gemini_key_present: bool = False,
+                                fresh_picks: pd.DataFrame | None = None) -> None:
+    """Explain why a run produced no picks, instead of leaving a silent zero."""
+    if preseason_team_markets_live:
+        if fresh_picks is not None and fresh_picks.empty:
+            print("   ⚠️  preseason team-market mode found no qualified rows — "
+                  "inspect Game_Markets / live odds before kickoff")
+        return
+
+    if board.empty:
+        return
+
+    board_rows = len(board)
+    player_ctx_rows = 0 if player_ctx is None else len(player_ctx)
+    fresh_rows = 0 if fresh_picks is None else len(fresh_picks)
+
+    if not gemini_key_present:
+        print("   ⚠️  live player props are present but GEMINI_API_KEY is missing — "
+              "the board can only use deterministic fallback")
+
+    if fresh_rows > 0:
+        return
+
+    if player_ctx_rows == 0:
+        print(f"   ⚠️  {board_rows} player-prop line(s) were live, but none survived "
+              "player-context assembly — inspect projections / logs / injuries joins")
+        return
+
+    print(f"   ⚠️  {board_rows} player-prop line(s) and {player_ctx_rows} priced context row(s) "
+          "were available, but picks generation returned 0 rows — inspect Gemini output or validation gates")
+
+
 def resolve_odds_sport(schedule: pd.DataFrame, now: datetime) -> str:
     """Choose the Odds API sport key from the actual next slate.
 
@@ -1310,6 +1344,11 @@ def main():
                 games_tab, week=week, season=schedule_season
             )
             print(f"   preseason picker: {len(fresh_picks)} candidate row(s)")
+            log_pick_generation_outcome(
+                preseason_team_markets_live=True,
+                board=board,
+                fresh_picks=fresh_picks,
+            )
         else:
             gemini_key = load_secret("GEMINI_API_KEY", "🤖 Gemini API Key: ", allow_missing=True)
             all_logs = pd.concat([skill_logs, qb_logs], ignore_index=True) if not qb_logs.empty else skill_logs
@@ -1319,6 +1358,13 @@ def main():
             games_str = build_week_games_str(schedule, week)
             fresh_picks = pk.generate_weekly_picks(gemini_key, GEMINI_MODEL, player_ctx,
                                                    games_str, week=week, season=schedule_season)
+            log_pick_generation_outcome(
+                preseason_team_markets_live=False,
+                board=board,
+                player_ctx=player_ctx,
+                gemini_key_present=bool(gemini_key),
+                fresh_picks=fresh_picks,
+            )
         prior_daily = fetch_prior_daily_picks(sheets, SHEET_ID)
         picks_current, daily_picks_new = pk.assemble_pick_tabs(
             fresh_picks, prior_daily, week=week, season=schedule_season,
