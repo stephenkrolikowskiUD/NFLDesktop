@@ -92,7 +92,7 @@ const initialDraftSlate=loadDraftSlate();
 let st={
   tonight:[],gameLogs:[],splits:[],weather:[],qbSlateRows:[],schedule:[],
   pTonight:[],pGameLogs:[],pSplits:[],
-  picks:[],picksHistory:[],props:[],allBooksProps:[],gameMarkets:[],teamRankings:[],
+  picks:[],picksHistory:[],props:[],allBooksProps:[],gameMarkets:[],teamRankings:[],teams:[],
   pickPerformance:[],pickPerformanceSnaps:[],statsTimeWindow:"last_30d",statsLeaderMetric:"REC",leaderMode:"final",leaderDateOffset:0,gameEntry:{selectedGame:null,legCount:GAME_ENTRY_DEFAULT_LEGS,entry:null},
   shortlistTray:loadShortlistTray(),shortlistTrayNotice:"",
   mode:"skill",
@@ -772,6 +772,11 @@ function getTeamRanking(teamAbbr){
   if(!target)return null;
   return (st.teamRankings||[]).find(row=>String(rowField(row,"TEAM_ABBR","team_abbr")||"").trim().toUpperCase()===target)||null;
 }
+function getTeamMeta(teamAbbr){
+  const target=String(teamAbbr||"").trim().toUpperCase();
+  if(!target)return null;
+  return (st.teams||[]).find(row=>String(rowField(row,"team_abbr","TEAM_ABBR")||"").trim().toUpperCase()===target)||null;
+}
 function ordinalRank(value){
   const n=Math.round(toNum(value));
   if(!n)return"—";
@@ -789,8 +794,37 @@ function teamRankValue(row,valueKey,rankKey,{digits=2,suffix="",direction="most"
 }
 function teamDisplayName(teamAbbr){
   const abbr=String(teamAbbr||"").trim().toUpperCase();
+  const meta=getTeamMeta(abbr);
   const row=getTeamRanking(abbr);
-  return String(rowField(row,"TEAM","TEAM_NAME","team_name")||abbr).trim();
+  return String(rowField(meta,"team_name","TEAM_NAME","TEAM")||rowField(row,"TEAM","TEAM_NAME","team_name")||abbr).trim();
+}
+function teamLogoUrl(teamAbbr){
+  const meta=getTeamMeta(teamAbbr);
+  return String(rowField(meta,"team_logo_espn","TEAM_LOGO_ESPN","team_logo")||"").trim();
+}
+function teamNickName(teamAbbr){
+  const meta=getTeamMeta(teamAbbr);
+  return String(rowField(meta,"team_nick","TEAM_NICK")||teamDisplayName(teamAbbr)||teamAbbr).trim();
+}
+function renderTeamLogo(teamAbbr,{size="sm",label="",className=""}={}){
+  const abbr=String(teamAbbr||"").trim().toUpperCase();
+  const logo=teamLogoUrl(abbr);
+  const title=label||teamDisplayName(abbr)||abbr;
+  if(logo)return `<img class="team-logo ${size}${className?` ${className}`:""}" src="${esc(logo)}" alt="${esc(title)} logo" loading="lazy"/>`;
+  return `<span class="team-logo ${size} fallback${className?` ${className}`:""}" aria-label="${esc(title)}">${esc(abbr||"?")}</span>`;
+}
+function teamPairForRow(row){
+  const away=String(rowField(row,"AWAY_TEAM","away_team","away_abbr")||"").trim().toUpperCase();
+  const home=String(rowField(row,"HOME_TEAM","home_team","home_abbr")||"").trim().toUpperCase();
+  if(away||home)return {away,home};
+  const game=String(rowField(row,"GAME","game")||"").trim().toUpperCase();
+  const match=game.match(/^([A-Z]{2,4})\s*@\s*([A-Z]{2,4})$/);
+  return match?{away:match[1],home:match[2]}:{away:"",home:""};
+}
+function renderTeamLogoStack(awayTeam,homeTeam){
+  const away=String(awayTeam||"").trim().toUpperCase();
+  const home=String(homeTeam||"").trim().toUpperCase();
+  return `<div class="team-logo-stack" aria-hidden="true">${renderTeamLogo(away,{size:"xs"})}${renderTeamLogo(home,{size:"xs",className:"stacked"})}</div>`;
 }
 function optionalRowNumber(row,key){
   const raw=rowField(row,key);
@@ -840,6 +874,11 @@ function lookupTeamMap(){
       if(row&&!current.row)current.row=row;
       map.set(key,current);
     };
+    (st.teams||[]).forEach(row=>{
+      add(rowField(row,"team_abbr","TEAM_ABBR"),
+          rowField(row,"team_name","TEAM_NAME","team_nick","TEAM_NICK"),
+          row);
+    });
     (st.teamRankings||[]).forEach(row=>{
       add(rowField(row,"TEAM_ABBR","team_abbr"),
           rowField(row,"TEAM","TEAM_NAME","team_name"),
@@ -1434,7 +1473,7 @@ function latestPlayerPropPicks(){
 
 function renderPreseasonShortlist(rows){
   const markets=new Set(rows.map(row=>normalizePropMetric(rowField(row,"prop_type")))).size;
-  return `<section class="shortlist-shell"><div class="shortlist-head"><div><div class="analysis-eyebrow">This week's decision board</div><div class="shortlist-title">Preseason Shortlist</div><div class="shortlist-sub">Player props are still thin, so the board is leading with the cleanest team-side markets until books open a real player board.</div></div><div class="shortlist-rule">Preseason mode · team markets ranked</div></div><div class="shortlist-summary-row"><span><strong>${rows.length}</strong> qualified</span><span><strong>${markets}</strong> market types</span><span><strong>${rows.filter(r=>normalizeConfidence(rowField(r,"confidence"))==="STRONG").length}</strong> strong</span><span><strong>${rows.filter(r=>rowField(r,"PICK_ODDS")!==""&&rowField(r,"PICK_ODDS")!=null).length}</strong> priced</span></div><div class="shortlist-grid">${rows.map((row,index)=>{const tier=tierClassForConfidence(rowField(row,"confidence"));const selection=pickDisplaySelection(row)||rowField(row,"game")||"Game market";const odds=rowField(row,"PICK_ODDS");const book=rowField(row,"PICK_BOOK")||"opening board";return`<article class="shortlist-card ${tier}${index===0?" top":""}"><div class="shortlist-topline"><div class="shortlist-rank">${index===0?"Top play":`#${String(index+1).padStart(2,"0")}`}</div><div class="shortlist-tier ${tier}">${esc(normalizeConfidence(rowField(row,"confidence"))||"LEAN")}</div></div><div><div class="shortlist-name">${esc(selection)}</div><div class="shortlist-meta">${esc(rowField(row,"game")||"")} · ${esc(propTypeLabel(rowField(row,"prop_type")))}</div></div><div class="shortlist-call"><strong class="shortlist-call-line">${esc(oddsMetaText(odds))}</strong><span>${esc(teamMarketEdgeLabel(row))}</span></div><div class="shortlist-evidence"><span>${esc(rowField(row,"rationale")||"Opening preseason market signal.")}</span><span>${esc(teamMarketSummary(row))}</span></div><div class="shortlist-footer"><div class="shortlist-footer-meta">${esc(book)} · ${esc(propTypeLabel(rowField(row,"prop_type")))} · ${esc(selectionMethodLabel(rowField(row,"SELECTION_METHOD")||"VALIDATED_MODEL"))}</div></div></article>`}).join("")}</div></section>`;
+  return `<section class="shortlist-shell"><div class="shortlist-head"><div><div class="analysis-eyebrow">This week's decision board</div><div class="shortlist-title">Preseason Shortlist</div><div class="shortlist-sub">Player props are still thin, so the board is leading with the cleanest team-side markets until books open a real player board.</div></div><div class="shortlist-rule">Preseason mode · team markets ranked</div></div><div class="shortlist-summary-row"><span><strong>${rows.length}</strong> qualified</span><span><strong>${markets}</strong> market types</span><span><strong>${rows.filter(r=>normalizeConfidence(rowField(r,"confidence"))==="STRONG").length}</strong> strong</span><span><strong>${rows.filter(r=>rowField(r,"PICK_ODDS")!==""&&rowField(r,"PICK_ODDS")!=null).length}</strong> priced</span></div><div class="shortlist-grid">${rows.map((row,index)=>{const tier=tierClassForConfidence(rowField(row,"confidence"));const selection=pickDisplaySelection(row)||rowField(row,"game")||"Game market";const odds=rowField(row,"PICK_ODDS");const book=rowField(row,"PICK_BOOK")||"opening board";const teams=teamPairForRow(row);return`<article class="shortlist-card ${tier}${index===0?" top":""}"><div class="shortlist-topline"><div class="shortlist-rank">${index===0?"Top play":`#${String(index+1).padStart(2,"0")}`}</div><div class="shortlist-tier ${tier}">${esc(normalizeConfidence(rowField(row,"confidence"))||"LEAN")}</div></div><div><div class="shortlist-name-row">${renderTeamLogoStack(teams.away,teams.home)}<div class="shortlist-name">${esc(selection)}</div></div><div class="shortlist-meta">${esc(rowField(row,"game")||"")} · ${esc(propTypeLabel(rowField(row,"prop_type")))}</div></div><div class="shortlist-call"><strong class="shortlist-call-line">${esc(oddsMetaText(odds))}</strong><span>${esc(teamMarketEdgeLabel(row))}</span></div><div class="shortlist-evidence"><span>${esc(rowField(row,"rationale")||"Opening preseason market signal.")}</span><span>${esc(teamMarketSummary(row))}</span></div><div class="shortlist-footer"><div class="shortlist-footer-meta">${esc(book)} · ${esc(propTypeLabel(rowField(row,"prop_type")))} · ${esc(selectionMethodLabel(rowField(row,"SELECTION_METHOD")||"VALIDATED_MODEL"))}</div></div></article>`}).join("")}</div></section>`;
 }
 
 function renderTonightShortlist(){
@@ -1975,7 +2014,7 @@ function renderGameMarketsBoard(team,rows,options={}){
       <div class="game-market-shell-head">
         <div>
           <div class="analysis-eyebrow">Game markets</div>
-          <div class="game-market-shell-title">${esc(game)}</div>
+          <div class="game-market-shell-title-row">${renderTeamLogoStack(away,home)}<div class="game-market-shell-title">${esc(game)}</div></div>
           <div class="game-market-shell-meta">${esc(kickoff)}</div>
         </div>
         <div class="game-market-shell-tags">
@@ -4397,10 +4436,10 @@ function renderLookupPage(activeTab){
     </tr>`).join(""):`<tr><td colspan="7" style="text-align:center;color:var(--ink-muted)">No weekly game logs loaded yet.</td></tr>`;
     return `
       <div class="profile">
-        <div class="profile-img"><div class="lookup-avatar">${esc((player.pos||"?").slice(0,2))}</div></div>
+        <div class="profile-img">${teamLogoUrl(team)?renderTeamLogo(team,{size:"profile"}):`<div class="lookup-avatar">${esc((player.pos||"?").slice(0,2))}</div>`}</div>
         <div class="profile-info">
           <h2>${esc(player.name)}</h2>
-          <p>${esc(team||"FA")} · ${esc(player.pos||"")}${opp?` · vs ${esc(opp)}`:""}${rowField(nextGame,"game_date")?` · ${esc(formatLookupDate(rowField(nextGame,"game_date")))} ${esc(rowField(nextGame,"game_time")||"")}`:""}</p>
+          <p>${esc(teamNickName(team)||team||"FA")} (${esc(team||"FA")}) · ${esc(player.pos||"")}${opp?` · vs ${esc(opp)}`:""}${rowField(nextGame,"game_date")?` · ${esc(formatLookupDate(rowField(nextGame,"game_date")))} ${esc(rowField(nextGame,"game_time")||"")}`:""}</p>
           <div class="lookup-chip-row">${summaryPills||notePill("Season-long + weekly context")}</div>
         </div>
       </div>
@@ -4447,7 +4486,7 @@ function renderLookupPage(activeTab){
     ];
     return `
       <div class="profile">
-        <div class="profile-img"><div class="lookup-avatar">${esc(team.abbr)}</div></div>
+        <div class="profile-img">${teamLogoUrl(team.abbr)?renderTeamLogo(team.abbr,{size:"profile"}):`<div class="lookup-avatar">${esc(team.abbr)}</div>`}</div>
         <div class="profile-info">
           <h2>${esc(team.name)}</h2>
           <p>${esc(team.abbr)}${rowField(nextGame,"home_abbr")?` · Next ${esc(rowField(nextGame,"away_abbr"))} @ ${esc(rowField(nextGame,"home_abbr"))}`:""}</p>
@@ -4459,7 +4498,7 @@ function renderLookupPage(activeTab){
         <div class="card">
           <div class="card-title">Upcoming Context</div>
           <div class="lookup-mini-list">
-            <div class="lookup-mini-row"><div><strong>Matchup</strong><div class="lookup-mini-meta">${esc(rowField(nextGame,"away_abbr")&&rowField(nextGame,"home_abbr")?`${rowField(nextGame,"away_abbr")} @ ${rowField(nextGame,"home_abbr")}`:"Schedule not loaded")}</div></div><div class="lookup-mini-odds">${rowField(nextGame,"spread_line")!==""?`Spread ${rowField(nextGame,"spread_line")}`:""} ${rowField(nextGame,"total_line")!==""?`· Total ${rowField(nextGame,"total_line")}`:""}</div></div>
+            <div class="lookup-mini-row"><div class="lookup-mini-main">${rowField(nextGame,"away_abbr")||rowField(nextGame,"home_abbr")?renderTeamLogoStack(rowField(nextGame,"away_abbr"),rowField(nextGame,"home_abbr")):""}<div><strong>Matchup</strong><div class="lookup-mini-meta">${esc(rowField(nextGame,"away_abbr")&&rowField(nextGame,"home_abbr")?`${rowField(nextGame,"away_abbr")} @ ${rowField(nextGame,"home_abbr")}`:"Schedule not loaded")}</div></div></div><div class="lookup-mini-odds">${rowField(nextGame,"spread_line")!==""?`Spread ${rowField(nextGame,"spread_line")}`:""} ${rowField(nextGame,"total_line")!==""?`· Total ${rowField(nextGame,"total_line")}`:""}</div></div>
             <div class="lookup-mini-row"><div><strong>Conference</strong><div class="lookup-mini-meta">${esc(rowField(row,"team_conf","conference")||"—")}</div></div><div class="lookup-mini-odds">${esc(rowField(row,"team_division","division")||"")}</div></div>
           </div>
         </div>
@@ -4478,11 +4517,11 @@ function renderLookupPage(activeTab){
     body=`<div class="lookup-grid">
       <div class="card">
         <div class="card-title">Top Projection Checks</div>
-        <div class="lookup-mini-list">${featuredPlayers.map(player=>`<div class="lookup-mini-row"><div><strong>${esc(player.name)}</strong><div class="lookup-mini-meta">${esc(player.team||"FA")} · ${esc(player.pos||"")}</div></div><div class="lookup-mini-odds">${formatLookupStat(rowField(player.projection,"proj_ppr"),{digits:1})} pts</div></div>`).join("")}</div>
+        <div class="lookup-mini-list">${featuredPlayers.map(player=>`<div class="lookup-mini-row"><div class="lookup-mini-main">${player.team?renderTeamLogo(player.team,{size:"xs"}):""}<div><strong>${esc(player.name)}</strong><div class="lookup-mini-meta">${esc(player.team||"FA")} · ${esc(player.pos||"")}</div></div></div><div class="lookup-mini-odds">${formatLookupStat(rowField(player.projection,"proj_ppr"),{digits:1})} pts</div></div>`).join("")}</div>
       </div>
       <div class="card">
         <div class="card-title">Team Shortcuts</div>
-        <div class="lookup-mini-list">${featuredTeams.map(team=>`<div class="lookup-mini-row"><div><strong>${esc(team.abbr)}</strong><div class="lookup-mini-meta">${esc(team.name)}</div></div><div class="lookup-mini-odds">${teamRankValue(team.row,"passing_yards","passing_yards_rank",{digits:1,direction:"in NFL"})}</div></div>`).join("")}</div>
+        <div class="lookup-mini-list">${featuredTeams.map(team=>`<div class="lookup-mini-row"><div class="lookup-mini-main">${renderTeamLogo(team.abbr,{size:"xs"})}<div><strong>${esc(team.abbr)}</strong><div class="lookup-mini-meta">${esc(team.name)}</div></div></div><div class="lookup-mini-odds">${teamRankValue(team.row,"passing_yards","passing_yards_rank",{digits:1,direction:"in NFL"})}</div></div>`).join("")}</div>
       </div>
     </div>`;
   }
@@ -4877,7 +4916,9 @@ function pickVsP(id,name){st.lkVsPlayerId=null;st.lkVsPlayerName="";st.lkVsPlaye
 async function fetchLkVsPlayer(pid,oid){st.lkLoading.vsPlayer=false;st.lkVsPlayerStats=null}
 function switchLkSub(t){st.lkSubTab=t;if(t==="vsTeam")st.lkVsTeamStats=null;render()}
 
-async function loadTeams(){st.lkTeamList=[]}
+async function loadTeams(){
+  return fetchOptionalSheet("Teams","Team metadata is unavailable.");
+}
 
 function loadAllData(){
   st.loading=true;st.error=null;st.dataWarnings=[];st.lookupError="";resetDerived();render();
@@ -4903,8 +4944,9 @@ function loadAllData(){
   fetchOptionalSheet("Projections","Season projections are unavailable."),
   fetchOptionalSheet("Pick_Performance"),
   fetchOptionalSheet("Pick_Performance_Snapshots")
-]).then(([_,tonight,logs,splits,weather,qbSlateRows,schedule,pTonight,pLogs,pSplits,currentPickSource,picksHistory,props,allBooksProps,gameMarkets,teamRankings,projections,pickPerformance,pickPerformanceSnaps])=>{
+]).then(([teams,tonight,logs,splits,weather,qbSlateRows,schedule,pTonight,pLogs,pSplits,currentPickSource,picksHistory,props,allBooksProps,gameMarkets,teamRankings,projections,pickPerformance,pickPerformanceSnaps])=>{
   resetDerived();
+  st.teams=normalizeKeys(cleanRows(teams||[]));
   st.tonight=normalizeKeys(cleanRows(tonight));
   st.gameLogs=normalizeKeys(cleanRows(logs));
   st.splits=normalizeKeys(cleanRows(splits));
@@ -4944,6 +4986,7 @@ function loadAllData(){
 	  st.pickPerformance=normalizeKeys(cleanRows(pickPerformance||[]));
 	  st.pickPerformanceSnaps=normalizeKeys(cleanRows(pickPerformanceSnaps||[]));
 	  const DASHBOARD_EXPECTS = {
+	    Teams: ['team_abbr', 'team_name', 'team_logo_espn'],
 	    Slate_Skill: ['player_name', 'team_abbr', 'opp_abbr', 'pos',
 	                  'targets', 'target_share', 'snap_pct', 'fantasy_points_ppr'],
 	    Slate_QB: ['player_name', 'team_abbr', 'opp_abbr',
@@ -4958,6 +5001,7 @@ function loadAllData(){
 	    Team_Rankings: ['team_abbr', 'passing_yards', 'rushing_yards'],
 	  };
 	  const _schemaSources = {
+        Teams: st.teams,
 	    Slate_Skill: st.tonight,
 	    Picks_Current: normalizedCurrentPicks,
 	    Daily_Picks: st.picksHistory,

@@ -1379,6 +1379,7 @@ def main():
         "Skill_Game_Logs": skill_logs,
         "QB_Game_Logs": qb_logs,
         "Team_Rankings": build_team_rankings_tab(team_stats),
+        "Teams": build_teams_tab(teams),
         "Player_Props": build_player_props_tab(board),
         "All_Books_Props": build_all_books_props_tab(props),
         "Game_Markets": game_markets_tab,
@@ -1388,16 +1389,16 @@ def main():
     if KEEP_REFERENCE_TABS:
         tabs.update({
             # Reference-only tabs are useful for manual inspection, but the
-            # live dashboard itself does not read them.
+            # live dashboard itself does not read them. Teams stays above
+            # because the UI uses it for logos / names.
             "Injuries": build_injuries_tab(injuries),
             "Games": games_tab,
-            "Teams": build_teams_tab(teams),
             "PlayerForm": build_player_form_tab(stats, snaps),
         })
 
     print("\n📝 Writing to Google Sheets")
     if not KEEP_REFERENCE_TABS:
-        print("   ℹ️  dashboard-only sheet mode: skipping reference tabs (Injuries, Games, Teams, PlayerForm)")
+        print("   ℹ️  dashboard-only sheet mode: skipping reference tabs (Injuries, Games, PlayerForm)")
     write_to_sheets(
         sheets,
         SHEET_ID,
