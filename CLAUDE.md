@@ -94,6 +94,16 @@ This file is for durable repo rules and bug-shaped lessons. For date-sensitive
 status, pre-kickoff checklists, and "what is still open right now," read
 `PLAN.md` first.
 
+## Sheet-derived UI strings must be escaped at render time
+
+`app.js` already has an `esc()` convention for strings that came from Sheets,
+API rows, or any other mutable data source. Keep using it every time a render
+path gets rewritten. The featured-pick / hero-play templates are especially
+easy to regress here because redesign work tends to rebuild those strings from
+scratch and reintroduce raw interpolation. If a value is ultimately row data,
+escape it in the last template that renders it, even if an upstream helper
+already "should" have normalized it.
+
 ## No real project/account identifiers in fallback paths, even for convenience
 
 Local credential auto-detection (`sports_common.py`'s

@@ -553,6 +553,13 @@ function teamMarketSummary(pk){
   }
   return String(rowField(pk,"rationale")||"").trim()||"Current preseason market signal";
 }
+function tierClassForConfidence(conf){
+  const key=normalizeConfidence(conf);
+  return key==="SMASH"?"smash":key==="STRONG"?"strong":"lean";
+}
+function oddsMetaText(odds){
+  return odds!==""&&odds!==null&&odds!==undefined?fmtOdds(odds):"price pending";
+}
 function teamMarketTags(pk){
   const metric=normalizePropMetric(rowField(pk,"prop_type"));
   const tags=[selectionMethodLabel(rowField(pk,"SELECTION_METHOD")||"VALIDATED_MODEL"),propTypeLabel(metric)];
@@ -1427,7 +1434,7 @@ function latestPlayerPropPicks(){
 
 function renderPreseasonShortlist(rows){
   const markets=new Set(rows.map(row=>normalizePropMetric(rowField(row,"prop_type")))).size;
-  return `<section class="shortlist-shell"><div class="shortlist-head"><div><div class="analysis-eyebrow">This week's decision board</div><div class="shortlist-title">Preseason Shortlist</div><div class="shortlist-sub">Player props are still thin, so the engine is promoting the best available spreads, moneylines, and totals from the preseason board.</div></div><div class="shortlist-rule">Preseason mode · team markets ranked</div></div><div class="shortlist-kpis"><div class="shortlist-kpi"><strong>${rows.length}</strong><span>Qualified</span></div><div class="shortlist-kpi"><strong>${markets}</strong><span>Markets</span></div><div class="shortlist-kpi"><strong>${rows.filter(r=>normalizeConfidence(rowField(r,"confidence"))==="STRONG").length}</strong><span>Strong</span></div><div class="shortlist-kpi"><strong>${rows.filter(r=>rowField(r,"PICK_ODDS")!==""&&rowField(r,"PICK_ODDS")!=null).length}</strong><span>Priced</span></div></div><div class="shortlist-grid">${rows.map((row,index)=>`<article class="shortlist-card${index===0?" top":""}"><div><div class="shortlist-rank">${index===0?"Top play":`#${String(index+1).padStart(2,"0")}`}</div><div class="shortlist-name">${esc(pickDisplaySelection(row)||rowField(row,"game")||"Game market")}</div><div class="shortlist-meta">${esc(rowField(row,"game")||"")} · ${esc(propTypeLabel(rowField(row,"prop_type")))}${rowField(row,"PICK_ODDS")!==""&&rowField(row,"PICK_ODDS")!=null?` · ${fmtOdds(rowField(row,"PICK_ODDS"))}`:""}</div></div><div class="shortlist-call"><span class="shortlist-market">${esc(propTypeLabel(rowField(row,"prop_type")))}</span><strong class="prop-over">${esc(pickDisplaySelection(row)||"Play")}</strong><span>${esc(rowField(row,"confidence")||"LEAN")} · ${esc(teamMarketEdgeLabel(row))}</span></div><div class="shortlist-evidence"><span><strong>Why it ranks:</strong> ${esc(rowField(row,"rationale")||"Opening preseason market signal.")}</span><span><strong>Price view:</strong> ${esc(teamMarketSummary(row))}</span><span><strong>Book:</strong> ${esc(rowField(row,"PICK_BOOK")||"Opening board")}${rowField(row,"PICK_ODDS")!==""&&rowField(row,"PICK_ODDS")!=null?` · ${fmtOdds(rowField(row,"PICK_ODDS"))}`:""}</span></div><div class="shortlist-tags">${teamMarketTags(row).map(tag=>`<span class="shortlist-tag">${esc(tag)}</span>`).join("")}</div></article>`).join("")}</div></section>`;
+  return `<section class="shortlist-shell"><div class="shortlist-head"><div><div class="analysis-eyebrow">This week's decision board</div><div class="shortlist-title">Preseason Shortlist</div><div class="shortlist-sub">Player props are still thin, so the board is leading with the cleanest team-side markets until books open a real player board.</div></div><div class="shortlist-rule">Preseason mode · team markets ranked</div></div><div class="shortlist-summary-row"><span><strong>${rows.length}</strong> qualified</span><span><strong>${markets}</strong> market types</span><span><strong>${rows.filter(r=>normalizeConfidence(rowField(r,"confidence"))==="STRONG").length}</strong> strong</span><span><strong>${rows.filter(r=>rowField(r,"PICK_ODDS")!==""&&rowField(r,"PICK_ODDS")!=null).length}</strong> priced</span></div><div class="shortlist-grid">${rows.map((row,index)=>{const tier=tierClassForConfidence(rowField(row,"confidence"));const selection=pickDisplaySelection(row)||rowField(row,"game")||"Game market";const odds=rowField(row,"PICK_ODDS");const book=rowField(row,"PICK_BOOK")||"opening board";return`<article class="shortlist-card ${tier}${index===0?" top":""}"><div class="shortlist-topline"><div class="shortlist-rank">${index===0?"Top play":`#${String(index+1).padStart(2,"0")}`}</div><div class="shortlist-tier ${tier}">${esc(normalizeConfidence(rowField(row,"confidence"))||"LEAN")}</div></div><div><div class="shortlist-name">${esc(selection)}</div><div class="shortlist-meta">${esc(rowField(row,"game")||"")} · ${esc(propTypeLabel(rowField(row,"prop_type")))}</div></div><div class="shortlist-call"><strong class="shortlist-call-line">${esc(oddsMetaText(odds))}</strong><span>${esc(teamMarketEdgeLabel(row))}</span></div><div class="shortlist-evidence"><span>${esc(rowField(row,"rationale")||"Opening preseason market signal.")}</span><span>${esc(teamMarketSummary(row))}</span></div><div class="shortlist-footer"><div class="shortlist-footer-meta">${esc(book)} · ${esc(propTypeLabel(rowField(row,"prop_type")))} · ${esc(selectionMethodLabel(rowField(row,"SELECTION_METHOD")||"VALIDATED_MODEL"))}</div></div></article>`}).join("")}</div></section>`;
 }
 
 function renderTonightShortlist(){
@@ -1443,19 +1450,18 @@ function renderTonightShortlist(){
   const avgEdge=rows.reduce((sum,row)=>sum+row.edge,0)/rows.length;
   const aiBacked=rows.filter(row=>row.hasAI).length;
   const markets=new Set(rows.map(row=>row.metric)).size;
-  return`<section class="shortlist-shell"><div class="shortlist-head"><div><div class="analysis-eyebrow">This week's decision board</div><div class="shortlist-title">This Week's Shortlist</div><div class="shortlist-sub">Qualified opportunities only: +5% modeled edge, playable price, 5+ decisive games, no sample warning, no lineup risk, no model disagreement, and not locked.</div></div><div class="shortlist-rule">Ranked by conviction</div></div><div class="shortlist-kpis"><div class="shortlist-kpi"><strong>${rows.length}</strong><span>Qualified</span></div><div class="shortlist-kpi"><strong>+${(avgEdge*100).toFixed(1)}%</strong><span>Average edge</span></div><div class="shortlist-kpi"><strong>${aiBacked}</strong><span>AI backed</span></div><div class="shortlist-kpi"><strong>${markets}</strong><span>Markets</span></div></div>${renderShortlistTray()}<div class="shortlist-grid">${rows.map((row,index)=>{
+  return`<section class="shortlist-shell"><div class="shortlist-head"><div><div class="analysis-eyebrow">This week's decision board</div><div class="shortlist-title">This Week's Shortlist</div><div class="shortlist-sub">Qualified opportunities only: playable price, real sample, no lineup risk, and no active disagreement with the board's own gates.</div></div><div class="shortlist-rule">Ranked by conviction</div></div><div class="shortlist-summary-row"><span><strong>${rows.length}</strong> qualified</span><span><strong>+${(avgEdge*100).toFixed(1)}%</strong> average edge</span><span><strong>${aiBacked}</strong> AI-backed</span><span><strong>${markets}</strong> markets</span></div>${renderShortlistTray()}<div class="shortlist-grid">${rows.map((row,index)=>{
     const edgePct=(row.edge*100).toFixed(1);
     const hitPct=(row.hitRate*100).toFixed(0);
     const impliedPct=(row.impliedProb*100).toFixed(0);
     const callClass=row.lean==="OVER"?"prop-over":"prop-under";
     const matchup=getShortlistMatchupEvidence(row);
     const opponentEffect=row.opponentEffect;
-    const tags=[row.hasAI?`${row.aiConfidence||"AI"} backed`:"Market model",row.hasStreak?`${row.streakLength}G streak`:"Stable sample",row.edge>=0.15?"Elite edge":row.edge>=0.08?"Strong edge":"Qualified edge"];
-    if(opponentEffect)tags.push(opponentEffect.label);
+    const tier=row.hasAI?tierClassForConfidence(row.aiConfidence):"strong";
     const inTray=isInShortlistTray(row);
     const gameTime=gameStartTimeForTeams(row.team,row.opp);
     const opponentEffectText=opponentEffect?`<span><strong>Opponent effect:</strong> ${opponentEffect.effect>=0?"+":""}${opponentEffect.effect.toFixed(1)} model points for this ${row.lean.toLowerCase()}</span>`:"";
-    return`<article class="shortlist-card${index===0?" top":""}" onclick="streakToDash('${esc(row.name)}','${propToLogCol(row.metric)}','${row.dkLine}')"><div><div class="shortlist-rank">${index===0?"Top play":`#${String(index+1).padStart(2,"0")}`}</div><div class="shortlist-name">${playerLink(row.name,row.metric,row.dkLine)}</div><div class="shortlist-meta">${esc(row.team)} vs ${esc(row.opp||"TBD")}${gameTime?` · ${esc(gameTime)}`:""} · ${esc(propTypeLabel(row.metric))} · ${row.hits}/${row.total} decisive games</div></div><div class="shortlist-call"><span class="shortlist-market">${esc(propTypeLabel(row.metric))}</span><strong class="${callClass}">${row.lean} ${esc(row.dkLine)}</strong><span>${fmtOdds(row.odds)} · +${edgePct}% edge</span></div><div class="shortlist-evidence"><span><strong>${hitPct}% historical hit rate</strong> across the available sample</span><span><strong>${edgePct} points above market</strong> (${hitPct}% model vs ${impliedPct}% implied)</span><span><strong>Opponent profile:</strong> ${esc(matchup)}</span>${opponentEffectText}<span><strong>Playable price:</strong> ${fmtOdds(row.odds)}${row.hasAI?` · ${esc(row.aiConfidence||"AI")} agrees`:" · no AI conflict"}</span></div><div class="shortlist-tags">${tags.map(tag=>`<span class="shortlist-tag">${esc(tag)}</span>`).join("")}<button class="shortlist-action${inTray?" added":""}" onclick="event.stopPropagation();toggleShortlistTray('${esc(row.name)}','${esc(row.metric)}','${esc(row.dkLine)}','${row.lean}')">${inTray?"Remove":"Add to tray"}</button></div></article>`;
+    return`<article class="shortlist-card ${tier}${index===0?" top":""}" onclick="streakToDash('${esc(row.name)}','${propToLogCol(row.metric)}','${row.dkLine}')"><div class="shortlist-topline"><div class="shortlist-rank">${index===0?"Top play":`#${String(index+1).padStart(2,"0")}`}</div><div class="shortlist-tier ${tier}">${esc(row.hasAI?(row.aiConfidence||"AI"):"VALIDATED")}</div></div><div><div class="shortlist-name">${playerLink(row.name,row.metric,row.dkLine)}</div><div class="shortlist-meta">${esc(row.team)} vs ${esc(row.opp||"TBD")}${gameTime?` · ${esc(gameTime)}`:""} · ${esc(propTypeLabel(row.metric))} · ${row.hits}/${row.total} decisive games</div></div><div class="shortlist-call"><strong class="${callClass} shortlist-call-line">${row.lean} ${esc(row.dkLine)}</strong><span>${fmtOdds(row.odds)} · +${edgePct}% edge</span></div><div class="shortlist-evidence"><span><strong>${hitPct}% historical hit rate</strong> (${hitPct}% model vs ${impliedPct}% implied)</span><span><strong>Opponent profile:</strong> ${esc(matchup)}</span>${opponentEffectText}<span>${row.hasAI?`${esc(row.aiConfidence||"AI")} agrees with the market model`:"Validated model only — no AI conflict"}</span></div><div class="shortlist-footer"><div class="shortlist-footer-meta">${row.hasAI?"AI reviewed":"Validated model"} · ${fmtOdds(row.odds)} · ${row.edge>=0.15?"elite edge":row.edge>=0.08?"strong edge":"qualified edge"}${row.hasStreak?` · ${row.streakLength}G streak`:" · stable sample"}</div><button class="shortlist-action${inTray?" added":""}" onclick="event.stopPropagation();toggleShortlistTray('${esc(row.name)}','${esc(row.metric)}','${esc(row.dkLine)}','${row.lean}')">${inTray?"Remove":"Add to tray"}</button></div></article>`;
   }).join("")}</div></section>`;
 }
 
@@ -1945,7 +1951,7 @@ function renderGameMarketsBoard(team,rows,options={}){
         if(matchingPick&&Number.isFinite(Number(rowField(matchingPick,"MODEL_EDGE_SCORE","MODEL_EV_PCT"))))metaBits.push(teamMarketEdgeLabel(matchingPick));
         return `<div class="game-market-row${isPreferred?" preferred":""}" style="${isPreferred?"border:1px solid color-mix(in srgb, var(--strong) 40%, var(--border-1));background:color-mix(in srgb, var(--strong) 9%, transparent);border-radius:10px;padding:10px 12px;margin:0 -12px 8px;":""}">
           <div class="game-market-row-main">
-            <div class="game-market-row-selection">${esc(selection)}${isPreferred?` <span class="shortlist-tag" style="margin-left:8px">Model lean</span>`:""}</div>
+            <div class="game-market-row-selection">${esc(selection)}${isPreferred?` <span class="game-market-row-selection-badge">Model lean</span>`:""}</div>
             <div class="game-market-row-meta">${esc(metaBits.join(" · "))}</div>
           </div>
           <div class="game-market-row-side">
@@ -2932,7 +2938,7 @@ function getPickProvenance(pk){
 }
 function pickProvenanceHTML(model){
   const source=model.provenance;
-  return `<div class="pick-provenance"><span class="pick-source-badge ${source.className}" title="${esc(source.description)}">${esc(source.label)}</span>${source.consensusCount>=2?`<span class="pick-consensus-badge" title="Appeared across repeated engine runs">Run consensus · ${source.consensusCount}</span>`:""}</div>`;
+  return `<div class="pick-provenance" title="${esc(source.description)}"><span class="pick-provenance-label ${source.className}">${esc(source.label)}</span>${source.consensusCount>=2?`<span class="pick-provenance-sep">·</span><span class="pick-provenance-note">run consensus ${source.consensusCount}</span>`:""}</div>`;
 }
 function pickWhyHTML(model){
   const reason=String(rowField(model.pk,"rationale","reasoning")||"").trim();
@@ -2987,12 +2993,12 @@ function renderFeaturedPick(model){
     ?`${esc(pickDisplaySelection(p)||"Opening board")} · ${esc(propTypeLabel(p.prop_type))}${gameTime?` · ${esc(gameTime)}`:""}`
     :`${esc(matchup||p.game||"")}${gameTime?` · ${esc(gameTime)}`:""}`;
   const callText=model.isGameMarket
-    ?pickDisplaySelection(p)||`${esc(propTypeLabel(p.prop_type))} play`
+    ?esc(oddsMetaText(rowField(p,"PICK_ODDS")))
     :`${esc(model.leanText)} ${esc(p.line||"—")}`;
   const marketText=model.isGameMarket
-    ?`${esc(propTypeLabel(p.prop_type))}${rowField(p,"PICK_ODDS")!==""&&rowField(p,"PICK_ODDS")!=null?` · ${fmtOdds(rowField(p,"PICK_ODDS"))}`:""}`
+    ?`${esc(propTypeLabel(p.prop_type))} · ${esc(rowField(p,"PICK_BOOK")||"opening board")} · ${esc(teamMarketEdgeLabel(p))}`
     :esc(propTypeLabel(p.prop_type));
-  return `<section class="pick-feature ${model.tierClass}${model.locked?" locked-card":""}" onclick="${model.isGameMarket?"void(0)":pickClick(model)}"><div class="pick-feature-kicker"><span>${icon("picks")}Top recommendation</span><span style="color:var(--${model.tierClass==="smash"?"smash":model.tierClass==="strong"?"strong":"push"})">${model.confidence}</span></div><div class="pick-feature-main"><div><div class="pick-feature-name">${nameHTML}</div><div class="pick-feature-matchup">${metaHTML}</div>${pickProvenanceHTML(model)}</div><div class="pick-feature-call"><div class="pick-feature-line ${model.leanClass}">${callText}</div><div class="pick-feature-market">${marketText}</div></div></div><div class="pick-feature-evidence"><div><div class="pick-evidence">${evidence||"Model-ranked slate leader"}</div>${renderBestBookLine(model.pickProp,model.leanText)}${renderCurrentClvLine(model.pickProp,model.leanText)}${pickWhyHTML(model)}</div><div class="pick-board-form" aria-label="Last ten results">${renderPickFormBars(model.form)}</div></div>${status?`<div class="pick-board-status" style="grid-column:auto;margin-top:8px">${esc(status)}</div>`:""}${model.lineupRisk?`<div class="lineup-risk-text">${esc(model.injury)}</div>`:""}</section>`;
+  return `<section class="pick-feature ${model.tierClass}${model.locked?" locked-card":""}" onclick="${model.isGameMarket?"void(0)":pickClick(model)}"><div class="pick-feature-kicker"><span>${icon("picks")}Top recommendation</span><span class="pick-feature-tier ${model.tierClass}">${esc(model.confidence)}</span></div><div class="pick-feature-main"><div><div class="pick-feature-name">${nameHTML}</div><div class="pick-feature-matchup">${metaHTML}</div>${pickProvenanceHTML(model)}</div><div class="pick-feature-call"><div class="pick-feature-line ${model.leanClass}">${callText}</div><div class="pick-feature-market">${marketText}</div></div></div><div class="pick-feature-evidence"><div><div class="pick-evidence">${evidence||"Model-ranked slate leader"}</div>${renderBestBookLine(model.pickProp,model.leanText)}${renderCurrentClvLine(model.pickProp,model.leanText)}${pickWhyHTML(model)}</div><div class="pick-board-form" aria-label="Last ten results">${renderPickFormBars(model.form)}</div></div>${status?`<div class="pick-board-status" style="grid-column:auto;margin-top:8px">${esc(status)}</div>`:""}${model.lineupRisk?`<div class="lineup-risk-text">${esc(model.injury)}</div>`:""}</section>`;
 }
 function renderPickBoardRow(model,index){
   const p=model.pk,status=pickStatusLine(model),evidence=pickEvidenceHTML(model),gameTime=gameStartTimeForText(p.game);
@@ -3062,7 +3068,7 @@ function renderModelPicksView(convergenceHTML){
     return result==="NO"||result==="FALSE";
   }).length;
   if(hits+misses){
-    html+=`<div style="display:flex;justify-content:flex-end;padding:0 16px 9px"><span class="pick-source-badge ${hits>=misses?"validated":"research"}">Current record ${hits}-${misses}</span></div>`;
+    html+=`<div class="model-picks-record"><span class="model-picks-record-label">Current record</span><strong class="model-picks-record-value ${hits>=misses?"positive":"neutral"}">${hits}-${misses}</strong></div>`;
   }
 
   const rankedPicks=[...todayPicks].sort((a,b)=>toNum(a.rank||999)-toNum(b.rank||999));
