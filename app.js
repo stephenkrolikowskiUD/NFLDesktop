@@ -670,7 +670,7 @@ function getModelFreshness(){
   ];
 }
 function renderModelFreshness(){
-  return `<div class="freshness-strip">${getModelFreshness().map(signal=>`<div class="freshness-item ${signal.level}"><div class="freshness-label">${esc(signal.label)}</div><div class="freshness-value"><span class="freshness-dot"></span>${esc(signal.value)}</div></div>`).join("")}</div>`;
+  return `<div class="model-tape-strip">${getModelFreshness().map(signal=>`<div class="model-tape-item ${signal.level}"><div class="model-tape-label">${esc(signal.label)}</div><div class="model-tape-value"><span class="freshness-dot"></span>${esc(signal.value)}</div></div>`).join("")}</div>`;
 }
 function compactRunTime(value){
   const ms=parseEasternTimestamp(value);
@@ -712,7 +712,7 @@ function getModelRunHealth(rows){
   ];
 }
 function renderModelRunHealth(rows){
-  return `<div class="run-health-strip">${getModelRunHealth(rows).map(item=>`<div class="run-health-item ${item.level||""}"><div class="run-health-label">${esc(item.label)}</div><div class="run-health-value">${esc(item.value)}</div><div class="run-health-meta">${esc(item.meta)}</div></div>`).join("")}</div>`;
+  return `<div class="model-tape-strip health">${getModelRunHealth(rows).map(item=>`<div class="model-tape-item ${item.level||""}"><div class="model-tape-label">${esc(item.label)}</div><div class="model-tape-value">${esc(item.value)}</div><div class="model-tape-meta">${esc(item.meta)}</div></div>`).join("")}</div>`;
 }
 
 // NFL app: no live combo markets currently depend on the old baseball combos.
@@ -2255,7 +2255,7 @@ function renderDraftSlateSelector(){
   const games=getDraftSlateGames();
   const selected=draftSlateSelection();
   const selectedGames=games.filter(game=>selected.has(game.id));
-  const previewGames=selectedGames.slice(0,6);
+  const previewGames=selectedGames.slice(0,5);
   const hiddenCount=Math.max(0,selectedGames.length-previewGames.length);
   const starts=selectedGames.map(game=>game.startMs).filter(Boolean).sort((a,b)=>a-b);
   const range=starts.length?starts.length===1?draftDisplayTime(starts[0]):`${draftDisplayTime(starts[0])}–${draftDisplayTime(starts[starts.length-1])}`:"No start window";
@@ -2265,7 +2265,9 @@ function renderDraftSlateSelector(){
     :selectedGames.length
       ?`${selectedGames.length} of ${games.length} games · ${range}`
       :`0 of ${games.length} games selected`;
-  return`<section class="draft-slate"><div class="draft-slate-head"><div><div class="draft-slate-title">Contest slate</div><div class="draft-slate-summary">${summary}</div></div><button class="draft-slate-toggle" onclick="toggleDraftSlatePanel()">${st.draftSlate.panelOpen?"Done":"Choose games"}</button></div>${selectedGames.length?`<div class="draft-slate-games">${previewGames.map(game=>`<span class="draft-slate-chip">${esc(game.label)} · ${draftDisplayTime(game.startMs)||"Time TBD"}</span>`).join("")}${hiddenCount?`<span class="draft-slate-chip more">+${hiddenCount} more</span>`:""}</div>`:""}${st.draftSlate.panelOpen?`<div class="draft-slate-panel"><div class="draft-slate-presets"><button class="draft-slate-preset${preset==="all"?" active":""}" onclick="setDraftSlatePreset('all')">Next ${DRAFT_SLATE_WINDOW_DAYS} days</button><button class="draft-slate-preset${preset==="open"?" active":""}" onclick="setDraftSlatePreset('open')">Open games</button><button class="draft-slate-preset${preset==="after7"?" active":""}" onclick="setDraftSlatePreset('after7')">7 PM+</button><button class="draft-slate-preset${preset==="after9"?" active":""}" onclick="setDraftSlatePreset('after9')">9 PM+</button><button class="draft-slate-preset${preset==="clear"?" active":""}" onclick="setDraftSlatePreset('clear')">Clear</button></div><div class="draft-game-grid">${games.map(game=>`<button class="draft-game-option${selected.has(game.id)?" selected":""}" onclick="toggleDraftSlateGame('${esc(game.id)}')"><span class="draft-game-check">✓</span><span><span class="draft-game-matchup">${esc(game.label)}</span><span class="draft-game-status">${game.started?"Started / locked":"Available"}</span></span><span class="draft-game-time">${draftDisplayTime(game.startMs)||"TBD"}</span></button>`).join("")}</div><div class="draft-slate-note">Use this to narrow the board to the next ${DRAFT_SLATE_WINDOW_DAYS} days of TNF, SNF, MNF, showdown, or any custom contest slice.</div></div>`:""}</section>`;
+  const firstKickoff=starts.length?draftDisplayTime(starts[0]):"—";
+  const lastKickoff=starts.length?draftDisplayTime(starts[starts.length-1]):"—";
+  return`<section class="draft-slate"><div class="draft-slate-head"><div><div class="draft-slate-title">Contest slate</div><div class="draft-slate-summary">${summary}</div></div><button class="draft-slate-toggle" onclick="toggleDraftSlatePanel()">${st.draftSlate.panelOpen?"Done":"Choose games"}</button></div>${selectedGames.length?`<div class="draft-slate-strip"><span><strong>${selectedGames.length}</strong> in pool</span><span><strong>${firstKickoff}</strong> first lock</span><span><strong>${lastKickoff}</strong> last lock</span></div><div class="draft-slate-preview">${previewGames.map(game=>`<div class="draft-slate-row"><span class="draft-slate-row-matchup">${esc(game.label)}</span><span class="draft-slate-row-time">${draftDisplayTime(game.startMs)||"Time TBD"}</span></div>`).join("")}${hiddenCount?`<div class="draft-slate-row more"><span class="draft-slate-row-matchup">+${hiddenCount} more games in chooser</span><span class="draft-slate-row-time">Edit slate</span></div>`:""}</div>`:""}${st.draftSlate.panelOpen?`<div class="draft-slate-panel"><div class="draft-slate-presets"><button class="draft-slate-preset${preset==="all"?" active":""}" onclick="setDraftSlatePreset('all')">Next ${DRAFT_SLATE_WINDOW_DAYS} days</button><button class="draft-slate-preset${preset==="open"?" active":""}" onclick="setDraftSlatePreset('open')">Open games</button><button class="draft-slate-preset${preset==="after7"?" active":""}" onclick="setDraftSlatePreset('after7')">7 PM+</button><button class="draft-slate-preset${preset==="after9"?" active":""}" onclick="setDraftSlatePreset('after9')">9 PM+</button><button class="draft-slate-preset${preset==="clear"?" active":""}" onclick="setDraftSlatePreset('clear')">Clear</button></div><div class="draft-game-grid">${games.map(game=>`<button class="draft-game-option${selected.has(game.id)?" selected":""}" onclick="toggleDraftSlateGame('${esc(game.id)}')"><span class="draft-game-check">✓</span><span><span class="draft-game-matchup">${esc(game.label)}</span><span class="draft-game-status">${game.started?"Started / locked":"Available"}</span></span><span class="draft-game-time">${draftDisplayTime(game.startMs)||"TBD"}</span></button>`).join("")}</div><div class="draft-slate-note">Use this to narrow the board to the next ${DRAFT_SLATE_WINDOW_DAYS} days of TNF, SNF, MNF, showdown, or any custom contest slice.</div></div>`:""}</section>`;
 }
 
 function nflMetricLabel(metric){
@@ -2877,15 +2879,15 @@ function calibratedConfidenceForPick(pick){
   return{raw,confidence,rows,summary,demoted,reason};
 }
 function renderCalibrationPolicy(){
-  return `<div class="card" style="margin:0 16px 10px;border-color:color-mix(in srgb, var(--accent) 24%, transparent)">
-    <div class="card-title">Tier Floors</div>
-    <div style="font-size:var(--t-xs);color:var(--ink-1);line-height:1.6">
+  return `<section class="model-note-shell">
+    <div class="model-note-title">Tier Floors</div>
+    <div class="model-note-copy">
       Displayed AI tiers now respect historical floors instead of raw labels alone:
       <strong>SMASH</strong> requires at least ${statPct(CALIBRATED_TIER_FLOORS.SMASH.wlb)} conservative hit rate and ${statRoiPct(CALIBRATED_TIER_FLOORS.SMASH.roi)} ROI,
       while <strong>STRONG</strong> requires at least ${statPct(CALIBRATED_TIER_FLOORS.STRONG.wlb)} and non-negative ROI.
       Anything below those floors is shown as a lower tier.
     </div>
-  </div>`;
+  </section>`;
 }
 function renderTierBreakdown(rows,w){const tiers=['VALIDATED','SMASH','STRONG','LEAN'];const found=tiers.map(t=>getMetricsForSlice(rows,'confidence_norm',t,w)).filter(Boolean);if(!found.length)return '';const aiRows=found.filter(r=>statField(r,'DIMENSION_VALUE')!=='VALIDATED');const rates=aiRows.map(r=>statNum(r,'HIT_RATE'));const collapse=aiRows.length>=2&&rates.some((a,i)=>rates.some((b,j)=>j>i&&Math.abs(a-b)<=0.01));return `<div style="padding:0 16px 10px"><div style="color:var(--accent);font-size:var(--t-sm);font-weight:800;margin-bottom:6px">Selection Calibration ${collapse?'<span style="color:var(--warn);font-size:var(--t-xs)">⚠️ AI tier collapse</span>':''}</div><div style="font-size:var(--t-xs);color:var(--push);margin:-1px 0 7px">VALIDATED is the deterministic market model. SMASH / STRONG / LEAN are Gemini confidence labels.</div>${tiers.map(t=>{const r=getMetricsForSlice(rows,'confidence_norm',t,w);if(!r)return '';const rate=statNum(r,'HIT_RATE');const color=t==='VALIDATED'?'var(--over)':t==='SMASH'?'var(--smash)':t==='STRONG'?'var(--warn)':'var(--push)';return `<div class="card" style="margin-bottom:6px"><div style="display:flex;justify-content:space-between;gap:10px"><div><span style="background:${color}22;color:${color};border:1px solid ${color}55;border-radius:999px;padding:2px 7px;font-size:var(--t-xs);font-weight:800">${t}</span><div style="font-size:var(--t-xs);color:var(--push);margin-top:5px">n=${Math.round(statNum(r,'N_PICKS_DECISIVE'))} · ROI ${statRoiSummary(r)}</div></div><div style="font-size:var(--t-lg);font-weight:900;color:${color}">${statPct(rate)}</div></div>${hitBar(rate)}</div>`}).join('')}</div>`}
 function renderLeanBreakdown(rows,w){const over=getMetricsForSlice(rows,'lean_norm','OVER',w),under=getMetricsForSlice(rows,'lean_norm','UNDER',w);if(!over&&!under)return '';let call='';if(over&&under&&statBool(over,'MIN_SAMPLE_FLAG')&&statBool(under,'MIN_SAMPLE_FLAG')){const diff=statNum(under,'HIT_RATE')-statNum(over,'HIT_RATE');if(Math.abs(diff)>=0.05)call=`<div class="card" style="border-color:#60a5fa55;margin-bottom:6px;color:#bfdbfe;font-size:var(--t-xs)">💡 ${diff>0?'UNDERs':'OVERs'} outperforming by ${Math.abs(diff*100).toFixed(1)}pp — consider review.</div>`}return `<div style="padding:0 16px 10px"><div style="color:var(--accent);font-size:var(--t-sm);font-weight:800;margin-bottom:6px">Lean Breakdown</div>${call}${['OVER','UNDER'].map(v=>{const r=v==='OVER'?over:under;if(!r)return '';return `<div class="card" style="margin-bottom:6px"><div style="display:flex;justify-content:space-between"><div style="font-weight:800;color:var(--ink-1)">${v}<div style="font-size:var(--t-xs);color:var(--push)">n=${Math.round(statNum(r,'N_PICKS_DECISIVE'))} · ROI ${statRoiSummary(r)}</div></div><div style="font-size:var(--t-lg);font-weight:900;color:${statNum(r,'HIT_RATE')>=STATS_BREAK_EVEN?'var(--over)':'var(--under)'}">${statPct(statNum(r,'HIT_RATE'))}</div></div></div>`}).join('')}</div>`}
@@ -3092,17 +3094,39 @@ function renderPickBoardRow(model,index){
   const marketHTML=model.isGameMarket&&rowField(p,"PICK_ODDS")!==""&&rowField(p,"PICK_ODDS")!=null
     ?`${esc(propTypeLabel(p.prop_type))} · ${fmtOdds(rowField(p,"PICK_ODDS"))}`
     :esc(propTypeLabel(p.prop_type));
-  const identityHTML=model.isGameMarket
-    ?`<div class="pick-board-name-row">${renderTeamLogoStack(teams.away,teams.home)}<div><div class="pick-board-rank">#${String(p.rank||index+2).padStart(2,"0")}</div><div class="pick-board-name">${nameHTML}</div><div class="pick-board-meta">${metaHTML}</div></div></div>`
-    :`<div class="pick-board-rank">#${String(p.rank||index+2).padStart(2,"0")}</div><div class="pick-board-name">${nameHTML}</div><div class="pick-board-meta">${metaHTML}</div>${pickProvenanceHTML(model)}`;
-  return `<article class="pick-board-card ${model.tierClass}${model.locked?" locked-card":""}" onclick="${model.isGameMarket?"void(0)":pickClick(model)}"><div class="pick-board-card-top"><div>${identityHTML}</div><div class="pick-board-decision"><div class="pick-board-tier ${model.tierClass}">${model.confidence}</div><div class="pick-board-call ${model.leanClass}">${callText}</div><div class="pick-board-market">${marketHTML}</div></div></div><div class="pick-board-card-mid"><div><div class="pick-evidence">${evidence||"No recent sample"}</div><div class="pick-board-rationale">${pickWhyHTML(model)}</div></div><div class="pick-board-form" aria-label="Last ten results">${renderPickFormBars(model.form)}</div></div><div class="pick-board-footer">${pickFooterLine(model)}</div>${status?`<div class="pick-board-status">${esc(status)}</div>`:""}</article>`;
+  const rankText=`#${String(p.rank||index+2).padStart(2,"0")}`;
+  const selectionHTML=model.isGameMarket?`${renderTeamLogoStack(teams.away,teams.home)}<span>${nameHTML}</span>`:nameHTML;
+  const statusDot=status?`<span class="pick-matrix-status ${model.tierClass||"lean"}"></span>`:`<span class="pick-matrix-status idle"></span>`;
+  return `<details class="pick-matrix-row ${model.tierClass}${model.locked?" locked-card":""}">
+    <summary class="pick-matrix-summary" onclick="${model.isGameMarket?"void(0)":pickClick(model)}">
+      <span class="pick-matrix-cell pick-matrix-rank">${rankText}</span>
+      <span class="pick-matrix-cell pick-matrix-selection">${selectionHTML}</span>
+      <span class="pick-matrix-cell pick-matrix-context">${metaHTML}</span>
+      <span class="pick-matrix-cell pick-matrix-call ${model.leanClass}">${callText}</span>
+      <span class="pick-matrix-cell pick-matrix-market">${marketHTML}</span>
+      <span class="pick-matrix-cell pick-matrix-tier ${model.tierClass}">${esc(model.confidence)}</span>
+      <span class="pick-matrix-cell pick-matrix-status-cell">${statusDot}</span>
+    </summary>
+    <div class="pick-matrix-detail">
+      <div class="pick-matrix-detail-grid">
+        <div>
+          <div class="pick-evidence">${evidence||"No recent sample"}</div>
+          <div class="pick-matrix-detail-copy">${pickWhyHTML(model)}</div>
+          <div class="pick-matrix-detail-meta">${pickFooterLine(model)}</div>
+          ${status?`<div class="pick-board-status">${esc(status)}</div>`:""}
+          ${model.lineupRisk?`<div class="lineup-risk-text">${esc(model.injury)}</div>`:""}
+        </div>
+        <div class="pick-board-form" aria-label="Last ten results">${renderPickFormBars(model.form)}</div>
+      </div>
+    </div>
+  </details>`;
 }
 function renderPickSection(title,subtitle,pickModels,{emptyMessage=""}={}){
   if(!pickModels.length)return emptyMessage?`<div class="empty" style="padding:22px 16px">${esc(emptyMessage)}</div>`:"";
   const featured=pickModels[0];
   const remaining=pickModels.slice(1);
   const board=remaining.length
-    ?`<div class="pick-board-grid">${remaining.map((model,index)=>renderPickBoardRow(model,index)).join("")}</div>`
+    ?`<div class="pick-matrix"><div class="pick-matrix-head"><span>Rank</span><span>Pick</span><span>Context</span><span>Call</span><span>Market</span><span>Tier</span><span></span></div>${remaining.map((model,index)=>renderPickBoardRow(model,index)).join("")}</div>`
     :"";
   return `<section class="pick-section"><div class="pick-section-head"><div><div class="pick-section-title">${esc(title)}</div>${subtitle?`<div class="pick-section-sub">${esc(subtitle)}</div>`:""}</div><div class="pick-section-count">${pickModels.length} pick${pickModels.length===1?"":"s"}</div></div><div class="pick-editorial">${renderFeaturedPick(featured)}${board}</div></section>`;
 }

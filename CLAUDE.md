@@ -124,6 +124,12 @@ sentence instead of repeating the same fact three ways. When touching
 `renderFeaturedPick`, `renderPickBoardRow`, or the related CSS, preserve that
 editorial feel instead of drifting back toward a spreadsheet-shaped layout.
 
+The same rule applies to support surfaces around picks. `Model Picks` health /
+freshness summaries and the `Draft` contest-slate chooser should read like
+compact tape or market-window UI, not a stack of equal-weight cards or a cloud
+of pills. Show a few high-signal numbers, a short preview of live games, and
+put the full chooser or rationale behind an explicit open state.
+
 ## No real project/account identifiers in fallback paths, even for convenience
 
 Local credential auto-detection (`sports_common.py`'s
