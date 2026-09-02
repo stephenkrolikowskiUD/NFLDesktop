@@ -29,6 +29,7 @@
 import math
 import os
 import re
+import time
 from datetime import datetime, timedelta
 
 import numpy as np
@@ -46,8 +47,11 @@ from sports_common import (
     normalize_person_name,
 )
 
-SHEET_ID = "1lcwCUprWZA8JWTfuI8cTGaKXZwvDmQ80E0bH3AVimkY"
+SHEET_ID = os.getenv("NFL_SHEET_ID", "1lcwCUprWZA8JWTfuI8cTGaKXZwvDmQ80E0bH3AVimkY")
 eastern = pytz.timezone("US/Eastern")
+SHEETS_RETRY_STATUS_CODES = {429, 500, 502, 503, 504}
+SHEETS_OPEN_RETRIES = int(os.getenv("NFL_SHEETS_OPEN_RETRIES", "4"))
+SHEETS_RETRY_BASE_SECONDS = float(os.getenv("NFL_SHEETS_RETRY_BASE_SECONDS", "2"))
 
 # Buffer after scheduled kickoff before attempting to grade — covers game
 # length (~3.5h) plus nflverse's own publish lag (observed up to a few hours
@@ -154,6 +158,35 @@ def wilson_lower_bound(p, n, z=PICK_PERF_WILSON_Z) -> float:
     centre = p + z * z / (2 * n)
     margin = z * math.sqrt((p * (1 - p) + z * z / (4 * n)) / n)
     return max(0.0, (centre - margin) / denom)
+
+
+def is_retryable_sheets_error(exc: Exception) -> bool:
+    if not isinstance(exc, gspread.exceptions.APIError):
+        return False
+    response = getattr(exc, "response", None)
+    status_code = getattr(response, "status_code", None)
+    return status_code in SHEETS_RETRY_STATUS_CODES
+
+
+def open_sheet_with_retry(client, sheet_id: str, context: str = "open sheet"):
+    last_exc = None
+    for attempt in range(1, max(SHEETS_OPEN_RETRIES, 1) + 1):
+        try:
+            return client.open_by_key(sheet_id)
+        except gspread.exceptions.APIError as exc:
+            last_exc = exc
+            if not is_retryable_sheets_error(exc) or attempt >= SHEETS_OPEN_RETRIES:
+                raise
+            status_code = getattr(getattr(exc, "response", None), "status_code", "?")
+            wait_seconds = SHEETS_RETRY_BASE_SECONDS * (2 ** (attempt - 1))
+            print(
+                f"   ⚠️  Google Sheets {status_code} during {context} "
+                f"(attempt {attempt}/{SHEETS_OPEN_RETRIES}) — retrying in {wait_seconds:.1f}s"
+            )
+            time.sleep(wait_seconds)
+    if last_exc:
+        raise last_exc
+    raise RuntimeError(f"Failed to {context}")
 
 
 # ============================================================================
@@ -323,7 +356,7 @@ def actual_value_for_team_market(pick: pd.Series, game_row: pd.Series):
 # ============================================================================
 
 def grade_daily_picks(client) -> None:
-    sheet = client.open_by_key(SHEET_ID)
+    sheet = open_sheet_with_retry(client, SHEET_ID, "open Daily_Picks sheet")
     try:
         ws = sheet.worksheet("Daily_Picks")
     except gspread.exceptions.WorksheetNotFound:
@@ -614,7 +647,7 @@ def write_full_tab(client, tab_name: str, df: pd.DataFrame) -> None:
     if df.empty:
         print(f"⏭️  {tab_name}: nothing to write")
         return
-    sheet = client.open_by_key(SHEET_ID)
+    sheet = open_sheet_with_retry(client, SHEET_ID, f"open {tab_name} sheet")
     try:
         ws = sheet.worksheet(tab_name)
     except gspread.exceptions.WorksheetNotFound:
@@ -632,7 +665,7 @@ def append_snapshots(client, new_rows: pd.DataFrame) -> None:
     writing the same day's snapshot twice if the grader runs more than once."""
     if new_rows.empty:
         return
-    sheet = client.open_by_key(SHEET_ID)
+    sheet = open_sheet_with_retry(client, SHEET_ID, "open Pick_Performance_Snapshots sheet")
     try:
         ws = sheet.worksheet("Pick_Performance_Snapshots")
     except gspread.exceptions.WorksheetNotFound:
@@ -670,7 +703,7 @@ def main():
     grade_daily_picks(client)
 
     print("\n📊 Building Pick_Performance...")
-    sheet = client.open_by_key(SHEET_ID)
+    sheet = open_sheet_with_retry(client, SHEET_ID, "open Daily_Picks sheet for performance build")
     try:
         ws = sheet.worksheet("Daily_Picks")
         all_picks = pd.DataFrame(ws.get_all_records())
