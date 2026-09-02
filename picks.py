@@ -968,7 +968,7 @@ PICK_OUTPUT_COLUMNS = [
     "DATE", "SEASON", "WEEK", "RUN_NUMBER", "RUN_TIME", "rank", "game",
     "player", "player_id", "team", "opponent", "prop_type", "line", "lean",
     "confidence", "rationale", "injury_context", "SELECTION_METHOD",
-    "MODEL_VERSION", "MODEL_ERA",
+    "MODEL_VERSION", "MODEL_ERA", "SEASON_PHASE", "ODDS_SPORT", "GAME_TYPE",
     "RECOMMENDATION_STATUS", "CALIBRATION_SCORE",
     "DISPLAY_SELECTION", "DISPLAY_LINE",
     "PICK_BOOK", "PICK_ODDS", "IMPLIED_PROBABILITY", "MODEL_HIT_RATE",
@@ -1009,7 +1009,8 @@ def _column_or_default(frame: pd.DataFrame, column: str, default) -> pd.Series:
 
 def assemble_pick_tabs(fresh_picks: pd.DataFrame, prior_daily: pd.DataFrame,
                        week: int, season: int, *, model_version: str = "",
-                       model_era: str = "") -> tuple[pd.DataFrame, pd.DataFrame]:
+                       model_era: str = "", season_phase: str = "",
+                       odds_sport: str = "", game_type: str = "") -> tuple[pd.DataFrame, pd.DataFrame]:
     """Stamp DATE/RUN_NUMBER, dedup against today's existing Daily_Picks rows,
     and return (Picks_Current, Daily_Picks-rows-to-append).
 
@@ -1046,6 +1047,12 @@ def assemble_pick_tabs(fresh_picks: pd.DataFrame, prior_daily: pd.DataFrame,
     out.loc[out["MODEL_VERSION"].str.strip() == "", "MODEL_VERSION"] = str(model_version or "")
     out["MODEL_ERA"] = _column_or_default(out, "MODEL_ERA", "").astype(str).replace({"nan": "", "None": ""})
     out.loc[out["MODEL_ERA"].str.strip() == "", "MODEL_ERA"] = str(model_era or model_version or "")
+    out["SEASON_PHASE"] = _column_or_default(out, "SEASON_PHASE", "").astype(str).replace({"nan": "", "None": ""})
+    out.loc[out["SEASON_PHASE"].str.strip() == "", "SEASON_PHASE"] = str(season_phase or "")
+    out["ODDS_SPORT"] = _column_or_default(out, "ODDS_SPORT", "").astype(str).replace({"nan": "", "None": ""})
+    out.loc[out["ODDS_SPORT"].str.strip() == "", "ODDS_SPORT"] = str(odds_sport or "")
+    out["GAME_TYPE"] = _column_or_default(out, "GAME_TYPE", "").astype(str).replace({"nan": "", "None": ""})
+    out.loc[out["GAME_TYPE"].str.strip() == "", "GAME_TYPE"] = str(game_type or "")
     out["RECOMMENDATION_STATUS"] = out.apply(recommendation_status, axis=1)
     out["CALIBRATION_SCORE"] = out.apply(calibrated_pick_priority, axis=1)
     out = out.sort_values(

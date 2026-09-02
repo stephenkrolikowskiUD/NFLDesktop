@@ -18,15 +18,16 @@ row on the same day (WEEK correctly said preseason while MODEL_ERA said
 regular season, live, 10 days before kickoff).
 
 **Before adding a new preseason/regular-season branch anywhere**, grep for
-`PRESEASON_ODDS_SPORT`, `resolve_odds_sport`, `resolve_model_identity`,
-`game_type.*PRE`, and `MODEL_ERA`/`MODEL_VERSION` first. If the answer you
-need isn't already available from one of those, extend the single function
-that owns this decision — don't add a sixth independent guess.
+`resolve_season_phase`, `infer_pick_phase`, `SEASON_PHASE`, `ODDS_SPORT`,
+and `GAME_TYPE` first. The single source of truth now lives in
+`nfl_phase.py`: the engine resolves the active phase once from schedule
+context, writes that phase onto pick rows, and the grader reads the stored
+phase metadata instead of re-guessing from dates.
 
-Update on 2026-08-30: the unconditional regular-season `NFL_MODEL_VERSION` /
-`NFL_MODEL_ERA` workflow override was removed because it was forcing
-preseason runs to wear a regular-season label. The broader "one phase
-function, read everywhere" cleanup is still open.
+Update on 2026-09-02: the old multi-guess setup (`resolve_odds_sport`,
+`resolve_model_identity`, row-level `game_type == "PRE"`, and the grader's
+date fallback) has been consolidated behind `nfl_phase.py`. Do not reintroduce
+new independent phase heuristics elsewhere.
 
 ## A static override must be at least as phase-aware as what it overrides
 

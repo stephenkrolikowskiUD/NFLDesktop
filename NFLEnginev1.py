@@ -18,6 +18,7 @@ import gspread
 from gspread_dataframe import set_with_dataframe
 
 import nflverse_loader as nv
+import nfl_phase as phase
 import odds_client as oc
 import projections as pj
 import picks as pk
@@ -35,8 +36,6 @@ from sports_common import (
 
 SPORT_LABEL = "NFL"
 SHEET_ID = os.getenv("NFL_SHEET_ID", "1lcwCUprWZA8JWTfuI8cTGaKXZwvDmQ80E0bH3AVimkY")
-REGULAR_SEASON_ODDS_SPORT = "americanfootball_nfl"
-PRESEASON_ODDS_SPORT = "americanfootball_nfl_preseason"
 MODEL_VERSION_OVERRIDE = os.getenv("NFL_MODEL_VERSION", "").strip()
 MODEL_ERA_OVERRIDE = os.getenv("NFL_MODEL_ERA", "").strip()
 QUOTA_FLOOR_THIS_SPORT = int(os.getenv(f"{SPORT_LABEL}_ODDS_CREDIT_FLOOR", "500"))
@@ -122,71 +121,6 @@ def extract_book_odds(events: list, preferred="draftkings", fallback="fanduel") 
     return pd.DataFrame(rows)
 
 
-def _schedule_kickoff_series(schedule: pd.DataFrame) -> pd.Series:
-    if schedule.empty:
-        return pd.Series(dtype="datetime64[ns]")
-    dates = schedule.get("gameday", pd.Series("", index=schedule.index)).astype(str)
-    times = schedule.get("gametime", pd.Series("00:00", index=schedule.index)).astype(str)
-    return pd.to_datetime(dates + " " + times, errors="coerce")
-
-
-def _preseason_week_for_kickoff(kickoff: pd.Timestamp, regular_opener: pd.Timestamp | None) -> int:
-    """Stable negative week numbers for preseason slates."""
-    if pd.isna(kickoff):
-        return -1
-    if regular_opener is None or pd.isna(regular_opener):
-        return -1
-    days_before_opener = max(0, (regular_opener.normalize() - kickoff.normalize()).days)
-    return -int(days_before_opener // 7 + 1)
-
-
-def stamp_preseason_weeks(games: pd.DataFrame) -> pd.DataFrame:
-    """Fill missing week values on synthetic preseason rows.
-
-    Synthetic PRE rows come from live odds when nflverse has not exposed a
-    preseason schedule spine yet. Leaving those blank forces later logic to
-    borrow the regular-season current week, which is how preseason picks ended
-    up stamped as Week 1. Negative preseason weeks keep those rows distinct.
-    """
-    if games.empty or "game_type" not in games.columns or "week" not in games.columns:
-        return games
-
-    out = games.copy()
-    out["_kickoff"] = _schedule_kickoff_series(out)
-    game_type = out["game_type"].astype(str).str.upper()
-    week_num = pd.to_numeric(out["week"], errors="coerce")
-    reg_kickoffs = out.loc[game_type.eq("REG") & out["_kickoff"].notna(), "_kickoff"]
-    regular_opener = reg_kickoffs.min() if not reg_kickoffs.empty else None
-    needs_week = game_type.eq("PRE") & week_num.isna() & out["_kickoff"].notna()
-    if needs_week.any():
-        out.loc[needs_week, "week"] = out.loc[needs_week, "_kickoff"].apply(
-            lambda kickoff: _preseason_week_for_kickoff(kickoff, regular_opener)
-        ).astype(int)
-    return out.drop(columns="_kickoff", errors="ignore")
-
-
-def current_preseason_week(games: pd.DataFrame, now: datetime) -> int | None:
-    """Resolve the active preseason week from the actual PRE slate in games_tab."""
-    if games.empty or "game_type" not in games.columns or "week" not in games.columns:
-        return None
-
-    pre = games[games["game_type"].astype(str).str.upper().eq("PRE")].copy()
-    if pre.empty:
-        return None
-    pre["_kickoff"] = _schedule_kickoff_series(pre)
-    pre["week_num"] = pd.to_numeric(pre["week"], errors="coerce")
-    pre = pre[pre["_kickoff"].notna() & pre["week_num"].notna()].sort_values("_kickoff")
-    if pre.empty:
-        return None
-
-    now_ts = pd.Timestamp(now)
-    if now_ts.tzinfo is not None:
-        now_ts = now_ts.tz_localize(None)
-    upcoming = pre[pre["_kickoff"] >= now_ts]
-    sample = upcoming if not upcoming.empty else pre
-    return int(sample.iloc[0]["week_num"])
-
-
 def has_live_game_market_odds(games: pd.DataFrame, *, game_type: str | None = None) -> bool:
     """Only count real live-book fields, not baseline schedule market data."""
     if games.empty:
@@ -210,17 +144,16 @@ def has_live_game_market_odds(games: pd.DataFrame, *, game_type: str | None = No
     return sample[available].apply(pd.to_numeric, errors="coerce").notna().any(axis=None)
 
 
-def resolve_model_identity(schedule_season: int, odds_sport: str) -> tuple[str, str]:
+def resolve_model_identity(schedule_season: int, season_phase: str) -> tuple[str, str]:
     """Prevent regular-season picks from inheriting the preseason model label."""
-    phase = "preseason" if odds_sport == PRESEASON_ODDS_SPORT else "regular-season"
-    model_version = MODEL_VERSION_OVERRIDE or f"nfl-{schedule_season}-{phase}-v1"
+    model_version = MODEL_VERSION_OVERRIDE or f"nfl-{schedule_season}-{season_phase}-v1"
     model_era = MODEL_ERA_OVERRIDE or model_version
     return model_version, model_era
 
 
-def log_launch_readiness(odds_sport: str, model_version: str, model_era: str) -> None:
+def log_launch_readiness(season_phase: str, model_version: str, model_era: str) -> None:
     """Make launch-sensitive config obvious in the run log."""
-    if odds_sport != PRESEASON_ODDS_SPORT:
+    if season_phase != phase.PRESEASON_PHASE:
         if not MODEL_VERSION_OVERRIDE or not MODEL_ERA_OVERRIDE:
             print("⚠️  regular-season model identity is using code defaults — "
                   "set NFL_MODEL_VERSION and NFL_MODEL_ERA explicitly in the workflow before Week 1")
@@ -263,52 +196,6 @@ def log_pick_generation_outcome(*, preseason_team_markets_live: bool, board: pd.
 
     print(f"   ⚠️  {board_rows} player-prop line(s) and {player_ctx_rows} priced context row(s) "
           "were available, but picks generation returned 0 rows — inspect Gemini output or validation gates")
-
-
-def resolve_odds_sport(schedule: pd.DataFrame, now: datetime) -> str:
-    """Choose the Odds API sport key from the actual next slate.
-
-    An env override always wins. Otherwise, look at the next scheduled kickoff:
-    if that slate is preseason, request preseason odds; once the next slate is
-    regular season, switch back automatically.
-    """
-    override = os.getenv("NFL_ODDS_SPORT", "").strip()
-    if override:
-        return override
-
-    if schedule.empty or "game_type" not in schedule.columns:
-        return REGULAR_SEASON_ODDS_SPORT
-
-    sched = schedule.copy()
-    sched["_kickoff"] = _schedule_kickoff_series(sched)
-    # Schedule kickoffs are parsed as naive wall-clock timestamps from nflverse.
-    # `started` is timezone-aware Eastern, so compare on the same naive footing
-    # rather than mixing aware/naive pandas timestamps.
-    now_ts = pd.Timestamp(now)
-    if now_ts.tzinfo is not None:
-        now_ts = now_ts.tz_localize(None)
-    kickoff_rows = sched[sched["_kickoff"].notna()].sort_values("_kickoff")
-    upcoming = sched[sched["_kickoff"] >= now_ts].sort_values("_kickoff")
-    sample = upcoming if not upcoming.empty else sched.sort_values("_kickoff")
-    if sample.empty:
-        return REGULAR_SEASON_ODDS_SPORT
-
-    next_type = str(sample.iloc[0].get("game_type", "")).strip().upper()
-    has_preseason_rows = sched["game_type"].astype(str).str.upper().eq("PRE").any()
-    earliest_kickoff = kickoff_rows["_kickoff"].iloc[0] if not kickoff_rows.empty else None
-
-    # Some nflverse schedule pulls expose only the 272-game regular-season slate
-    # even while the real calendar is still in preseason. In that case the next
-    # visible kickoff is Week 1, but we still want preseason odds until the
-    # regular-season opener is close enough to be the actual active slate.
-    if (not has_preseason_rows and next_type == "REG" and earliest_kickoff is not None
-            and now_ts.month == 8
-            and now_ts < earliest_kickoff
-            and (earliest_kickoff - now_ts).days <= 35):
-        return PRESEASON_ODDS_SPORT
-
-    return PRESEASON_ODDS_SPORT if next_type == "PRE" else REGULAR_SEASON_ODDS_SPORT
-
 
 # ============================================================================
 # TRANSFORMS
@@ -413,7 +300,7 @@ def build_games_tab(schedule: pd.DataFrame, odds: pd.DataFrame,
             games = pd.concat([games, extras], ignore_index=True, sort=False)
             print(f"   ℹ️  preserved {len(unmatched)} unmatched odds row(s) as synthetic PRE games")
 
-    return stamp_preseason_weeks(games)
+    return phase.stamp_preseason_weeks(games)
 
 
 def build_game_markets_tab(games: pd.DataFrame) -> pd.DataFrame:
@@ -1231,10 +1118,15 @@ def main():
     odds = pd.DataFrame()
     props = pd.DataFrame()
     board = pd.DataFrame()
-    odds_sport = resolve_odds_sport(schedule, started)
-    model_version, model_era = resolve_model_identity(schedule_season, odds_sport)
+    season_phase = phase.resolve_season_phase(
+        schedule,
+        now=started,
+        odds_sport_override=os.getenv("NFL_ODDS_SPORT", "").strip(),
+    )
+    odds_sport = season_phase.odds_sport
+    model_version, model_era = resolve_model_identity(schedule_season, season_phase.phase)
     print(f"🧬 model version: {model_version} · era: {model_era}")
-    log_launch_readiness(odds_sport, model_version, model_era)
+    log_launch_readiness(season_phase.phase, model_version, model_era)
 
     if not odds_api_key:
         print("   ⚠️  no Odds API key — skipping live odds and props")
@@ -1246,7 +1138,7 @@ def main():
         )
         try:
             print(f"   sport key: {odds_sport}")
-            if odds_sport == PRESEASON_ODDS_SPORT:
+            if season_phase.is_preseason:
                 print("   ℹ️  preseason mode: team markets should populate first; "
                       "player props may stay empty until books open them")
             odds = extract_book_odds(odds_api.fetch_featured())
@@ -1316,11 +1208,9 @@ def main():
     picks_current = pd.DataFrame()
     daily_picks_new = pd.DataFrame()
     current_weekday = started.strftime("%A")
-    week = (current_preseason_week(games_tab, started)
-            if odds_sport == PRESEASON_ODDS_SPORT
-            else nv.current_week(schedule, now=started))
+    week = (phase.current_preseason_week(games_tab, started) or season_phase.active_week) if season_phase.is_preseason else season_phase.active_week
     preseason_team_markets_live = (
-        odds_sport == PRESEASON_ODDS_SPORT
+        season_phase.is_preseason
         and board.empty
         and has_live_game_market_odds(games_tab, game_type="PRE")
     )
@@ -1368,7 +1258,9 @@ def main():
         prior_daily = fetch_prior_daily_picks(sheets, SHEET_ID)
         picks_current, daily_picks_new = pk.assemble_pick_tabs(
             fresh_picks, prior_daily, week=week, season=schedule_season,
-            model_version=model_version, model_era=model_era)
+            model_version=model_version, model_era=model_era,
+            season_phase=season_phase.phase, odds_sport=season_phase.odds_sport,
+            game_type=season_phase.game_type)
         print(f"   picks: {len(picks_current)} current · {len(daily_picks_new)} new to Daily_Picks")
 
     tabs = {

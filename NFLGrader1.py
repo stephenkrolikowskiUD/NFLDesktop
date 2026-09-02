@@ -38,6 +38,7 @@ import pytz
 import gspread
 import json
 
+from nfl_phase import PRESEASON_PHASE, REGULAR_SEASON_PHASE, infer_pick_phase
 from picks import actual_value_for_metric, BINARY_METRICS, TEAM_MARKET_METRICS  # single source of truth
 from sports_common import (
     col_letter,
@@ -539,6 +540,11 @@ def pick_model_era(row: pd.Series) -> str:
     explicit = str(row.get("MODEL_ERA") or row.get("MODEL_VERSION") or "").strip()
     if explicit:
         return explicit
+    phase = infer_pick_phase(row)
+    if phase == PRESEASON_PHASE:
+        return "nfl_preseason_v1"
+    if phase == REGULAR_SEASON_PHASE:
+        return "nfl_regular_season_v1"
     date = row.get("date_parsed")
     if pd.isna(date):
         return "legacy_unknown"
