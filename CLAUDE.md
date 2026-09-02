@@ -131,6 +131,12 @@ compact tape or market-window UI, not a stack of equal-weight cards or a cloud
 of pills. Show a few high-signal numbers, a short preview of live games, and
 put the full chooser or rationale behind an explicit open state.
 
+Related UI convention from 2026-09-02: the live slate-facing board and the
+append-only audit trail are different products. `Picks_Current` should be
+presented as `Weekly Picks`; `Daily_Picks` should be presented as `Pick History`
+or another clearly archival label. Do not blend them into one surface or let a
+history fallback masquerade as a current board without saying so explicitly.
+
 ## No real project/account identifiers in fallback paths, even for convenience
 
 Local credential auto-detection (`sports_common.py`'s

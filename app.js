@@ -99,6 +99,7 @@ let st={
   player:"",metric:"REC",line:"",activeTab:"picks",oppFilter:"",showFullLog:false,
   playerSearch:"",playerSuggestions:[],showPlayerSugs:false,
   loading:true,error:null,dataWarnings:[],lookupError:"",loadedAt:null,latestPickDate:"",pickGuard:null,
+  currentPicksAvailable:false,
   picksView:"shortlist",propsMetric:"ALL",propsSearch:"",propsTeam:"ALL",propsSort:"EDGE",propsMinHit:"0",propsMinEdge:"5",gameMarketType:"ALL",gameMarketSort:"KICKOFF",
   weeklyProjPos:"ALL",weeklyProjTeam:"ALL",
   streakFilter:"all",drafted:new Set(),slipLegs:"3",
@@ -3165,7 +3166,10 @@ function renderModelPicksView(convergenceHTML){
     ?allTodayPicks.filter(p=>String(rowField(p,"RECOMMENDATION_STATUS")).toUpperCase()==="PLAYABLE")
     :allTodayPicks;
   const researchCount=hasCalibrationStatus?allTodayPicks.length-todayPicks.length:0;
-  const modelIntro=`<section class="model-picks-intro"><div class="model-picks-title">Model Picks</div><div class="model-picks-sub">Ranked recommendations from the deterministic market model and Gemini review layer. Provenance, evidence, and source freshness stay visible so every call can be audited.</div>${renderModelRunHealth(allTodayPicks)}${renderModelFreshness()}</section>`;
+  const sourceNote=st.currentPicksAvailable
+    ?"Weekly board from Picks_Current. Use Pick History for the append-only log and prior runs."
+    :"Picks_Current is unavailable, so this board is temporarily showing the latest Daily_Picks snapshot instead of a true live weekly board.";
+  const modelIntro=`<section class="model-picks-intro"><div class="model-picks-title">Weekly Picks</div><div class="model-picks-sub">Ranked recommendations from the current NFL board. This is the slate-facing view; provenance and run health stay visible, while the full append-only audit trail lives in Pick History.</div><div class="model-picks-sub">${esc(sourceNote)}</div>${renderModelRunHealth(allTodayPicks)}${renderModelFreshness()}</section>`;
   let html=convergenceHTML+modelIntro+renderPickGuard(st.pickGuard)+renderCalibrationPolicy();
 
   if(!todayPicks.length){
@@ -3216,6 +3220,42 @@ function renderModelPicksView(convergenceHTML){
     "Ranked recommendations from the current player-prop board.",
     playerPickModels
   );
+}
+
+function renderPickHistoryView(){
+  const rows=[...(st.picksHistory||[])].sort((a,b)=>{
+    const dateDiff=String(rowField(b,"DATE")).localeCompare(String(rowField(a,"DATE")));
+    if(dateDiff!==0)return dateDiff;
+    const runDiff=(toNum(rowField(b,"RUN_NUMBER"))||0)-(toNum(rowField(a,"RUN_NUMBER"))||0);
+    if(runDiff!==0)return runDiff;
+    return (toNum(rowField(a,"rank"))||999)-(toNum(rowField(b,"rank"))||999);
+  });
+  const runKeys=new Set(rows.map(row=>`${rowField(row,"DATE")}::${toNum(rowField(row,"RUN_NUMBER"))||0}`));
+  const playable=rows.filter(row=>String(rowField(row,"RECOMMENDATION_STATUS")).toUpperCase()==="PLAYABLE").length;
+  const graded=rows.filter(row=>{
+    const result=String(rowField(row,"RESULT")||rowField(row,"HIT")||"").trim().toUpperCase();
+    return result && result!=="PENDING";
+  }).length;
+  let html=`<section class="model-picks-intro"><div class="model-picks-title">Pick History</div><div class="model-picks-sub">Append-only log from Daily_Picks. Use this for audit trail, grading, CLV checks, and comparing how the board changed across runs.</div></section>`;
+  html+=`<div class="model-tape-strip health"><div class="model-tape-item good"><div class="model-tape-label">History rows</div><div class="model-tape-value">${rows.length}</div><div class="model-tape-meta">Daily_Picks archive</div></div><div class="model-tape-item"><div class="model-tape-label">Runs captured</div><div class="model-tape-value">${runKeys.size}</div><div class="model-tape-meta">Date + run snapshots</div></div><div class="model-tape-item ${playable?"good":"warn"}"><div class="model-tape-label">Playable rows</div><div class="model-tape-value">${playable}</div><div class="model-tape-meta">Slate-facing picks</div></div><div class="model-tape-item ${graded?"good":"warn"}"><div class="model-tape-label">Graded rows</div><div class="model-tape-value">${graded}</div><div class="model-tape-meta">Resolved outcomes</div></div></div>`;
+  if(!rows.length){
+    return html+`<div class="empty" style="padding:40px">No pick history yet. Once the engine appends to Daily_Picks, prior runs will show up here.</div>`;
+  }
+  html+=`<div class="props-tbl-wrap"><table><thead><tr><th>Date</th><th>Run</th><th>Pick</th><th>Market</th><th>Call</th><th>Tier</th><th>Status</th><th>Result</th></tr></thead><tbody>${rows.slice(0,150).map(row=>{
+    const selection=pickDisplaySelection(row)||rowField(row,"player")||"Pick";
+    const market=propTypeLabel(rowField(row,"prop_type"));
+    const line=rowField(row,"line");
+    const lean=normalizeLeanText(rowField(row,"lean"));
+    const call=[lean,line].filter(v=>v!==""&&v!=null).join(" ");
+    const tier=normalizeConfidence(rowField(row,"confidence"))||"—";
+    const status=rowField(row,"RECOMMENDATION_STATUS")||rowField(row,"GRADE_STATUS")||"—";
+    const result=rowField(row,"RESULT")||rowField(row,"HIT")||"PENDING";
+    return `<tr><td>${esc(rowField(row,"DATE")||"—")}</td><td>${esc(String(toNum(rowField(row,"RUN_NUMBER"))||"—"))}</td><td style="text-align:left;font-weight:600">${esc(selection)}</td><td>${esc(market)}</td><td>${esc(call||"—")}</td><td>${esc(tier)}</td><td>${esc(String(status).replaceAll("_"," ").toLowerCase().replace(/\b\w/g,m=>m.toUpperCase()))}</td><td>${esc(String(result).replaceAll("_"," ").toLowerCase().replace(/\b\w/g,m=>m.toUpperCase()))}</td></tr>`;
+  }).join("")}</tbody></table></div>`;
+  if(rows.length>150){
+    html+=`<div class="timestamp">Showing the latest 150 history rows to keep the dashboard readable.</div>`;
+  }
+  return html;
 }
 
 function renderDingerBoardView(convergenceHTML){
@@ -4424,7 +4464,8 @@ function renderPicksPage(activeTab,picksHTML){
   const views=[
     ["shortlist","This Week's Shortlist"],
     ["slips","Slips"],
-    ["picks","Model Picks"],
+    ["picks","Weekly Picks"],
+    ["history","Pick History"],
     ["markets","Game Markets"],
     ["draft","Draft"],
     ["streaks","Streaks"],
@@ -4893,6 +4934,8 @@ function render(){
     picksHTML=renderSlipsBoardView(convergenceHTML);
   }else if(st.picksView==="picks"){
     picksHTML=renderModelPicksView(convergenceHTML);
+  }else if(st.picksView==="history"){
+    picksHTML=renderPickHistoryView();
   }else if(st.picksView==="markets"){
     picksHTML=renderGameMarketsOnlyView();
   }else if(st.picksView==="dingers"){
@@ -5044,6 +5087,7 @@ function loadAllData(){
   }));
   const normalizedCurrentPicks=normalizePickRows(currentPickSource.rows);
   st.picksHistory=normalizePickRows(picksHistory);
+  st.currentPicksAvailable=!!currentPickSource.available;
   st.picks=currentPickSource.available?normalizedCurrentPicks:st.picksHistory;
   console.log(
     `📍 Picks source: ${currentPickSource.available?"Picks_Current":"Daily_Picks fallback"} `+
