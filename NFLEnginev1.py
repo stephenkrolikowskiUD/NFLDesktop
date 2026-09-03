@@ -55,10 +55,10 @@ BEST_BALL_PAGES = ["best-overall"]
 # NFL_SCORING=ppr|half|standard|underdog if drafting a different format.
 SCORING = os.getenv("NFL_SCORING", pj.DEFAULT_SCORING)
 
-# Picks generation runs on gamedays only — a "Wednesday practice-report" cron
-# firing shouldn't also regenerate the board. Comma-separated day names,
-# matched case-insensitively; add "Saturday,Friday" here once those become
-# real gamedays later in the season, no code change needed.
+# Picks generation defaults to gamedays, but once a real props board is live
+# for the active slate, the weekly board should refresh even on a non-gameday.
+# Comma-separated day names, matched case-insensitively; this now acts as a
+# fallback gate when no current slate market is available yet.
 PICKS_DAYS = {d.strip().lower() for d in
              os.getenv("NFL_PICKS_DAYS", "Thursday,Sunday,Monday").split(",") if d.strip()}
 SKIP_PICKS = os.getenv("NFL_SKIP_PICKS", "").lower() in {"1", "true", "yes"}
@@ -196,6 +196,20 @@ def log_pick_generation_outcome(*, preseason_team_markets_live: bool, board: pd.
 
     print(f"   ⚠️  {board_rows} player-prop line(s) and {player_ctx_rows} priced context row(s) "
           "were available, but picks generation returned 0 rows — inspect Gemini output or validation gates")
+
+
+def should_generate_weekly_picks(*, started: datetime, board: pd.DataFrame,
+                                 preseason_team_markets_live: bool) -> tuple[bool, str]:
+    """Allow a live weekly board to refresh as soon as the slate has real lines."""
+    current_weekday = started.strftime("%A")
+    if preseason_team_markets_live:
+        return True, "preseason team-market mode is live"
+    if not board.empty:
+        return True, f"{len(board)} live player-prop lines are available for the active slate"
+    if current_weekday.lower() in PICKS_DAYS:
+        return True, f"{current_weekday} is a scheduled picks day"
+    return False, (f"{current_weekday} is not a picks day "
+                   f"({', '.join(sorted(PICKS_DAYS))}) and no live current-slate board is posted yet")
 
 # ============================================================================
 # TRANSFORMS
@@ -1207,19 +1221,22 @@ def main():
     print("\n🎯 Weekly Picks")
     picks_current = pd.DataFrame()
     daily_picks_new = pd.DataFrame()
-    current_weekday = started.strftime("%A")
     week = (phase.current_preseason_week(games_tab, started) or season_phase.active_week) if season_phase.is_preseason else season_phase.active_week
     preseason_team_markets_live = (
         season_phase.is_preseason
         and board.empty
         and has_live_game_market_odds(games_tab, game_type="PRE")
     )
+    should_generate, generation_reason = should_generate_weekly_picks(
+        started=started,
+        board=board,
+        preseason_team_markets_live=preseason_team_markets_live,
+    )
 
     if SKIP_PICKS:
         print("   ⏭️  picks skipped (NFL_SKIP_PICKS set)")
-    elif current_weekday.lower() not in PICKS_DAYS and not preseason_team_markets_live:
-        print(f"   ⏭️  {current_weekday} is not a picks day "
-              f"({', '.join(sorted(PICKS_DAYS))}) — leaving Picks_Current as-is")
+    elif not should_generate:
+        print(f"   ⏭️  {generation_reason} — leaving Picks_Current as-is")
     elif week is None:
         print("   ⚠️  could not determine current week — skipping picks")
     elif board.empty and not preseason_team_markets_live:
@@ -1228,6 +1245,7 @@ def main():
         # deterministic fallback on zero data. Neither is worth doing.
         print("   ⏭️  no player props posted yet — skipping picks generation")
     else:
+        print(f"   ℹ️  generating weekly board because {generation_reason}")
         if preseason_team_markets_live:
             print("   ℹ️  preseason team-market mode: generating picks from spreads, moneylines, and totals")
             fresh_picks = pk.generate_preseason_game_picks(
