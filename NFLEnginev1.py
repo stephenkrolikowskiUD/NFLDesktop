@@ -813,7 +813,7 @@ def write_to_sheets(
     for tab_name, df in tabs.items():
         if df is None:
             continue
-        if df.empty:
+        if df.empty and tab_name != "Picks_Current":
             # Writing an empty frame would wipe a tab that still holds usable
             # data from a previous run, so skip instead.
             print(f"   ⏭️  {tab_name}: empty, leaving existing tab untouched")
@@ -891,6 +891,42 @@ def build_week_games_str(schedule: pd.DataFrame, week: int) -> str:
     return "\n".join(lines)
 
 
+def stamp_pick_schedule(picks: pd.DataFrame, schedule: pd.DataFrame, week: int) -> pd.DataFrame:
+    """Attach authoritative kickoff fields before boards are split by game day."""
+    if picks.empty:
+        return picks
+
+    out = picks.copy()
+    games = schedule[pd.to_numeric(schedule.get("week"), errors="coerce") == week].copy()
+    if games.empty:
+        out["GAME_DATE"] = ""
+        out["GAME_TIME"] = ""
+        return out
+
+    game_lookup = {
+        f"{str(row.get('away_team', '')).upper()} @ {str(row.get('home_team', '')).upper()}": row
+        for _, row in games.iterrows()
+    }
+    dates, times = [], []
+    for _, pick in out.iterrows():
+        matchup = str(pick.get("game", "")).upper().strip()
+        game = game_lookup.get(matchup)
+        dates.append(game.get("gameday", "") if game is not None else "")
+        times.append(game.get("gametime", "") if game is not None else "")
+    out["GAME_DATE"] = dates
+    out["GAME_TIME"] = times
+    return out
+
+
+def fetch_pick_tab(client, sheet_id: str, tab_name: str) -> pd.DataFrame:
+    """Read one existing pick board without treating a missing tab as an error."""
+    try:
+        sheet = client.open_by_key(sheet_id)
+        return safe_records_df(sheet.worksheet(tab_name))
+    except Exception:
+        return pd.DataFrame()
+
+
 def fetch_prior_daily_picks(client, sheet_id: str) -> pd.DataFrame:
     """Existing Daily_Picks rows, read before this run's picks are built.
 
@@ -899,12 +935,7 @@ def fetch_prior_daily_picks(client, sheet_id: str) -> pd.DataFrame:
     before we know what to write, unlike every other tab here which is a
     stateless full rebuild each run.
     """
-    try:
-        sheet = client.open_by_key(sheet_id)
-        ws = sheet.worksheet("Daily_Picks")
-    except Exception:
-        return pd.DataFrame()
-    return safe_records_df(ws)
+    return fetch_pick_tab(client, sheet_id, "Daily_Picks")
 
 
 def refresh_clv_daily_picks(client, sheet_id: str, props_board: pd.DataFrame, *,
@@ -1219,9 +1250,16 @@ def main():
         raise
 
     print("\n🎯 Weekly Picks")
+    picks_weekly = pd.DataFrame()
     picks_current = pd.DataFrame()
     daily_picks_new = pd.DataFrame()
     week = (phase.current_preseason_week(games_tab, started) or season_phase.active_week) if season_phase.is_preseason else season_phase.active_week
+    prior_weekly = fetch_pick_tab(sheets, SHEET_ID, "Picks_Weekly") if week is not None else pd.DataFrame()
+    if week is not None and not prior_weekly.empty:
+        picks_weekly = pk.build_weekly_pick_board(
+            pd.DataFrame(), prior_weekly, week=week, season=schedule_season
+        )
+        picks_current = pk.select_next_game_day_picks(picks_weekly, now=started)
     preseason_team_markets_live = (
         season_phase.is_preseason
         and board.empty
@@ -1274,12 +1312,19 @@ def main():
                 fresh_picks=fresh_picks,
             )
         prior_daily = fetch_prior_daily_picks(sheets, SHEET_ID)
-        picks_current, daily_picks_new = pk.assemble_pick_tabs(
+        fresh_snapshot, daily_picks_new = pk.assemble_pick_tabs(
             fresh_picks, prior_daily, week=week, season=schedule_season,
             model_version=model_version, model_era=model_era,
             season_phase=season_phase.phase, odds_sport=season_phase.odds_sport,
             game_type=season_phase.game_type)
-        print(f"   picks: {len(picks_current)} current · {len(daily_picks_new)} new to Daily_Picks")
+        fresh_snapshot = stamp_pick_schedule(fresh_snapshot, schedule, week)
+        daily_picks_new = stamp_pick_schedule(daily_picks_new, schedule, week)
+        picks_weekly = pk.build_weekly_pick_board(
+            fresh_snapshot, prior_weekly, week=week, season=schedule_season
+        )
+        picks_current = pk.select_next_game_day_picks(picks_weekly, now=started)
+        print(f"   picks: {len(picks_weekly)} weekly · {len(picks_current)} next game day · "
+              f"{len(daily_picks_new)} new to Daily_Picks")
 
     tabs = {
         # Tabs the NFL dashboard reads
@@ -1294,7 +1339,10 @@ def main():
         "All_Books_Props": build_all_books_props_tab(props),
         "Game_Markets": game_markets_tab,
         "Projections": projections,
-        "Picks_Current": picks_current,
+        "Picks_Weekly": picks_weekly,
+        # Unlike reference tabs, a daily board must clear when there is no
+        # remaining unstarted slate. Keeping yesterday's board is worse.
+        "Picks_Current": picks_current if not picks_current.empty else pd.DataFrame(columns=pk.PICK_OUTPUT_COLUMNS),
     }
     if KEEP_REFERENCE_TABS:
         tabs.update({

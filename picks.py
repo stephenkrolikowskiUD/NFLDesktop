@@ -966,6 +966,7 @@ def generate_weekly_picks(gemini_api_key: str, gemini_model: str,
 
 PICK_OUTPUT_COLUMNS = [
     "DATE", "SEASON", "WEEK", "RUN_NUMBER", "RUN_TIME", "rank", "game",
+    "GAME_DATE", "GAME_TIME",
     "player", "player_id", "team", "opponent", "prop_type", "line", "lean",
     "confidence", "rationale", "injury_context", "SELECTION_METHOD",
     "MODEL_VERSION", "MODEL_ERA", "SEASON_PHASE", "ODDS_SPORT", "GAME_TYPE",
@@ -1011,6 +1012,55 @@ def apply_one_pick_per_player(df: pd.DataFrame) -> pd.DataFrame:
     if (~player_props).any():
         return pd.concat([trimmed, out.loc[~player_props]], ignore_index=True)
     return trimmed
+
+
+def build_weekly_pick_board(fresh_picks: pd.DataFrame, prior_weekly: pd.DataFrame,
+                            *, week: int, season: int) -> pd.DataFrame:
+    """Merge newly priced props into the active week's persistent board."""
+    prior = prior_weekly.copy()
+    if not prior.empty:
+        prior_season = pd.to_numeric(_column_or_default(prior, "SEASON", season), errors="coerce")
+        prior_week = pd.to_numeric(_column_or_default(prior, "WEEK", week), errors="coerce")
+        prior = prior[(prior_season == season) & (prior_week == week)].copy()
+
+    combined = pd.concat([fresh_picks, prior], ignore_index=True)
+    if combined.empty:
+        return combined
+
+    # A refreshed version of the same pick replaces the older snapshot.
+    combined["_pick_key"] = combined.apply(_pick_key, axis=1).map(str)
+    combined = combined.drop_duplicates(subset="_pick_key", keep="first").drop(columns="_pick_key")
+    combined["CALIBRATION_SCORE"] = pd.to_numeric(
+        _column_or_default(combined, "CALIBRATION_SCORE", 0), errors="coerce"
+    ).fillna(0)
+    combined["rank"] = pd.to_numeric(_column_or_default(combined, "rank", 999), errors="coerce").fillna(999)
+    combined = combined.sort_values(
+        by=["CALIBRATION_SCORE", "rank"], ascending=[False, True], kind="stable"
+    ).reset_index(drop=True)
+    combined = apply_one_pick_per_player(combined)
+    combined["rank"] = range(1, len(combined) + 1)
+    return combined
+
+
+def select_next_game_day_picks(weekly_picks: pd.DataFrame, *, now: datetime) -> pd.DataFrame:
+    """Return the nearest unstarted game-day slice of the active weekly board."""
+    if weekly_picks.empty or "GAME_DATE" not in weekly_picks.columns:
+        return weekly_picks.copy()
+
+    out = weekly_picks.copy()
+    game_dates = pd.to_datetime(out["GAME_DATE"], errors="coerce").dt.date
+    game_times = out.get("GAME_TIME", pd.Series("", index=out.index)).fillna("")
+    kickoff = pd.to_datetime(
+        out["GAME_DATE"].astype(str) + " " + game_times.astype(str),
+        format="%Y-%m-%d %I:%M %p",
+        errors="coerce",
+    )
+    kickoff = kickoff.dt.tz_localize(eastern, nonexistent="shift_forward", ambiguous="NaT")
+    eligible = (kickoff >= now) | (kickoff.isna() & (game_dates >= now.date()))
+    future_dates = sorted(set(game_dates[eligible].dropna()))
+    if not future_dates:
+        return out.iloc[0:0].copy()
+    return out.loc[game_dates == future_dates[0]].sort_values("rank").reset_index(drop=True)
 
 
 def _column_or_default(frame: pd.DataFrame, column: str, default) -> pd.Series:

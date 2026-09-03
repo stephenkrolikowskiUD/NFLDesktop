@@ -92,14 +92,14 @@ const initialDraftSlate=loadDraftSlate();
 let st={
   tonight:[],gameLogs:[],splits:[],weather:[],qbSlateRows:[],schedule:[],
   pTonight:[],pGameLogs:[],pSplits:[],
-  picks:[],picksHistory:[],props:[],allBooksProps:[],gameMarkets:[],teamRankings:[],teams:[],
+  picks:[],weeklyPicks:[],picksHistory:[],props:[],allBooksProps:[],gameMarkets:[],teamRankings:[],teams:[],
   pickPerformance:[],pickPerformanceSnaps:[],statsTimeWindow:"last_30d",statsLeaderMetric:"REC",leaderMode:"final",leaderDateOffset:0,gameEntry:{selectedGame:null,legCount:GAME_ENTRY_DEFAULT_LEGS,entry:null},
   shortlistTray:loadShortlistTray(),shortlistTrayNotice:"",
   mode:"skill",
   player:"",metric:"REC",line:"",activeTab:"picks",oppFilter:"",showFullLog:false,
   playerSearch:"",playerSuggestions:[],showPlayerSugs:false,
   loading:true,error:null,dataWarnings:[],lookupError:"",loadedAt:null,latestPickDate:"",pickGuard:null,
-  currentPicksAvailable:false,
+  currentPicksAvailable:false,weeklyPicksAvailable:false,
   picksView:"shortlist",propsMetric:"ALL",propsSearch:"",propsTeam:"ALL",propsSort:"EDGE",propsMinHit:"0",propsMinEdge:"5",gameMarketType:"ALL",gameMarketSort:"KICKOFF",
   weeklyProjPos:"ALL",weeklyProjTeam:"ALL",
   streakFilter:"all",drafted:new Set(),slipLegs:"3",
@@ -3155,21 +3155,14 @@ function renderShortlistPicksView(){
   return renderTonightShortlist();
 }
 
-function renderModelPicksView(convergenceHTML){
-  const latestDate=getLatestPickDate();
-  const latestRun=getLatestPickRun();
-  const allTodayPicks=latestDate
-    ?st.picks.filter(p=>normalizeDate(rowField(p,"DATE"))===latestDate&&toNum(rowField(p,"RUN_NUMBER"))===latestRun)
-    :st.picks;
-  const hasCalibrationStatus=allTodayPicks.some(p=>String(rowField(p,"RECOMMENDATION_STATUS")||"").trim());
+function renderModelPicksView(convergenceHTML,{title=weeklyPickLabel(),subtitle="Ranked best bets across every game this week with a live market.",rows=st.weeklyPicks,sourceNote=""}={}){
+  const allBoardPicks=rows||[];
+  const hasCalibrationStatus=allBoardPicks.some(p=>String(rowField(p,"RECOMMENDATION_STATUS")||"").trim());
   const todayPicks=hasCalibrationStatus
-    ?allTodayPicks.filter(p=>String(rowField(p,"RECOMMENDATION_STATUS")).toUpperCase()==="PLAYABLE")
-    :allTodayPicks;
-  const researchCount=hasCalibrationStatus?allTodayPicks.length-todayPicks.length:0;
-  const sourceNote=st.currentPicksAvailable
-    ?"Weekly board from Picks_Current. Use Pick History for the append-only log and prior runs."
-    :"Picks_Current is unavailable, so this board is temporarily showing the latest Daily_Picks snapshot instead of a true live weekly board.";
-  const modelIntro=`<section class="model-picks-intro"><div class="model-picks-title">Weekly Picks</div><div class="model-picks-sub">Ranked recommendations from the current NFL board. This is the slate-facing view; provenance and run health stay visible, while the full append-only audit trail lives in Pick History.</div><div class="model-picks-sub">${esc(sourceNote)}</div>${renderModelRunHealth(allTodayPicks)}${renderModelFreshness()}</section>`;
+    ?allBoardPicks.filter(p=>String(rowField(p,"RECOMMENDATION_STATUS")).toUpperCase()==="PLAYABLE")
+    :allBoardPicks;
+  const researchCount=hasCalibrationStatus?allBoardPicks.length-todayPicks.length:0;
+  const modelIntro=`<section class="model-picks-intro"><div class="model-picks-title">${esc(title)}</div><div class="model-picks-sub">${esc(subtitle)}</div>${sourceNote?`<div class="model-picks-sub">${esc(sourceNote)}</div>`:""}${renderModelRunHealth(allBoardPicks)}${renderModelFreshness()}</section>`;
   let html=convergenceHTML+modelIntro+renderPickGuard(st.pickGuard)+renderCalibrationPolicy();
 
   if(!todayPicks.length){
@@ -3220,6 +3213,18 @@ function renderModelPicksView(convergenceHTML){
     "Ranked recommendations from the current player-prop board.",
     playerPickModels
   );
+}
+
+function renderDailyPicksView(convergenceHTML){
+  const sourceNote=st.currentPicksAvailable
+    ?`Focused on the nearest upcoming game day. The full ${weeklyPickLabel()} board stays in ${weeklyPickLabel()}.`
+    :"Picks_Current is unavailable, so this view is temporarily showing the latest archived snapshot.";
+  return renderModelPicksView(convergenceHTML,{
+    title:"Daily Picks",
+    subtitle:"The focused slate for the next NFL game day: Thursday, Sunday, or Monday.",
+    rows:st.picks,
+    sourceNote,
+  });
 }
 
 function renderPickHistoryView(){
@@ -4460,11 +4465,17 @@ function renderAppHeader({activeTab,showCtrl,player,metricOpts,curTonight}){
     </div>`;
 }
 
+function weeklyPickLabel(){
+  const week=toNum(rowField((st.weeklyPicks||[])[0]||{},"WEEK"));
+  return week?`Week ${week} Picks`:"Weekly Picks";
+}
+
 function renderPicksPage(activeTab,picksHTML){
   const views=[
     ["shortlist","This Week's Shortlist"],
     ["slips","Slips"],
-    ["picks","Weekly Picks"],
+    ["picks",weeklyPickLabel()],
+    ["daily","Daily Picks"],
     ["history","Pick History"],
     ["markets","Game Markets"],
     ["draft","Draft"],
@@ -4933,7 +4944,13 @@ function render(){
   }else if(st.picksView==="slips"){
     picksHTML=renderSlipsBoardView(convergenceHTML);
   }else if(st.picksView==="picks"){
-    picksHTML=renderModelPicksView(convergenceHTML);
+    picksHTML=renderModelPicksView(convergenceHTML,{
+      sourceNote:st.weeklyPicksAvailable
+        ?"The active Week 1 board accumulates qualified picks as each game’s markets open."
+        :"Picks_Weekly is unavailable, so this is temporarily showing the next game-day board."
+    });
+  }else if(st.picksView==="daily"){
+    picksHTML=renderDailyPicksView(convergenceHTML);
   }else if(st.picksView==="history"){
     picksHTML=renderPickHistoryView();
   }else if(st.picksView==="markets"){
@@ -5053,6 +5070,9 @@ function loadAllData(){
   fetchOptionalSheet("Starting_QBs","Starting quarterbacks are unavailable."),
   fetchOptionalSheet("QB_Game_Logs","Recent quarterback history is unavailable."),
   fetchOptionalSheet("QB_Home_Away"),
+  fetchSheet("Picks_Weekly")
+    .then(rows=>({available:true,rows}))
+    .catch(error=>{reportNonFatal("Picks_Weekly unavailable; using the next game-day board as a temporary weekly fallback.",error,"Week 1 board is unavailable; showing the next game-day board.");return{available:false,rows:[]}}),
   fetchSheet("Picks_Current")
     .then(rows=>({available:true,rows}))
     .catch(error=>{reportNonFatal("Picks_Current unavailable; using Daily_Picks history fallback.",error,"Current model picks are unavailable; showing the latest history snapshot.");return{available:false,rows:[]}}),
@@ -5064,7 +5084,7 @@ function loadAllData(){
   fetchOptionalSheet("Projections","Season projections are unavailable."),
   fetchOptionalSheet("Pick_Performance"),
   fetchOptionalSheet("Pick_Performance_Snapshots")
-]).then(([teams,tonight,logs,splits,weather,qbSlateRows,schedule,pTonight,pLogs,pSplits,currentPickSource,picksHistory,props,allBooksProps,gameMarkets,teamRankings,projections,pickPerformance,pickPerformanceSnaps])=>{
+]).then(([teams,tonight,logs,splits,weather,qbSlateRows,schedule,pTonight,pLogs,pSplits,weeklyPickSource,currentPickSource,picksHistory,props,allBooksProps,gameMarkets,teamRankings,projections,pickPerformance,pickPerformanceSnaps])=>{
   resetDerived();
   st.teams=normalizeKeys(cleanRows(teams||[]));
   st.tonight=normalizeKeys(cleanRows(tonight));
@@ -5085,13 +5105,17 @@ function loadAllData(){
     DATE: normalizeDate(rowField(p,"DATE")),
     RUN_NUMBER: toNum(rowField(p,"RUN_NUMBER"))
   }));
+  const normalizedWeeklyPicks=normalizePickRows(weeklyPickSource.rows);
   const normalizedCurrentPicks=normalizePickRows(currentPickSource.rows);
   st.picksHistory=normalizePickRows(picksHistory);
+  st.weeklyPicksAvailable=!!weeklyPickSource.available;
   st.currentPicksAvailable=!!currentPickSource.available;
+  st.weeklyPicks=weeklyPickSource.available?normalizedWeeklyPicks:normalizedCurrentPicks;
   st.picks=currentPickSource.available?normalizedCurrentPicks:st.picksHistory;
   console.log(
-    `📍 Picks source: ${currentPickSource.available?"Picks_Current":"Daily_Picks fallback"} `+
-    `(${st.picks.length} current, ${st.picksHistory.length} history)`
+    `📍 Picks source: ${weeklyPickSource.available?"Picks_Weekly":"Picks_Current fallback"} / `+
+    `${currentPickSource.available?"Picks_Current":"Daily_Picks fallback"} `+
+    `(${st.weeklyPicks.length} weekly, ${st.picks.length} daily, ${st.picksHistory.length} history)`
 	  );
 	  st.props=normalizeKeys(cleanRows(props));
 	  st.allBooksProps=normalizeKeys(cleanRows(allBooksProps||[]));
@@ -5112,6 +5136,8 @@ function loadAllData(){
 	                  'targets', 'target_share', 'snap_pct', 'fantasy_points_ppr'],
 	    Slate_QB: ['player_name', 'team_abbr', 'opp_abbr',
 	               'attempts', 'passing_yards', 'passing_tds'],
+	    Picks_Weekly: ['DATE', 'RUN_NUMBER', 'player', 'prop_type', 'line', 'lean',
+	                  'confidence', 'rationale', 'HIT'],
 	    Picks_Current: ['DATE', 'RUN_NUMBER', 'player', 'prop_type', 'line', 'lean',
 	                  'confidence', 'rationale', 'HIT'],
 	    Daily_Picks: ['DATE', 'RUN_NUMBER', 'player', 'prop_type', 'line', 'lean',
@@ -5124,6 +5150,7 @@ function loadAllData(){
 	  const _schemaSources = {
         Teams: st.teams,
 	    Slate_Skill: st.tonight,
+	    Picks_Weekly: st.weeklyPicks,
 	    Picks_Current: normalizedCurrentPicks,
 	    Daily_Picks: st.picksHistory,
 	    Player_Props: st.props,

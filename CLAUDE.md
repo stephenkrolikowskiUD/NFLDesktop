@@ -131,11 +131,14 @@ compact tape or market-window UI, not a stack of equal-weight cards or a cloud
 of pills. Show a few high-signal numbers, a short preview of live games, and
 put the full chooser or rationale behind an explicit open state.
 
-Related UI convention from 2026-09-02: the live slate-facing board and the
-append-only audit trail are different products. `Picks_Current` should be
-presented as `Weekly Picks`; `Daily_Picks` should be presented as `Pick History`
-or another clearly archival label. Do not blend them into one surface or let a
-history fallback masquerade as a current board without saying so explicitly.
+Related UI convention from 2026-09-03: the weekly board, next-game-day board,
+and append-only audit trail are three different products. `Picks_Weekly` is the
+active-week board and must accumulate qualified picks as Thursday, Sunday, and
+Monday markets open. `Picks_Current` is only the nearest unstarted game-day
+slice of that board; it must clear or advance after kickoff rather than showing
+expired picks. `Daily_Picks` is archival history for grading and CLV. Do not
+blend these surfaces or let a fallback masquerade as the authoritative board
+without saying so explicitly.
 
 ## No real project/account identifiers in fallback paths, even for convenience
 
