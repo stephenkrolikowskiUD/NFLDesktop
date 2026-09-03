@@ -995,6 +995,24 @@ def _market_fallback_key(row) -> tuple:
     return (game, prop_type, str(row.get("player", "")).upper())
 
 
+def apply_one_pick_per_player(df: pd.DataFrame) -> pd.DataFrame:
+    """Keep the top-ranked player prop for each player on the weekly board."""
+    if df.empty or "player" not in df.columns or "prop_type" not in df.columns:
+        return df
+
+    out = df.copy()
+    player_props = ~out["prop_type"].astype(str).str.upper().isin(TEAM_MARKET_METRICS)
+    if not player_props.any():
+        return out
+
+    trimmed = out.loc[player_props].copy()
+    trimmed["_player_key"] = trimmed["player"].map(_norm_name)
+    trimmed = trimmed.drop_duplicates(subset="_player_key", keep="first").drop(columns="_player_key")
+    if (~player_props).any():
+        return pd.concat([trimmed, out.loc[~player_props]], ignore_index=True)
+    return trimmed
+
+
 def _column_or_default(frame: pd.DataFrame, column: str, default) -> pd.Series:
     """Return a frame column or a same-index default Series.
 
@@ -1060,6 +1078,7 @@ def assemble_pick_tabs(fresh_picks: pd.DataFrame, prior_daily: pd.DataFrame,
         ascending=[False, True],
         kind="stable",
     ).reset_index(drop=True)
+    out = apply_one_pick_per_player(out)
     out["rank"] = range(1, len(out) + 1)
 
     run_number = 1
