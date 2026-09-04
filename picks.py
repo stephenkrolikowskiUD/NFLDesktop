@@ -308,11 +308,19 @@ def build_player_context(props_board: pd.DataFrame, game_logs: pd.DataFrame,
         if not injuries.empty and "gsis_id" in injuries.columns:
             inj_row = injuries[injuries["gsis_id"].astype(str) == str(latest.get("player_id"))]
 
+        event_away = str(prop.get("event_away_abbr", prop.get("event_away", ""))).strip().upper()
+        event_home = str(prop.get("event_home_abbr", prop.get("event_home", ""))).strip().upper()
+        kickoff = pd.to_datetime(prop.get("commence_time"), utc=True, errors="coerce")
+        kickoff_eastern = kickoff.tz_convert(eastern) if pd.notna(kickoff) else None
+
         rows.append({
             "player": prop["player"],
             "player_id": latest.get("player_id"),
             "team": latest.get("team"),
             "opponent": latest.get("opponent_team"),
+            "game": f"{event_away} @ {event_home}" if event_away and event_home else "",
+            "GAME_DATE": kickoff_eastern.strftime("%Y-%m-%d") if kickoff_eastern else "",
+            "GAME_TIME": kickoff_eastern.strftime("%I:%M %p").lstrip("0") if kickoff_eastern else "",
             "position": latest.get("position"),
             "metric": prop["metric"],
             "line": line,
@@ -512,7 +520,9 @@ def validate_and_price_picks(raw_picks: list[dict], player_ctx: pd.DataFrame) ->
             "player_id": real.get("player_id"),
             "team": real.get("team"),
             "opponent": real.get("opponent"),
-            "game": pick.get("game", ""),
+            "game": real.get("game", pick.get("game", "")),
+            "GAME_DATE": real.get("GAME_DATE", ""),
+            "GAME_TIME": real.get("GAME_TIME", ""),
             "prop_type": metric,
             "line": real["line"],  # exact real line match, never Gemini's
             "lean": lean,

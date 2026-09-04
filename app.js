@@ -3220,7 +3220,7 @@ function renderDailyPicksView(convergenceHTML){
     ?`Focused on the nearest upcoming game day. The full ${weeklyPickLabel()} board stays in ${weeklyPickLabel()}.`
     :"Picks_Current is unavailable, so this view is temporarily showing the latest archived snapshot.";
   return renderModelPicksView(convergenceHTML,{
-    title:"Daily Picks",
+    title:dailyPickLabel(),
     subtitle:"The focused slate for the next NFL game day: Thursday, Sunday, or Monday.",
     rows:st.picks,
     sourceNote,
@@ -4470,12 +4470,19 @@ function weeklyPickLabel(){
   return week?`Week ${week} Picks`:"Weekly Picks";
 }
 
+function dailyPickLabel(){
+  const gameDate=String(rowField((st.picks||[])[0]||{},"GAME_DATE")||"").trim();
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(gameDate))return "Daily Picks";
+  const date=new Date(`${gameDate}T12:00:00`);
+  return Number.isNaN(date.getTime())?"Daily Picks":`${new Intl.DateTimeFormat("en-US",{weekday:"long"}).format(date)} Picks`;
+}
+
 function renderPicksPage(activeTab,picksHTML){
   const views=[
     ["shortlist","This Week's Shortlist"],
     ["slips","Slips"],
     ["picks",weeklyPickLabel()],
-    ["daily","Daily Picks"],
+    ["daily",dailyPickLabel()],
     ["history","Pick History"],
     ["markets","Game Markets"],
     ["draft","Draft"],

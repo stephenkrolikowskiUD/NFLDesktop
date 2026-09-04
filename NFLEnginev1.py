@@ -911,8 +911,8 @@ def stamp_pick_schedule(picks: pd.DataFrame, schedule: pd.DataFrame, week: int) 
     for _, pick in out.iterrows():
         matchup = str(pick.get("game", "")).upper().strip()
         game = game_lookup.get(matchup)
-        dates.append(game.get("gameday", "") if game is not None else "")
-        times.append(game.get("gametime", "") if game is not None else "")
+        dates.append(game.get("gameday", "") if game is not None else pick.get("GAME_DATE", ""))
+        times.append(game.get("gametime", "") if game is not None else pick.get("GAME_TIME", ""))
     out["GAME_DATE"] = dates
     out["GAME_TIME"] = times
     return out
@@ -1200,6 +1200,14 @@ def main():
                 if upcoming:
                     props = oc.add_fair_prices(odds_api.fetch_props(upcoming))
                     board = oc.best_price_board(props)
+                    if not board.empty:
+                        team_name_map = build_team_name_map(teams)
+                        board["event_away_abbr"] = board["event_away"].map(
+                            team_name_map
+                        ).fillna(board["event_away"])
+                        board["event_home_abbr"] = board["event_home"].map(
+                            team_name_map
+                        ).fillna(board["event_home"])
                     if props.empty:
                         print("   ℹ️  no props posted yet — books open these closer "
                               "to kickoff (empty responses are not charged)")
