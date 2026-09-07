@@ -1267,7 +1267,9 @@ def main():
         picks_weekly = pk.build_weekly_pick_board(
             pd.DataFrame(), prior_weekly, week=week, season=schedule_season
         )
-        picks_current = pk.select_next_game_day_picks(picks_weekly, now=started)
+        picks_current = pk.select_next_game_day_picks(
+            picks_weekly, now=started, schedule=schedule, week=week
+        )
     preseason_team_markets_live = (
         season_phase.is_preseason
         and board.empty
@@ -1330,7 +1332,9 @@ def main():
         picks_weekly = pk.build_weekly_pick_board(
             fresh_snapshot, prior_weekly, week=week, season=schedule_season
         )
-        picks_current = pk.select_next_game_day_picks(picks_weekly, now=started)
+        picks_current = pk.select_next_game_day_picks(
+            picks_weekly, now=started, schedule=schedule, week=week
+        )
         print(f"   picks: {len(picks_weekly)} weekly · {len(picks_current)} next game day · "
               f"{len(daily_picks_new)} new to Daily_Picks")
 

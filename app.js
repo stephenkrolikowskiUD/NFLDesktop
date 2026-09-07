@@ -677,8 +677,8 @@ function getModelFreshness(){
   return[
     freshnessSignal("Model picks",currentPicks,{warnHours:8,staleHours:20,fields:["LAST_UPDATED","RUN_TIME"]}),
     freshnessSignal("Sportsbook markets",st.props,{warnHours:3,staleHours:8}),
-    freshnessSignal("Skill-player logs",st.gameLogs,{warnHours:18,staleHours:36}),
-    freshnessSignal("QB logs",st.pGameLogs,{warnHours:18,staleHours:36}),
+    freshnessSignal("Skill-player logs",st.gameLogs,{warnHours:18,staleHours:36,fields:["LAST_UPDATED","_generated_at"]}),
+    freshnessSignal("QB logs",st.pGameLogs,{warnHours:18,staleHours:36,fields:["LAST_UPDATED","_generated_at"]}),
   ];
 }
 function renderModelFreshness(){
@@ -3174,7 +3174,7 @@ function renderShortlistPicksView(){
   return renderTonightShortlist();
 }
 
-function renderModelPicksView(convergenceHTML,{title=weeklyPickLabel(),subtitle="Ranked best bets across every game this week with a live market.",rows=st.weeklyPicks,sourceNote=""}={}){
+function renderModelPicksView(convergenceHTML,{title=weeklyPickLabel(),subtitle="Ranked best bets across every game this week with a live market.",rows=st.weeklyPicks,sourceNote="",emptyMessage=""}={}){
   const allBoardPicks=rows||[];
   const hasCalibrationStatus=allBoardPicks.some(p=>String(rowField(p,"RECOMMENDATION_STATUS")||"").trim());
   const todayPicks=hasCalibrationStatus
@@ -3185,10 +3185,10 @@ function renderModelPicksView(convergenceHTML,{title=weeklyPickLabel(),subtitle=
   let html=convergenceHTML+modelIntro+renderPickGuard(st.pickGuard)+renderCalibrationPolicy();
 
   if(!todayPicks.length){
-    const emptyMessage=hasCalibrationStatus
+    const defaultEmptyMessage=hasCalibrationStatus
       ?`No calibrated play qualifies today. ${researchCount} research pick${researchCount===1?"":"s"} remain tracked for model learning.`
       :"No model picks today. Run the engine to generate.";
-    return html+`<div class="empty" style="padding:40px">${emptyMessage}</div>`;
+    return html+`<div class="empty" style="padding:40px">${esc(emptyMessage||defaultEmptyMessage)}</div>`;
   }
 
   const hits=todayPicks.filter(p=>{
@@ -3240,9 +3240,10 @@ function renderDailyPicksView(convergenceHTML){
     :"Picks_Current is unavailable, so this view is temporarily showing the latest archived snapshot.";
   return renderModelPicksView(convergenceHTML,{
     title:dailyPickLabel(),
-    subtitle:"The focused slate for the next NFL game day: Thursday, Sunday, or Monday.",
+    subtitle:"The focused slate for the next scheduled NFL game day.",
     rows:st.picks,
     sourceNote,
+    emptyMessage:`No qualified plays for ${dailyPickLabel().replace(" Picks","")}. The full ${weeklyPickLabel()} board remains available.`,
   });
 }
 
@@ -4581,8 +4582,20 @@ function weeklyPickLabel(){
   return week?`Week ${week} Picks`:"Weekly Picks";
 }
 
+function nextScheduledGameDate(){
+  const today=new Date().toLocaleDateString("en-CA",{timeZone:"America/New_York"});
+  const upcoming=(st.schedule||[]).map(row=>({
+    date:String(rowField(row,"game_date","GAME_DATE","gameday","GAME_DAY")||"").trim(),
+    start:scheduleRowStartMs(row),
+    type:String(rowField(row,"game_type","GAME_TYPE")||"REG").toUpperCase(),
+  })).filter(game=>game.type==="REG"&&/^\d{4}-\d{2}-\d{2}$/.test(game.date)&&
+    (Number.isFinite(game.start)?game.start>=Date.now():game.date>=today))
+    .sort((a,b)=>(Number.isFinite(a.start)?a.start:Infinity)-(Number.isFinite(b.start)?b.start:Infinity));
+  return upcoming[0]?.date||"";
+}
+
 function dailyPickLabel(){
-  const gameDate=String(rowField((st.picks||[])[0]||{},"GAME_DATE")||"").trim();
+  const gameDate=nextScheduledGameDate()||String(rowField((st.picks||[])[0]||{},"GAME_DATE")||"").trim();
   if(!/^\d{4}-\d{2}-\d{2}$/.test(gameDate))return "Daily Picks";
   const date=new Date(`${gameDate}T12:00:00`);
   return Number.isNaN(date.getTime())?"Daily Picks":`${new Intl.DateTimeFormat("en-US",{weekday:"long"}).format(date)} Picks`;

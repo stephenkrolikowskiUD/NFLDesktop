@@ -105,6 +105,14 @@ scratch and reintroduce raw interpolation. If a value is ultimately row data,
 escape it in the last template that renders it, even if an upstream helper
 already "should" have normalized it.
 
+## Sheet freshness may be row-level or tab-level
+
+Reference tabs such as `Skill_Game_Logs` and `QB_Game_Logs` do not carry a
+row-level `LAST_UPDATED` field. The engine stamps every written dashboard tab
+with `_generated_at` instead. Any freshness UI must check both fields before
+calling a populated tab "No data"; otherwise the dashboard can show live L10
+evidence beside a false red source-health warning.
+
 ## Team metadata is a real dashboard dependency, not optional garnish
 
 The NFL UI now uses the `Teams` sheet for visible product features: team logos,
@@ -139,6 +147,37 @@ slice of that board; it must clear or advance after kickoff rather than showing
 expired picks. `Daily_Picks` is archival history for grading and CLV. Do not
 blend these surfaces or let a fallback masquerade as the authoritative board
 without saying so explicitly.
+
+The "current" game day comes from `Schedule`, not from whichever date happens
+to have a curated pick. If the Wednesday opener has no qualified play, show an
+empty Wednesday slate; do not skip it and label Thursday as the next NFL game
+day. The dashboard label must use the same schedule-derived date.
+
+### Display curation may never run before the historical ledger
+
+The one-prop-per-player rule is a decision-board convenience, not a data
+retention rule. Apply it in `build_weekly_pick_board()` (and therefore its
+`Picks_Current` slice), never in `assemble_pick_tabs()` before `Daily_Picks`
+is derived. A second qualified prop for the same player can be hidden from the
+current board, but it must be written to the append-only ledger for later
+grading, CLV, and model evaluation.
+
+### Kickoff fields cross a format boundary
+
+Odds-derived player props use Eastern 12-hour times such as `8:20 PM`.
+nflverse schedule stamping uses 24-hour times such as `20:20`. Any code that
+filters, expires, or grades pick rows must accept both formats and use the
+authoritative schedule kickoff when it is available. Never silently downgrade
+an unparseable kickoff to a date-only eligibility decision: that is how a
+finished game remained in `Picks_Current` after kickoff.
+
+### Pick rationale disclosure must retain native toggle behavior
+
+`renderPickBoardRow()` uses `<details>/<summary>` so the matrix stays
+scannable while evidence remains available. Do not attach the old full-row
+`pickClick()` navigation handler to the `<summary>`: it prevents the native
+open/close action. Player navigation, if needed, belongs on an explicit link
+or control inside the row, not on the disclosure trigger.
 
 ## Survivor is a schedule tool, not a pick-model surface
 

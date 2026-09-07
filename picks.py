@@ -1072,8 +1072,38 @@ def _parse_pick_kickoffs(game_dates: pd.Series, game_times: pd.Series) -> pd.Ser
     return kickoff.dt.tz_localize(eastern, nonexistent="shift_forward", ambiguous="NaT")
 
 
-def select_next_game_day_picks(weekly_picks: pd.DataFrame, *, now: datetime) -> pd.DataFrame:
-    """Return the nearest unstarted game-day slice of the active weekly board."""
+def _next_unstarted_schedule_date(schedule: pd.DataFrame, week: int | None,
+                                  now: datetime):
+    """Return the next actual game date, even if its pick slice is empty."""
+    if schedule is None or schedule.empty or "gameday" not in schedule.columns:
+        return None
+
+    games = schedule.copy()
+    if week is not None and "week" in games.columns:
+        weeks = pd.to_numeric(games["week"], errors="coerce")
+        games = games[weeks == week]
+    if games.empty:
+        return None
+
+    game_dates = pd.to_datetime(games["gameday"], errors="coerce").dt.date
+    game_times = games.get("gametime", pd.Series("", index=games.index)).fillna("")
+    kickoff = _parse_pick_kickoffs(games["gameday"], game_times)
+    eligible = (kickoff >= now) | (kickoff.isna() & (game_dates >= now.date()))
+    future_dates = sorted(set(game_dates[eligible].dropna()))
+    return future_dates[0] if future_dates else None
+
+
+def select_next_game_day_picks(weekly_picks: pd.DataFrame, *, now: datetime,
+                               schedule: pd.DataFrame | None = None,
+                               week: int | None = None) -> pd.DataFrame:
+    """Return the current slate's pick slice, keyed to the real NFL calendar.
+
+    The next game day is a schedule decision, not a decision-board decision:
+    Wednesday still needs an empty slate when no pick qualifies, rather than
+    quietly showing Thursday's picks as if Wednesday did not exist.
+    """
+    if now.tzinfo is None:
+        now = eastern.localize(now)
     if weekly_picks.empty or "GAME_DATE" not in weekly_picks.columns:
         return weekly_picks.copy()
 
@@ -1081,13 +1111,14 @@ def select_next_game_day_picks(weekly_picks: pd.DataFrame, *, now: datetime) -> 
     game_dates = pd.to_datetime(out["GAME_DATE"], errors="coerce").dt.date
     game_times = out.get("GAME_TIME", pd.Series("", index=out.index)).fillna("")
     kickoff = _parse_pick_kickoffs(out["GAME_DATE"], game_times)
-    if now.tzinfo is None:
-        now = eastern.localize(now)
-    eligible = (kickoff >= now) | (kickoff.isna() & (game_dates >= now.date()))
-    future_dates = sorted(set(game_dates[eligible].dropna()))
-    if not future_dates:
+    target_date = _next_unstarted_schedule_date(schedule, week, now)
+    if target_date is None:
+        eligible = (kickoff >= now) | (kickoff.isna() & (game_dates >= now.date()))
+        future_dates = sorted(set(game_dates[eligible].dropna()))
+        target_date = future_dates[0] if future_dates else None
+    if target_date is None:
         return out.iloc[0:0].copy()
-    return out.loc[game_dates == future_dates[0]].sort_values("rank").reset_index(drop=True)
+    return out.loc[game_dates == target_date].sort_values("rank").reset_index(drop=True)
 
 
 def _column_or_default(frame: pd.DataFrame, column: str, default) -> pd.Series:
