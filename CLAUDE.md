@@ -140,6 +140,16 @@ expired picks. `Daily_Picks` is archival history for grading and CLV. Do not
 blend these surfaces or let a fallback masquerade as the authoritative board
 without saying so explicitly.
 
+## Survivor is a schedule tool, not a pick-model surface
+
+The Survivor tab is intentionally client-side. It derives the next regular
+season week from `Schedule`, ranks unused teams by current fair win probability
+and a four-week save-value adjustment, and stores used teams in browser local
+storage under `nfl-survivor-used-v1`. Do not write Survivor choices into
+`Daily_Picks`, grade them as model picks, or add new API calls just to render
+the helper. A marked-used team must disappear from the candidate board and
+remain visible in the used strip so it can be restored deliberately.
+
 ## No real project/account identifiers in fallback paths, even for convenience
 
 Local credential auto-detection (`sports_common.py`'s

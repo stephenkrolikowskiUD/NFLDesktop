@@ -60,6 +60,7 @@ function loadDraftSlate(){
 const BEST_BALL_DRAFTED_KEY="nfl-bestball-drafted-v1";
 const BEST_BALL_TAKEN_KEY="nfl-bestball-taken-v1";
 const BEST_BALL_QUEUE_KEY="nfl-bestball-queue-v1";
+const SURVIVOR_USED_KEY="nfl-survivor-used-v1";
 function loadBestBallDrafted(){
   try{
     const parsed=JSON.parse(localStorage.getItem(BEST_BALL_DRAFTED_KEY)||"[]");
@@ -87,6 +88,15 @@ function loadBestBallQueue(){
 function saveBestBallQueue(){
   try{localStorage.setItem(BEST_BALL_QUEUE_KEY,JSON.stringify([...st.bbQueue]))}catch(e){}
 }
+function loadSurvivorUsed(){
+  try{
+    const parsed=JSON.parse(localStorage.getItem(SURVIVOR_USED_KEY)||"[]");
+    return new Set(Array.isArray(parsed)?parsed.map(v=>String(v).toUpperCase()):[]);
+  }catch(e){return new Set()}
+}
+function saveSurvivorUsed(){
+  try{localStorage.setItem(SURVIVOR_USED_KEY,JSON.stringify([...st.survivorUsed]))}catch(e){}
+}
 
 const initialDraftSlate=loadDraftSlate();
 let st={
@@ -103,6 +113,7 @@ let st={
   picksView:"shortlist",propsMetric:"ALL",propsSearch:"",propsTeam:"ALL",propsSort:"EDGE",propsMinHit:"0",propsMinEdge:"5",gameMarketType:"ALL",gameMarketSort:"KICKOFF",
   weeklyProjPos:"ALL",weeklyProjTeam:"ALL",
   streakFilter:"all",drafted:new Set(),slipLegs:"3",
+  survivorUsed:loadSurvivorUsed(),
   draftSlate:{signature:initialDraftSlate.signature,selectedIds:initialDraftSlate.selectedIds,panelOpen:false},
   projections:[],bbPos:"ALL",bbSort:"VORP",bbHideDrafted:false,bbDrafted:loadBestBallDrafted(),bbTaken:loadBestBallTaken(),bbQueue:loadBestBallQueue(),bbSearch:"",bbTeam:"ALL",bbDraftableOnly:true,bbScoring:"half",
   lkPlayer:null,lkTeam:null,lkSelectionType:"",lkResults:[],lkQuery:"",lkSubTab:"career",lkPlayerType:"skill",
@@ -772,6 +783,14 @@ function switchMode(m){
   render();
 }
 function switchPicksView(v){st.picksView=v;render()}
+function toggleSurvivorTeam(team){
+  const key=String(team||"").trim().toUpperCase();
+  if(!key)return;
+  if(st.survivorUsed.has(key))st.survivorUsed.delete(key);
+  else st.survivorUsed.add(key);
+  saveSurvivorUsed();
+  render();
+}
 function setPropsMetric(m){st.propsMetric=m;render()}
 function setPropsTeam(v){st.propsTeam=v;render()}
 function setPropsSort(v){st.propsSort=v;render()}
@@ -3263,6 +3282,98 @@ function renderPickHistoryView(){
   return html;
 }
 
+function survivorWinProbability(game,team){
+  const {away,home}=teamPairForRow(game);
+  const side=String(team||"").toUpperCase();
+  if(side!==away&&side!==home)return 0.5;
+  const liveMoneylines=(st.gameMarkets||[]).filter(row=>{
+    const rowPair=teamPairForRow(row);
+    return String(rowField(row,"MARKET_TYPE")||"").toUpperCase()==="MONEYLINE"&&
+      rowPair.away===away&&rowPair.home===home;
+  });
+  const liveHome=liveMoneylines.find(row=>String(rowField(row,"TEAM")).toUpperCase()===home);
+  const liveAway=liveMoneylines.find(row=>String(rowField(row,"TEAM")).toUpperCase()===away);
+  const liveHomeOdds=impliedProb(rowField(liveHome||{},"ODDS"));
+  const liveAwayOdds=impliedProb(rowField(liveAway||{},"ODDS"));
+  if(liveHomeOdds!==null&&liveAwayOdds!==null&&liveHomeOdds+liveAwayOdds>0){
+    const fairHome=liveHomeOdds/(liveHomeOdds+liveAwayOdds);
+    return side===home?fairHome:1-fairHome;
+  }
+  const homeOdds=impliedProb(rowField(game,"home_moneyline","HOME_MONEYLINE"));
+  const awayOdds=impliedProb(rowField(game,"away_moneyline","AWAY_MONEYLINE"));
+  if(homeOdds!==null&&awayOdds!==null&&homeOdds+awayOdds>0){
+    const fairHome=homeOdds/(homeOdds+awayOdds);
+    return side===home?fairHome:1-fairHome;
+  }
+  const homeMargin=Number(rowField(game,"spread_line","SPREAD_LINE"));
+  if(Number.isFinite(homeMargin)){
+    const homeWin=1/(1+Math.exp(-homeMargin/6.5));
+    return side===home?homeWin:1-homeWin;
+  }
+  return 0.5;
+}
+
+function getSurvivorBoard(){
+  const now=Date.now();
+  const regular=(st.schedule||[]).filter(game=>{
+    const type=String(rowField(game,"game_type","GAME_TYPE")||"REG").toUpperCase();
+    return type==="REG"&&teamPairForRow(game).away&&teamPairForRow(game).home;
+  });
+  const upcoming=regular.filter(game=>{
+    const start=scheduleRowStartMs(game);
+    return !Number.isFinite(start)||start>=now;
+  });
+  const weeks=[...new Set(upcoming.map(game=>toNum(rowField(game,"week","WEEK"))).filter(Boolean))].sort((a,b)=>a-b);
+  const week=weeks[0];
+  if(!week)return{week:null,rows:[],used:[...st.survivorUsed]};
+  const weekGames=upcoming.filter(game=>toNum(rowField(game,"week","WEEK"))===week);
+  const future=regular.filter(game=>{
+    const gameWeek=toNum(rowField(game,"week","WEEK"));
+    return gameWeek>week&&gameWeek<=week+4;
+  });
+  const rows=[];
+  weekGames.forEach(game=>{
+    const {away,home}=teamPairForRow(game);
+    [away,home].forEach(team=>{
+      if(st.survivorUsed.has(team))return;
+      const opponent=team===away?home:away;
+      const winProb=survivorWinProbability(game,team);
+      const futurePaths=future.filter(next=>{
+        const pair=teamPairForRow(next);
+        return pair.away===team||pair.home===team;
+      }).map(next=>survivorWinProbability(next,team));
+      const bestFuture=futurePaths.length?Math.max(...futurePaths):winProb;
+      const savePenalty=Math.max(0,bestFuture-winProb);
+      rows.push({team,opponent,game,winProb,bestFuture,savePenalty,
+        score:winProb*100-savePenalty*30,
+        startMs:scheduleRowStartMs(game),
+        matchup:`${away} @ ${home}`});
+    });
+  });
+  rows.sort((a,b)=>b.score-a.score||b.winProb-a.winProb);
+  return{week,rows,used:[...st.survivorUsed].sort()};
+}
+
+function renderSurvivorView(){
+  const board=getSurvivorBoard();
+  const used=board.used.length?`<div class="survivor-used">${board.used.map(team=>`<button class="survivor-used-team" onclick="toggleSurvivorTeam('${esc(team)}')">${renderTeamLogo(team,{size:"xs"})}<span>${esc(team)}</span><b>×</b></button>`).join("")}</div>`:`<div class="survivor-empty-used">No teams marked used yet.</div>`;
+  if(!board.rows.length){
+    return `<section class="survivor-shell"><div class="model-picks-intro"><div class="model-picks-title">Survivor</div><div class="model-picks-sub">No eligible teams are available for the next scheduled week. Remove a used team or refresh the schedule.</div></div><div class="survivor-used-label">Used this season</div>${used}</section>`;
+  }
+  const top=board.rows[0];
+  const weekLabel=`Week ${board.week}`;
+  const start=Number.isFinite(top.startMs)?new Intl.DateTimeFormat("en-US",{weekday:"long",month:"short",day:"numeric",hour:"numeric",minute:"2-digit"}).format(new Date(top.startMs)):"Kickoff TBD";
+  const futureLabel=top.bestFuture>top.winProb+.015?`Better future spot: ${compactPct(top.bestFuture)}`:"Use-now profile";
+  const tableRows=board.rows.slice(1,12).map((row,index)=>`<tr><td>${index+2}</td><td class="survivor-team-cell">${renderTeamLogo(row.team,{size:"xs"})}<strong>${esc(teamDisplayName(row.team))}</strong><span>vs ${esc(teamDisplayName(row.opponent))}</span></td><td>${compactPct(row.winProb)}</td><td>${compactPct(row.bestFuture)}</td><td>${row.savePenalty>.015?"Save consideration":"Use now"}</td><td><button class="survivor-use-btn" onclick="toggleSurvivorTeam('${esc(row.team)}')">Use</button></td></tr>`).join("");
+  return `<section class="survivor-shell">
+    <div class="model-picks-intro"><div class="model-picks-title">Survivor</div><div class="model-picks-sub">One team, one time. Current market win chance leads; the next four weeks provide the save-versus-use context.</div></div>
+    <div class="survivor-weekline"><span>${esc(weekLabel)}</span><span>${board.rows.length} eligible teams</span></div>
+    <article class="survivor-hero"><div><div class="survivor-kicker">Best available lock</div><div class="survivor-team-title">${renderTeamLogo(top.team,{size:"md"})}<span>${esc(teamDisplayName(top.team))}</span></div><div class="survivor-matchup">${esc(top.matchup)} · ${esc(start)}</div></div><div class="survivor-hero-metric"><strong>${compactPct(top.winProb)}</strong><span>market win chance</span></div><div class="survivor-hero-note"><strong>${esc(futureLabel)}</strong><span>Survivor score ${top.score.toFixed(1)}</span></div><button class="survivor-use-btn hero" onclick="toggleSurvivorTeam('${esc(top.team)}')">Mark used</button></article>
+    <div class="survivor-table-wrap"><table class="survivor-table"><thead><tr><th>#</th><th>Team</th><th>Win</th><th>Best next 4</th><th>Timing</th><th></th></tr></thead><tbody>${tableRows}</tbody></table></div>
+    <div class="survivor-used-label">Used this season</div>${used}
+  </section>`;
+}
+
 function renderDingerBoardView(convergenceHTML){
   const db=getDingerBoard();
   if(!db.length){
@@ -4483,6 +4594,7 @@ function renderPicksPage(activeTab,picksHTML){
     ["slips","Slips"],
     ["picks",weeklyPickLabel()],
     ["daily",dailyPickLabel()],
+    ["survivor","Survivor"],
     ["history","Pick History"],
     ["markets","Game Markets"],
     ["draft","Draft"],
@@ -4958,6 +5070,8 @@ function render(){
     });
   }else if(st.picksView==="daily"){
     picksHTML=renderDailyPicksView(convergenceHTML);
+  }else if(st.picksView==="survivor"){
+    picksHTML=renderSurvivorView();
   }else if(st.picksView==="history"){
     picksHTML=renderPickHistoryView();
   }else if(st.picksView==="markets"){

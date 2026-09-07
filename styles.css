@@ -555,6 +555,28 @@ td.push{color:var(--push);font-weight:700}
 .stat-box{background:var(--surface-2);border-radius:8px;padding:8px 4px;text-align:center}
 .stat-box .val{font-weight:700;font-size:var(--t-md);color:var(--accent)}
 .stat-box .lbl{font-size:var(--t-xs);color:var(--accent-soft);margin-top:2px}
+.survivor-shell{padding:16px}
+.survivor-weekline{display:flex;justify-content:space-between;gap:12px;padding:10px 0;border-bottom:1px solid var(--border-1);color:var(--ink-muted);font-size:var(--t-xs);font-weight:800;letter-spacing:.08em;text-transform:uppercase}
+.survivor-weekline span:first-child{color:var(--accent)}
+.survivor-hero{display:grid;grid-template-columns:minmax(0,1fr) auto auto auto;gap:20px;align-items:center;padding:18px 0;border-bottom:1px solid var(--border-1)}
+.survivor-kicker,.survivor-used-label{color:var(--ink-muted);font-size:10px;font-weight:800;letter-spacing:.12em;text-transform:uppercase}
+.survivor-team-title{display:flex;align-items:center;gap:10px;margin-top:7px;color:var(--ink-0);font-family:"Barlow Condensed",system-ui,sans-serif;font-size:28px;font-weight:800}
+.survivor-team-title .team-logo{width:34px;height:34px}
+.survivor-matchup{margin-top:3px;color:var(--ink-muted);font-size:var(--t-sm)}
+.survivor-hero-metric{text-align:right;font-variant-numeric:tabular-nums}
+.survivor-hero-metric strong{display:block;color:var(--accent);font-family:"Barlow Condensed",system-ui,sans-serif;font-size:36px;line-height:.9}
+.survivor-hero-metric span,.survivor-hero-note span{display:block;margin-top:5px;color:var(--ink-muted);font-size:10px;font-weight:700;letter-spacing:.07em;text-transform:uppercase}
+.survivor-hero-note{max-width:145px;color:var(--ink-1);font-size:var(--t-xs);line-height:1.35}
+.survivor-hero-note strong{display:block}
+.survivor-use-btn{border:1px solid var(--accent-line);border-radius:5px;padding:6px 9px;background:transparent;color:var(--accent);font:700 var(--t-xs) inherit;cursor:pointer;white-space:nowrap}
+.survivor-use-btn:hover{background:color-mix(in srgb,var(--accent) 10%,transparent)}
+.survivor-use-btn.hero{padding:9px 12px;color:var(--surface-0);background:var(--accent);border-color:var(--accent)}
+.survivor-table-wrap{overflow-x:auto}
+.survivor-table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums}
+.survivor-table th{padding:11px 8px;color:var(--ink-muted);font-size:10px;letter-spacing:.1em;text-transform:uppercase;text-align:left}
+.survivor-table td{padding:10px 8px;border-top:1px solid var(--border-1);color:var(--ink-1);font-size:var(--t-sm)}
+.survivor-team-cell{display:flex;align-items:center;gap:7px;min-width:190px}.survivor-team-cell strong{color:var(--ink-0)}.survivor-team-cell span{color:var(--ink-muted);font-size:var(--t-xs)}
+.survivor-used-label{margin-top:18px;margin-bottom:8px}.survivor-used{display:flex;gap:6px;flex-wrap:wrap}.survivor-used-team{display:inline-flex;align-items:center;gap:5px;border:1px solid var(--border-1);border-radius:5px;padding:4px 6px;background:var(--surface-2);color:var(--ink-muted);font-size:var(--t-xs);cursor:pointer}.survivor-used-team .team-logo{width:16px;height:16px}.survivor-used-team b{color:var(--under);font-size:15px;line-height:.8}.survivor-empty-used{color:var(--ink-muted);font-size:var(--t-xs)}
 .lk-tbl-wrap{overflow-x:auto;padding:0 16px 16px}
 .lk-section{padding:14px 16px 0}
 .lookup-search-shell{padding:34px 16px 24px;border-bottom:1px solid var(--border-1)}
