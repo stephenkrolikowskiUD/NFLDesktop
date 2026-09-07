@@ -222,7 +222,8 @@ def pick_is_ready(pick: pd.Series, kickoff_lookup: dict, now) -> bool:
     pick that's actually ready will simply retry successfully next run; one
     graded against a game that hasn't happened is unrecoverable.
     """
-    key = (pick.get("team"), safe_float(pick.get("SEASON")), safe_float(pick.get("WEEK")))
+    team, _ = fallback_matchup_pair(pick)
+    key = (team, safe_float(pick.get("SEASON")), safe_float(pick.get("WEEK")))
     kickoff = kickoff_lookup.get(key)
     if kickoff is None or pd.isna(kickoff):
         return False
@@ -320,6 +321,24 @@ def fallback_matchup_pair(pick: pd.Series) -> tuple[str, str]:
     if away and home:
         return away, home
     return team, opponent
+
+
+def find_team_market_game(schedule_results: dict, season, week: float,
+                          team: str, opponent: str) -> pd.Series | None:
+    """Find a team-market result without trusting legacy opponent text.
+
+    A team has one scheduled game per week.  Exact matchup matching remains
+    the normal path, but old preseason rows with an incorrect opponent should
+    resolve to that single game instead of remaining ungraded forever.
+    """
+    exact = schedule_results.get((season, week, team, opponent))
+    if exact is not None:
+        return exact
+    matches = [
+        row for (row_season, row_week, row_team, _), row in schedule_results.items()
+        if row_season == season and row_week == week and row_team == team
+    ]
+    return matches[0] if len(matches) == 1 else None
 
 
 def actual_value_for_team_market(pick: pd.Series, game_row: pd.Series):
@@ -420,7 +439,7 @@ def grade_daily_picks(client) -> None:
             season = safe_float(pick.get("SEASON"))
             week = safe_float(pick.get("WEEK"))
             team, opponent = fallback_matchup_pair(pick)
-            game_row = schedule_results.get((season, week, team, opponent))
+            game_row = find_team_market_game(schedule_results, season, week, team, opponent)
             if game_row is None:
                 not_ready += 1
                 continue

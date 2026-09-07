@@ -3125,7 +3125,7 @@ function renderPickBoardRow(model,index){
   const selectionHTML=model.isGameMarket?`${renderTeamLogoStack(teams.away,teams.home)}<span>${nameHTML}</span>`:nameHTML;
   const statusDot=status?`<span class="pick-matrix-status ${model.tierClass||"lean"}"></span>`:`<span class="pick-matrix-status idle"></span>`;
   return `<details class="pick-matrix-row ${model.tierClass}${model.locked?" locked-card":""}">
-    <summary class="pick-matrix-summary" onclick="${model.isGameMarket?"void(0)":pickClick(model)}">
+    <summary class="pick-matrix-summary">
       <span class="pick-matrix-cell pick-matrix-rank">${rankText}</span>
       <span class="pick-matrix-cell pick-matrix-selection">${selectionHTML}</span>
       <span class="pick-matrix-cell pick-matrix-context">${metaHTML}</span>

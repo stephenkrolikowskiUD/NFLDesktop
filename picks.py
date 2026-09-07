@@ -1052,6 +1052,26 @@ def build_weekly_pick_board(fresh_picks: pd.DataFrame, prior_weekly: pd.DataFram
     return combined
 
 
+def _parse_pick_kickoffs(game_dates: pd.Series, game_times: pd.Series) -> pd.Series:
+    """Parse the two time formats emitted by odds and nflverse schedule rows.
+
+    Player props carry an Eastern ``8:20 PM`` value from The Odds API, while
+    nflverse schedule stamping supplies a 24-hour ``20:20`` value.  The daily
+    board must understand both or a finished prime-time game can survive as a
+    date-only, seemingly-current board entry.
+    """
+    raw = game_dates.astype(str).str.strip() + " " + game_times.astype(str).str.strip()
+    kickoff = pd.Series(pd.NaT, index=raw.index, dtype="datetime64[ns]")
+    for time_format in ("%Y-%m-%d %I:%M %p", "%Y-%m-%d %H:%M", "%Y-%m-%d %H:%M:%S"):
+        unresolved = kickoff.isna()
+        if not unresolved.any():
+            break
+        kickoff.loc[unresolved] = pd.to_datetime(
+            raw.loc[unresolved], format=time_format, errors="coerce"
+        )
+    return kickoff.dt.tz_localize(eastern, nonexistent="shift_forward", ambiguous="NaT")
+
+
 def select_next_game_day_picks(weekly_picks: pd.DataFrame, *, now: datetime) -> pd.DataFrame:
     """Return the nearest unstarted game-day slice of the active weekly board."""
     if weekly_picks.empty or "GAME_DATE" not in weekly_picks.columns:
@@ -1060,12 +1080,9 @@ def select_next_game_day_picks(weekly_picks: pd.DataFrame, *, now: datetime) -> 
     out = weekly_picks.copy()
     game_dates = pd.to_datetime(out["GAME_DATE"], errors="coerce").dt.date
     game_times = out.get("GAME_TIME", pd.Series("", index=out.index)).fillna("")
-    kickoff = pd.to_datetime(
-        out["GAME_DATE"].astype(str) + " " + game_times.astype(str),
-        format="%Y-%m-%d %I:%M %p",
-        errors="coerce",
-    )
-    kickoff = kickoff.dt.tz_localize(eastern, nonexistent="shift_forward", ambiguous="NaT")
+    kickoff = _parse_pick_kickoffs(out["GAME_DATE"], game_times)
+    if now.tzinfo is None:
+        now = eastern.localize(now)
     eligible = (kickoff >= now) | (kickoff.isna() & (game_dates >= now.date()))
     future_dates = sorted(set(game_dates[eligible].dropna()))
     if not future_dates:
@@ -1090,7 +1107,7 @@ def assemble_pick_tabs(fresh_picks: pd.DataFrame, prior_daily: pd.DataFrame,
                        model_era: str = "", season_phase: str = "",
                        odds_sport: str = "", game_type: str = "") -> tuple[pd.DataFrame, pd.DataFrame]:
     """Stamp DATE/RUN_NUMBER, dedup against today's existing Daily_Picks rows,
-    and return (Picks_Current, Daily_Picks-rows-to-append).
+    and return (fresh-pick-snapshot, Daily_Picks-rows-to-append).
 
     RUN_NUMBER logic is unchanged from MLB: max existing RUN_NUMBER for
     today's DATE + 1. This works for NFL's Thu/Sun/Mon cadence without
@@ -1138,7 +1155,6 @@ def assemble_pick_tabs(fresh_picks: pd.DataFrame, prior_daily: pd.DataFrame,
         ascending=[False, True],
         kind="stable",
     ).reset_index(drop=True)
-    out = apply_one_pick_per_player(out)
     out["rank"] = range(1, len(out) + 1)
 
     run_number = 1
