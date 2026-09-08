@@ -589,7 +589,7 @@ def build_projections(stats: pd.DataFrame, rosters: pd.DataFrame,
                 active["season"].astype("Int64").astype(str) + "-09-01",
                 errors="coerce")
             active["age"] = ((season_start - born).dt.days / 365.25).round(1)
-        keep = [c for c in ["gsis_id", "team", "position", "full_name", "age",
+        keep = [c for c in ["gsis_id", "team", "position", "full_name", "headshot_url", "age",
                             "years_exp", "rookie_year", "depth_chart_position"]
                 if c in active.columns]
         active = (active[keep]
@@ -599,7 +599,7 @@ def build_projections(stats: pd.DataFrame, rosters: pd.DataFrame,
 
     df = rates.copy()
     if not active.empty:
-        merge_cols = [c for c in ["player_id", "team_now", "years_exp", "age"]
+        merge_cols = [c for c in ["player_id", "team_now", "headshot_url", "years_exp", "age"]
                       if c in active.columns]
         df = df.merge(active[merge_cols], how="left", on="player_id")
         # No current roster row means not on a 2026 roster — drop rather than
@@ -702,7 +702,7 @@ def build_projections(stats: pd.DataFrame, rosters: pd.DataFrame,
     )
 
     cols = [c for c in [
-        "player_id", "player_display_name", "position", "team_now", "team_prior",
+        "player_id", "player_display_name", "position", "team_now", "team_prior", "headshot_url",
         "changed_team", "years_exp", "age", "games_played", "proj_games",
         "proj_ppr", "proj_ppg", "proj_raw_ppr", "ecr_implied_ppr",
         "consensus_weight", "age_mult", "depth_rank", "depth_mult",

@@ -859,6 +859,29 @@ function renderTeamLogoStack(awayTeam,homeTeam){
   const home=String(homeTeam||"").trim().toUpperCase();
   return `<div class="team-logo-stack" aria-hidden="true">${renderTeamLogo(away,{size:"xs"})}${renderTeamLogo(home,{size:"xs",className:"stacked"})}</div>`;
 }
+function playerHeadshotUrl(name){
+  const key=normalizePlayerName(name);
+  if(!key)return "";
+  for(const row of [...(st.tonight||[]),...(st.pTonight||[]),...(st.projections||[])]){
+    const rowName=normalizePlayerName(rowField(row,"player_name","player_display_name","PLAYER_NAME"));
+    if(rowName===key){
+      const url=String(rowField(row,"headshot_url","HEADSHOT_URL")||"").trim();
+      if(url)return url;
+    }
+  }
+  return "";
+}
+function playerInitials(name){
+  const parts=String(name||"").trim().split(/\s+/).filter(Boolean);
+  return (parts[0]?.[0]||"")+(parts.at(-1)?.[0]||"")||"?";
+}
+function renderPlayerHeadshot(name,{size="sm",className=""}={}){
+  const url=playerHeadshotUrl(name);
+  const classes=`player-headshot ${size}${className?` ${className}`:""}`;
+  const fallback=`<span class="player-headshot-fallback">${esc(playerInitials(name))}</span>`;
+  if(!url)return `<span class="${classes}" aria-label="${esc(name)}">${fallback}</span>`;
+  return `<span class="${classes}" aria-label="${esc(name)}"><img src="${esc(url)}" alt="" loading="lazy" onerror="this.remove();this.nextElementSibling.hidden=false"/><span class="player-headshot-fallback" hidden>${esc(playerInitials(name))}</span></span>`;
+}
 function optionalRowNumber(row,key){
   const raw=rowField(row,key);
   if(raw===null||raw===undefined||raw==="")return null;
@@ -3039,10 +3062,8 @@ function pickProvenanceHTML(model){
 }
 function pickWhyHTML(model){
   const reason=String(rowField(model.pk,"rationale","reasoning")||"").trim();
-  const score=Number(rowField(model.pk,"CALIBRATION_SCORE"));
-  const scoreText=Number.isFinite(score)?` · calibration ${score.toFixed(2)}`:"";
   const demotion=model.calibration?.demoted?`<div class="pick-why" style="margin-top:4px;color:var(--warn)"><strong>Tier floor:</strong> ${esc(model.calibration.reason)}</div>`:"";
-  return `<div class="pick-why"><strong>Why it ranks:</strong> ${esc(reason||model.provenance.description)}${esc(scoreText)}</div>${demotion}`;
+  return `<div class="pick-why"><strong>Why it ranks:</strong> ${esc(reason||model.provenance.description)}</div>${demotion}`;
 }
 function pickFooterLine(model){
   const p=model.pk;
@@ -3108,7 +3129,7 @@ function renderFeaturedPick(model){
     :"";
   const identityHTML=model.isGameMarket
     ?`<div class="pick-feature-name-row">${renderTeamLogoStack(teams.away,teams.home)}<div><div class="pick-feature-name">${esc(pickDisplaySelection(p)||nameHTML||"Top market")}</div><div class="pick-feature-matchup">${esc(matchup||p.game||"")}</div></div></div>`
-    :`<div class="pick-feature-name">${nameHTML}</div><div class="pick-feature-matchup">${metaHTML}</div>${pickProvenanceHTML(model)}`;
+    :`<div class="pick-feature-name-row">${renderPlayerHeadshot(p.player,{size:"hero"})}<div><div class="pick-feature-name">${nameHTML}</div><div class="pick-feature-matchup">${metaHTML}</div>${pickProvenanceHTML(model)}</div></div>`;
   if(model.isGameMarket){
     const footerLine=[rowField(p,"PICK_BOOK")||"Opening board",propTypeLabel(p.prop_type),"Validated model"].filter(Boolean).map(v=>esc(String(v))).join(" · ");
     return `<section class="pick-feature pick-feature-game-market ${model.tierClass}" onclick="void(0)"><div class="pick-feature-kicker"><span>${icon("picks")}Top play</span><span class="pick-feature-tier ${model.tierClass}">${esc(model.confidence)}</span></div><div class="pick-feature-main pick-feature-main-game"><div class="pick-feature-identity">${identityHTML}</div><div class="pick-feature-call pick-feature-call-game"><div class="pick-feature-line ${model.leanClass}">${callText}</div><div class="pick-feature-market">${esc(teamMarketEdgeLabel(p))}</div></div></div><div class="pick-feature-evidence pick-feature-evidence-game"><div><div class="pick-evidence">${evidence||"Model-ranked slate leader"}</div><div class="pick-why">${esc(teamMarketSummary(p))}.</div></div><div class="pick-feature-side-meta">${gameMarketMeta}</div></div><div class="pick-feature-footer">${footerLine}</div></section>`;
@@ -3124,7 +3145,7 @@ function renderPickBoardRow(model,index){
   const teams=model.isGameMarket?teamPairForRow(p):null;
   const callText=model.isGameMarket?esc(pickDisplaySelection(p)||"Play"):esc(`${model.leanText} ${p.line||"—"}`);
   const rankText=`#${String(p.rank||index+2).padStart(2,"0")}`;
-  const selectionHTML=model.isGameMarket?`${renderTeamLogoStack(teams.away,teams.home)}<span>${nameHTML}</span>`:nameHTML;
+  const selectionHTML=model.isGameMarket?`${renderTeamLogoStack(teams.away,teams.home)}<span>${nameHTML}</span>`:`${renderPlayerHeadshot(p.player)}<span>${nameHTML}</span>`;
   return `<details class="pick-matrix-row ${model.tierClass}${model.locked?" locked-card":""}">
     <summary class="pick-matrix-summary">
       <span class="pick-matrix-cell pick-matrix-rank">${rankText}</span>
@@ -4374,6 +4395,7 @@ function renderBestBallView(){
       <td><span class="bb-target ${queued?"active":""}" title="${queued?"Remove from target queue":"Add to target queue"}" onclick="bbToggleQueue('${esc(r.id)}')">${queued?"★":"☆"}</span></td>
       <td>
         <div class="bb-name-row">
+          ${renderPlayerHeadshot(r.name)}
           <span class="bb-name">${esc(r.name)}</span>
           <span class="draft-pos draft-pos-${esc(r.pos.toLowerCase())}">${esc(r.pos)}</span>
           ${flag}

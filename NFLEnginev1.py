@@ -595,7 +595,7 @@ def _current_roster_identity(rosters: pd.DataFrame) -> pd.DataFrame:
     active = rosters.copy()
     if "status" in active.columns:
         active = active[active["status"].isin(["ACT", "RES", "DEV"])]
-    keep = [c for c in ["gsis_id", "team", "position"] if c in active.columns]
+    keep = [c for c in ["gsis_id", "team", "position", "headshot_url"] if c in active.columns]
     if not {"gsis_id", "team"}.issubset(keep):
         return pd.DataFrame()
     return (active[keep]

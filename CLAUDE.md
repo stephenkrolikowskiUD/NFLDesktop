@@ -147,6 +147,13 @@ must be compact native controls rather than a wall of pills, roster status must
 be one inline strip, and player badges are reserved for exceptions such as a
 one-turn risk or a data-quality warning, never the default state.
 
+`CALIBRATION_SCORE` is an internal ordering feature, not a user-facing metric.
+Never print its raw numeric value in a pick rationale; explain tier floors or
+visible evidence in plain language instead. Active-roster `headshot_url` values
+must travel through `Slate_Skill`, `Slate_QB`, and `Projections`. Use fixed-size
+circular player headshots in pick matrices and Best Ball, with initials as the
+fallback for a missing or failed image, never a broken image element.
+
 Related UI convention from 2026-09-03: the weekly board, next-game-day board,
 and append-only audit trail are three different products. `Picks_Weekly` is the
 active-week board and must accumulate qualified picks as Thursday, Sunday, and
