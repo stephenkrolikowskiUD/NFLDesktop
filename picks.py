@@ -1093,6 +1093,30 @@ def _next_unstarted_schedule_date(schedule: pd.DataFrame, week: int | None,
     return future_dates[0] if future_dates else None
 
 
+def next_unstarted_schedule_date(schedule: pd.DataFrame, week: int | None,
+                                 now: datetime):
+    """Public schedule anchor shared by the engine's next-slate pass."""
+    return _next_unstarted_schedule_date(schedule, week, now)
+
+
+def player_context_for_game_date(player_ctx: pd.DataFrame, game_date) -> pd.DataFrame:
+    """Keep only real prop context for one scheduled game day.
+
+    The weekly model is intentionally broad. The next-slate board needs a
+    separate context window so a strong Sunday/Monday board cannot crowd out a
+    game whose books are already open.
+    """
+    if player_ctx is None or player_ctx.empty or game_date is None:
+        return pd.DataFrame()
+    if "GAME_DATE" not in player_ctx.columns:
+        return pd.DataFrame()
+    target = pd.to_datetime(game_date, errors="coerce")
+    if pd.isna(target):
+        return pd.DataFrame()
+    dates = pd.to_datetime(player_ctx["GAME_DATE"], errors="coerce").dt.date
+    return player_ctx.loc[dates == target.date()].copy().reset_index(drop=True)
+
+
 def select_next_game_day_picks(weekly_picks: pd.DataFrame, *, now: datetime,
                                schedule: pd.DataFrame | None = None,
                                week: int | None = None) -> pd.DataFrame:

@@ -1314,6 +1314,8 @@ def main():
     picks_weekly = pd.DataFrame()
     picks_current = pd.DataFrame()
     daily_picks_new = pd.DataFrame()
+    player_ctx = pd.DataFrame()
+    gemini_key = ""
     week = (phase.current_preseason_week(games_tab, started) or season_phase.active_week) if season_phase.is_preseason else season_phase.active_week
     prior_weekly = fetch_pick_tab(sheets, SHEET_ID, "Picks_Weekly") if week is not None else pd.DataFrame()
     if week is not None and not prior_weekly.empty:
@@ -1374,6 +1376,39 @@ def main():
                 gemini_key_present=bool(gemini_key),
                 fresh_picks=fresh_picks,
             )
+
+        # A weekly ranking can legitimately omit the nearest game while its
+        # markets are live. Give that scheduled slate a dedicated real-line
+        # pass instead of exposing an empty daily board as a leftover filter.
+        targeted_current = pd.DataFrame()
+        if not preseason_team_markets_live and not player_ctx.empty:
+            probe = stamp_pick_schedule(fresh_picks, schedule, week)
+            weekly_probe = pk.build_weekly_pick_board(
+                probe, prior_weekly, week=week, season=schedule_season
+            )
+            current_probe = pk.select_next_game_day_picks(
+                weekly_probe, now=started, schedule=schedule, week=week
+            )
+            target_date = pk.next_unstarted_schedule_date(schedule, week, started)
+            if current_probe.empty and target_date is not None:
+                slate_ctx = pk.player_context_for_game_date(player_ctx, target_date)
+                if not slate_ctx.empty:
+                    print(f"   ℹ️  no weekly pick survived for {target_date}; "
+                          f"running a dedicated next-slate pass on {len(slate_ctx)} priced rows")
+                    targeted_current = pk.generate_weekly_picks(
+                        gemini_key, GEMINI_MODEL, slate_ctx,
+                        build_week_games_str(schedule, week), week=week,
+                        season=schedule_season
+                    )
+                    targeted_current = pk.apply_one_pick_per_player(targeted_current).head(3)
+                    if not targeted_current.empty:
+                        fresh_picks = pd.concat([fresh_picks, targeted_current], ignore_index=True)
+                        fresh_picks = fresh_picks.drop_duplicates(
+                            subset=["player", "prop_type", "lean", "line"], keep="first"
+                        ).reset_index(drop=True)
+                        print(f"   ➕ {len(targeted_current)} dedicated next-slate pick(s) added")
+                else:
+                    print(f"   ⚠️  no priced player context for next game day {target_date}")
         prior_daily = fetch_prior_daily_picks(sheets, SHEET_ID)
         fresh_snapshot, daily_picks_new = pk.assemble_pick_tabs(
             fresh_picks, prior_daily, week=week, season=schedule_season,
@@ -1388,6 +1423,16 @@ def main():
         picks_current = pk.select_next_game_day_picks(
             picks_weekly, now=started, schedule=schedule, week=week
         )
+        if picks_current.empty and not targeted_current.empty:
+            # Keep the dedicated slate result visible even when the weekly
+            # one-prop-per-player curation selected another market for it.
+            target_keys = targeted_current[["player", "prop_type", "lean", "line"]].drop_duplicates()
+            targeted_snapshot = fresh_snapshot.merge(
+                target_keys, on=["player", "prop_type", "lean", "line"], how="inner"
+            )
+            target_date = pk.next_unstarted_schedule_date(schedule, week, started)
+            targeted_dates = pd.to_datetime(targeted_snapshot["GAME_DATE"], errors="coerce").dt.date
+            picks_current = targeted_snapshot.loc[targeted_dates == target_date].reset_index(drop=True)
         print(f"   picks: {len(picks_weekly)} weekly · {len(picks_current)} next game day · "
               f"{len(daily_picks_new)} new to Daily_Picks")
 

@@ -173,6 +173,12 @@ to have a curated pick. If the Wednesday opener has no qualified play, show an
 empty Wednesday slate; do not skip it and label Thursday as the next NFL game
 day. The dashboard label must use the same schedule-derived date.
 
+When the nearest scheduled game has live player-prop context but the broad
+weekly ranking leaves its `Picks_Current` slice empty, run a separate,
+real-line-only next-slate pass for that game. A next-slate surface is not a
+leftover filter of the weekly board; it must deliver a concise dedicated board
+or explicitly report that the game has no priced player context.
+
 `Slate_Skill` and `Slate_QB` use historical stats for performance context only.
 Their player team, position, and active eligibility must come from the current
 season roster; their opponent must be stamped from the next scheduled game.
