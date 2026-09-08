@@ -5232,7 +5232,12 @@ function loadAllData(){
   st.weather=normalizeKeys(cleanRows(weather));
   st.qbSlateRows=normalizeKeys(cleanRows(qbSlateRows));
   st.schedule=normalizeKeys(cleanRows(schedule));
-  st.pTonight=normalizeKeys(cleanRows(pTonight));
+  // Slate_QB is the roster-backed QB pool that powers Draft. Starting_QBs is
+  // supplemental and often empty before confirmations arrive, so it cannot be
+  // the primary source for the quarterback board.
+  st.pTonight=st.qbSlateRows.length
+    ?st.qbSlateRows
+    :normalizeKeys(cleanRows(pTonight));
   st.pGameLogs=normalizeKeys(cleanRows(pLogs));
   st.pSplits=normalizeKeys(cleanRows(pSplits));
   const normalizePickRows=rows=>normalizeKeys(cleanRows(rows||[])).map(p=>({

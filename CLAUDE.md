@@ -160,6 +160,10 @@ Never filter a current contest using a historical team or opponent: that shows
 moved players on the wrong team and can silently remove an entire position
 group when the selected matchup differs from Week 18.
 
+The Draft QB pool must come from `Slate_QB`. `Starting_QBs` is supplemental
+confirmation data and may legitimately be empty before beat reports arrive;
+never let an empty `Starting_QBs` tab replace the roster-backed QB slate.
+
 ### Display curation may never run before the historical ledger
 
 The one-prop-per-player rule is a decision-board convenience, not a data
