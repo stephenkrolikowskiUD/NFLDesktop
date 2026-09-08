@@ -696,14 +696,14 @@ function compactRunTime(value){
     hour:"numeric",minute:"2-digit",hour12:true
   });
 }
-function getModelRunHealth(rows){
+function getModelRunHealth(rows,target=14){
   const picks=rows||[];
   if(!picks.length)return[
     {label:"Engine run",value:"No snapshot",meta:"Waiting for current picks",level:"missing"},
     {label:"Snapshot",value:"0 picks",meta:"No active cohort",level:"missing"},
     {label:"Playable",value:"0",meta:"No slate-ready picks",level:"missing"},
     {label:"Validated / research",value:"0 / 0",meta:"No selections",level:"missing"},
-    {label:"Gemini delivery",value:"No output",meta:"Target 14 reviewed picks",level:"missing"},
+    {label:"Gemini delivery",value:"No output",meta:`Target ${target} reviewed picks`,level:"missing"},
   ];
   const runNumber=Math.max(...picks.map(p=>toNum(rowField(p,"RUN_NUMBER"))||0));
   const runTime=picks.map(p=>rowField(p,"RUN_TIME")||rowField(p,"LAST_UPDATED")).find(Boolean);
@@ -715,7 +715,6 @@ function getModelRunHealth(rows){
     return text.includes("BACKFILL");
   }).length;
   const geminiReviewed=Math.max(0,picks.length-validated);
-  const target=14;
   const deliveryLevel=geminiReviewed>=target?"good":backfills?"warn":"missing";
   const deliveryValue=geminiReviewed>=target?`${geminiReviewed}/${target} met`:`${geminiReviewed}/${target}`;
   const deliveryMeta=backfills?`${backfills} validated backfill${backfills===1?"":"s"}`:"No backfill required";
@@ -727,8 +726,8 @@ function getModelRunHealth(rows){
     {label:"Gemini delivery",value:deliveryValue,meta:deliveryMeta,level:deliveryLevel},
   ];
 }
-function renderModelRunHealth(rows){
-  return `<div class="model-tape-strip health">${getModelRunHealth(rows).map(item=>`<div class="model-tape-item ${item.level||""}"><div class="model-tape-label">${esc(item.label)}</div><div class="model-tape-value">${esc(item.value)}</div><div class="model-tape-meta">${esc(item.meta)}</div></div>`).join("")}</div>`;
+function renderModelRunHealth(rows,target=14){
+  return `<div class="model-tape-strip health">${getModelRunHealth(rows,target).map(item=>`<div class="model-tape-item ${item.level||""}"><div class="model-tape-label">${esc(item.label)}</div><div class="model-tape-value">${esc(item.value)}</div><div class="model-tape-meta">${esc(item.meta)}</div></div>`).join("")}</div>`;
 }
 
 // NFL app: no live combo markets currently depend on the old baseball combos.
@@ -3197,7 +3196,7 @@ function renderShortlistPicksView(){
   return renderTonightShortlist();
 }
 
-function renderModelPicksView(convergenceHTML,{title=weeklyPickLabel(),subtitle="Ranked best bets across every game this week with a live market.",rows=st.weeklyPicks,sourceNote="",emptyMessage=""}={}){
+function renderModelPicksView(convergenceHTML,{title=weeklyPickLabel(),subtitle="Ranked best bets across every game this week with a live market.",rows=st.weeklyPicks,sourceNote="",emptyMessage="",healthTarget=14}={}){
   const allBoardPicks=rows||[];
   // A daily slice may be empty even though the active weekly model run succeeded.
   const healthRows=allBoardPicks.length?allBoardPicks:(st.weeklyPicks||[]);
@@ -3206,7 +3205,7 @@ function renderModelPicksView(convergenceHTML,{title=weeklyPickLabel(),subtitle=
     ?allBoardPicks.filter(p=>String(rowField(p,"RECOMMENDATION_STATUS")).toUpperCase()==="PLAYABLE")
     :allBoardPicks;
   const researchCount=hasCalibrationStatus?allBoardPicks.length-todayPicks.length:0;
-  const modelIntro=`<section class="model-picks-intro"><div class="model-picks-title">${esc(title)}</div><div class="model-picks-sub">${esc(subtitle)}</div>${sourceNote?`<div class="model-picks-sub">${esc(sourceNote)}</div>`:""}${renderModelRunHealth(healthRows)}${renderModelFreshness()}</section>`;
+  const modelIntro=`<section class="model-picks-intro"><div class="model-picks-title">${esc(title)}</div><div class="model-picks-sub">${esc(subtitle)}</div>${sourceNote?`<div class="model-picks-sub">${esc(sourceNote)}</div>`:""}${renderModelRunHealth(healthRows,healthTarget)}${renderModelFreshness()}</section>`;
   let html=convergenceHTML+modelIntro+renderPickGuard(st.pickGuard)+renderCalibrationPolicy();
 
   if(!todayPicks.length){
@@ -3268,6 +3267,7 @@ function renderDailyPicksView(convergenceHTML){
     subtitle:"The focused slate for the next scheduled NFL game day.",
     rows:st.picks,
     sourceNote,
+    healthTarget:3,
     emptyMessage:`No qualified plays for ${dailyPickLabel().replace(" Picks","")}. The full ${weeklyPickLabel()} board remains available.`,
   });
 }

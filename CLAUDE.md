@@ -168,6 +168,10 @@ has no qualified play while `Picks_Weekly` is populated. Keep the empty
 daily-board message, but let health and freshness use the weekly snapshot;
 never label this state as an engine outage or a missing model run.
 
+Run-health targets are board-specific: the weekly board is measured against
+its broad 14-pick review target, while the focused next-slate board is a
+three-pick product. Never render a healthy 3/3 next-slate delivery as 3/14.
+
 The "current" game day comes from `Schedule`, not from whichever date happens
 to have a curated pick. If the Wednesday opener has no qualified play, show an
 empty Wednesday slate; do not skip it and label Thursday as the next NFL game
