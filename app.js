@@ -2659,7 +2659,7 @@ function renderGameSelector(games){
   };
   const openBoard=upcoming.length?`<div class="entry-game-grid">${upcoming.map(renderCard).join("")}</div>`:`<div class="entry-open-empty">No games remain open on this slate.</div>`;
   const lockedBoard=started.length?`<details class="entry-locked"><summary>${started.length} started / locked game${started.length===1?"":"s"}</summary><div class="entry-game-grid">${started.map(renderCard).join("")}</div></details>`:"";
-  return `<section class="entry-shell"><div class="entry-header"><div><div class="analysis-eyebrow">Game builder</div><div class="entry-title">1. Choose a matchup</div><div class="entry-subtitle">Open games first · ordered by first pitch · select one to build an entry</div></div><div class="entry-count">${upcoming.length} open</div></div>${openBoard}${lockedBoard}</section>`;
+  return `<section class="entry-shell"><div class="entry-header"><div><div class="analysis-eyebrow">Game builder</div><div class="entry-title">1. Choose a matchup</div><div class="entry-subtitle">Open games first · ordered by kickoff · select one to build an entry</div></div><div class="entry-count">${upcoming.length} open</div></div>${openBoard}${lockedBoard}</section>`;
 }
 function renderLegCountSelector(){const cur=st.gameEntry?.legCount||GAME_ENTRY_DEFAULT_LEGS;const counts=Array.from({length:GAME_ENTRY_MAX_LEGS-GAME_ENTRY_MIN_LEGS+1},(_,i)=>i+GAME_ENTRY_MIN_LEGS);return `<div class="section"><div class="card"><div class="card-title">2. CHOOSE LEG COUNT</div><div style="display:flex;flex-wrap:wrap;gap:6px;margin:10px 0">${counts.map(n=>`<button onclick="setGameEntryLegs(${n})" style="border:1px solid ${cur===n?'var(--accent)':'#334155'};background:${cur===n?'var(--accent)':'transparent'};color:${cur===n?'#07130b':'inherit'};border-radius:999px;padding:7px 12px;font-weight:900;cursor:pointer">${n}</button>`).join('')}</div><div style="font-size:var(--t-xs);color:var(--push)">Build a 2-8 leg entry from available props in this matchup.</div></div></div>`}
 function renderEntry(entry){if(!entry)return '';if(!entry.candidates.length)return `<div class="section"><div class="card"><div class="card-title">${icon('entry')}3. RECOMMENDED ENTRY</div><div class="empty" style="padding:24px;text-align:center">No props available for this game yet.</div></div></div>`;if(!entry.legs.length)return `<div class="section"><div class="card"><div class="card-title">${icon('entry')}3. RECOMMENDED ENTRY</div><div class="empty" style="padding:24px;text-align:center">No usable odds for this game yet.</div></div></div>`;const odds=entry.math.american;const oddsText=odds>0?`+${odds}`:`${odds}`;const books=[...new Set(entry.legs.map(entryBestBookKey).filter(Boolean))];const warning=books.length>=2?`<div style="margin-top:12px;background:color-mix(in srgb, var(--warn) 8%, transparent);border:1px solid color-mix(in srgb, var(--warn) 33%, transparent);color:var(--warn);border-radius:8px;padding:8px;font-size:var(--t-xs)">${icon('warn')}Cross-book: legs split across ${books.join(', ')}. Single-book parlay may price differently.</div>`:'';const shortage=entry.legs.length<entry.requested?`<div style="margin-top:8px;color:var(--warn);font-size:var(--t-xs)">Only ${entry.legs.length} legs available (you requested ${entry.requested}).</div>`:'';return `<div class="section"><div class="card"><div class="card-title">${icon('entry')}3. RECOMMENDED ENTRY — ${esc(entry.game.label)} · ${entry.legs.length} legs</div><div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:12px 0"><div class="stat-box"><div class="val">${oddsText}</div><div class="lbl">Combined</div></div><div class="stat-box"><div class="val">$${entry.math.return10.toFixed(0)}</div><div class="lbl">$10 return</div></div><div class="stat-box"><div class="val">${entry.score.toFixed(2)}</div><div class="lbl">Score</div></div></div>${shortage}<div style="height:1px;background:#334155;margin:12px 0"></div>${entry.legs.map((l,i)=>`<div style="padding:10px 0;border-bottom:1px solid #263238"><div style="display:flex;justify-content:space-between;gap:8px"><div style="font-weight:900">${i+1}. ${typeof playerLink==='function'?playerLink(l.player,l.prop_type,l.line):esc(l.player)} — ${esc(entryPropLabel(l.prop_type))} ${l.lean} ${l.line}</div><div style="font-weight:900;color:${l.lean==='OVER'?'var(--over)':'var(--under)'}">${entryFmtOdds(l.odds)}</div></div><div style="font-size:var(--t-xs);color:var(--push);margin-top:4px">Why: ${l.ai_tier} × ${esc(entryPropLabel(l.prop_type))} WLB ${l.wlb.toFixed(2)} = ${l.leg_score.toFixed(2)} · ${l.source}</div>${renderEntryBestBookLine(l.prop,l.lean)}</div>`).join('')}${warning}<button onclick="copyEntryToClipboard()" style="margin-top:14px;border:1px solid var(--accent);background:color-mix(in srgb, var(--accent) 13%, transparent);color:var(--accent);border-radius:8px;padding:10px 12px;font-weight:900;cursor:pointer;width:100%">${window.__entryCopied?'✓ Copied':'Copy entry'}</button></div></div>`}
@@ -3123,21 +3123,14 @@ function renderPickBoardRow(model,index){
     :`${esc(p.game||"")}${gameTime?` · ${esc(gameTime)}`:""} · ${esc(propTypeLabel(p.prop_type))}`;
   const teams=model.isGameMarket?teamPairForRow(p):null;
   const callText=model.isGameMarket?esc(pickDisplaySelection(p)||"Play"):esc(`${model.leanText} ${p.line||"—"}`);
-  const marketHTML=model.isGameMarket&&rowField(p,"PICK_ODDS")!==""&&rowField(p,"PICK_ODDS")!=null
-    ?`${esc(propTypeLabel(p.prop_type))} · ${fmtOdds(rowField(p,"PICK_ODDS"))}`
-    :esc(propTypeLabel(p.prop_type));
   const rankText=`#${String(p.rank||index+2).padStart(2,"0")}`;
   const selectionHTML=model.isGameMarket?`${renderTeamLogoStack(teams.away,teams.home)}<span>${nameHTML}</span>`:nameHTML;
-  const statusDot=status?`<span class="pick-matrix-status ${model.tierClass||"lean"}"></span>`:`<span class="pick-matrix-status idle"></span>`;
   return `<details class="pick-matrix-row ${model.tierClass}${model.locked?" locked-card":""}">
     <summary class="pick-matrix-summary">
       <span class="pick-matrix-cell pick-matrix-rank">${rankText}</span>
       <span class="pick-matrix-cell pick-matrix-selection">${selectionHTML}</span>
-      <span class="pick-matrix-cell pick-matrix-context">${metaHTML}</span>
       <span class="pick-matrix-cell pick-matrix-call ${model.leanClass}">${callText}</span>
-      <span class="pick-matrix-cell pick-matrix-market">${marketHTML}</span>
-      <span class="pick-matrix-cell pick-matrix-tier ${model.tierClass}">${esc(model.confidence)}</span>
-      <span class="pick-matrix-cell pick-matrix-status-cell">${statusDot}</span>
+      <span class="pick-matrix-cell pick-matrix-context">${metaHTML}</span>
     </summary>
     <div class="pick-matrix-detail">
       <div class="pick-matrix-detail-grid">
@@ -3158,7 +3151,7 @@ function renderPickSection(title,subtitle,pickModels,{emptyMessage=""}={}){
   const featured=pickModels[0];
   const remaining=pickModels.slice(1);
   const board=remaining.length
-    ?`<div class="pick-matrix"><div class="pick-matrix-head"><span>Rank</span><span>Pick</span><span>Context</span><span>Call</span><span>Market</span><span>Tier</span><span></span></div>${remaining.map((model,index)=>renderPickBoardRow(model,index)).join("")}</div>`
+    ?`<div class="pick-matrix"><div class="pick-matrix-head"><span>Rank</span><span>Player</span><span>Call</span><span>Context</span></div>${remaining.map((model,index)=>renderPickBoardRow(model,index)).join("")}</div>`
     :"";
   return `<section class="pick-section"><div class="pick-section-head"><div><div class="pick-section-title">${esc(title)}</div>${subtitle?`<div class="pick-section-sub">${esc(subtitle)}</div>`:""}</div><div class="pick-section-count">${pickModels.length} pick${pickModels.length===1?"":"s"}</div></div><div class="pick-editorial">${renderFeaturedPick(featured)}${board}</div></section>`;
 }
@@ -4162,29 +4155,14 @@ function renderBestBallRoster(rows,projectionLens=null){
       : `Can probably survive one turn · window ${start}-${end}`;
   }
 
-  const slots=Object.entries(BB_ROSTER_TARGETS).map(([pos,target])=>{
-    const have=byPos[pos]||0;
-    return `<div class="bb-slot ${have<target?"bb-slot-need":""}">${pos} <strong>${have}</strong>/${target}</div>`;
-  }).join("");
-
   const summary=`<div class="bb-summary-bar">
-    <div class="bb-summary-pill ${mine.length>BB_ROSTER_SIZE?"bb-slot-need":""}">
-      <span class="bb-summary-label">Drafted</span>
-      <strong>${mine.length}</strong>/<span>${BB_ROSTER_SIZE}</span>
-    </div>
-    <div class="bb-summary-pill ${queue.length?"bb-slot-need":""}">
-      <span class="bb-summary-label">Targets</span>
-      <strong>${queue.length}</strong>
-    </div>
-    ${slots.replaceAll('bb-slot','bb-summary-pill')}
-    ${taken.length?`<div class="bb-summary-pill"><span class="bb-summary-label">Room</span><strong>${taken.length}</strong></div>`:""}
-    ${stacked.length?`<div class="bb-summary-pill bb-summary-pill-wide bb-slot-need"><span class="bb-summary-label">Bye cluster</span><strong>${stacked.join(" · ")}</strong></div>`:""}
-  </div>`;
-
-  const priorityStrip=`<div class="bb-priority-strip">
-    <div class="bb-priority-pill bb-priority-now"><span class="bb-summary-label">Take now</span><strong>${pressureCounts.now}</strong></div>
-    <div class="bb-priority-pill bb-priority-soon"><span class="bb-summary-label">One-turn risk</span><strong>${pressureCounts.soon}</strong></div>
-    <div class="bb-priority-pill ${pressureCounts.risk?"bb-priority-watch":""}"><span class="bb-summary-label">Context checks</span><strong>${pressureCounts.risk}</strong></div>
+    <strong>${mine.length}/${BB_ROSTER_SIZE}</strong> drafted
+    <span>QB ${byPos.QB||0}/${BB_ROSTER_TARGETS.QB}</span>
+    <span>RB ${byPos.RB||0}/${BB_ROSTER_TARGETS.RB}</span>
+    <span>WR ${byPos.WR||0}/${BB_ROSTER_TARGETS.WR}</span>
+    <span>TE ${byPos.TE||0}/${BB_ROSTER_TARGETS.TE}</span>
+    ${queue.length?`<span>${queue.length} targets</span>`:""}
+    ${taken.length?`<span>${taken.length} gone</span>`:""}
   </div>`;
 
   const lensCard=projectionLens?`<div class="card bb-note-card bb-lens-card">
@@ -4237,6 +4215,7 @@ function renderBestBallRoster(rows,projectionLens=null){
       ${renderRoundTarget("Best overall",bestOverall,bestOverall?timingSummary(bestOverall,"overall"):"","overall")}
       ${renderRoundTarget("Take now",takeNow,takeNow?timingSummary(takeNow,"take"):"","take")}
       ${renderRoundTarget("Can wait",bestWait,bestWait?timingSummary(bestWait,"wait"):"","wait")}
+      <div class="bb-round-signals"><span>${pressureCounts.now} take now</span><span>${pressureCounts.soon} one-turn risk</span><span>${pressureCounts.risk} context checks</span></div>
     </div>`;
 
   const onDeckCard=`<div class="card bb-note-card bb-ondeck-card">
@@ -4245,7 +4224,7 @@ function renderBestBallRoster(rows,projectionLens=null){
       ${nextTargets.length?nextTargets.map(r=>`<div class="bb-note-row"><span class="bb-note-name">${esc(r.name)}</span><span class="bb-note-meta">${esc(r.team)} · ${esc(r.pos)} · ${Number.isFinite(r.displayProj)?r.displayProj.toFixed(1):"—"} pts</span></div>`).join(""):`<div class="bb-note-empty">Board looks balanced right now.</div>`}
     </div>`;
 
-  const topContext=`${priorityStrip}<div class="bb-top-context">
+  const topContext=`<div class="bb-top-context">
     ${queueCard}
     ${roundCard}
     ${onDeckCard}
@@ -4296,11 +4275,7 @@ function renderBestBallView(){
   }
 
   const positions=["ALL","QB","RB","WR","TE"];
-  const posChips=positions.map(p=>
-    `<div class="sub-tab ${st.bbPos===p?"active":""}" onclick="bbSetPos('${p}')">${p}</div>`).join("");
   const sorts=[["VORP","Value"],["ECR","Consensus"],["DELTA","Disagreement"]];
-  const sortChips=sorts.map(([k,l])=>
-    `<div class="sub-tab ${st.bbSort===k?"active":""}" onclick="bbSetSort('${k}')">${l}</div>`).join("");
   const teams=[...new Set(all.map(r=>r.team).filter(Boolean))].sort();
   const searchNeedle=normalizePlayerName(st.bbSearch);
   const scarcityPool=(st.bbDraftableOnly?all.filter(bbIsDraftable):all).filter(r=>!st.bbDrafted.has(r.id)&&!st.bbTaken.has(r.id));
@@ -4381,6 +4356,12 @@ function renderBestBallView(){
     const queued=st.bbQueue.has(r.id);
     const timing=bbTimingState(r,roundContext);
     const trust=bbTrustSignal(r);
+    // Default timing and agreement are quiet context. Surface only exception
+    // signals that require the drafter to make a different decision.
+    const timingBadge=["soon","wait"].includes(timing.tone)
+      ?`<span class="bb-timing-pill bb-timing-${timing.tone}">${timing.label}</span>`:"";
+    const trustBadge=["watch","warn","neutral"].includes(trust.tone)
+      ?`<span class="bb-trust-pill bb-trust-${trust.tone}" title="${esc(trust.detail)}">${esc(trust.label)}</span>`:"";
     const deltaCls=r.delta>0?"bb-delta-up":r.delta<0?"bb-delta-dn":"";
     const deltaRounded=Math.round(r.delta);
     const deltaTxt=r.ecr?`${deltaRounded>0?"+":""}${deltaRounded}`:"—";
@@ -4398,8 +4379,7 @@ function renderBestBallView(){
           ${flag}
         </div>
         <div class="bb-player-sub">
-          <span class="bb-timing-pill bb-timing-${timing.tone}">${timing.label}</span>
-          <span class="bb-trust-pill bb-trust-${trust.tone}" title="${esc(trust.detail)}">${esc(trust.label)}</span>
+          ${timingBadge}${trustBadge}
           <span class="bb-player-window">${timing.detail}</span>
         </div>
       </td>
@@ -4437,14 +4417,13 @@ ${sourceScoring?`<span class="bb-flag">${esc(scoringLabel)}</span> `:""}
         <select id="bbTeamSelect" onchange="bbSetTeam(this.value)"><option value="ALL">All teams</option>${teams.map(team=>`<option value="${esc(team)}" ${st.bbTeam===team?"selected":""}>${esc(team)}</option>`).join("")}</select>
       </div>
     </div>
-    <div class="draft-controls" style="padding:0 16px 8px;display:flex;gap:6px;flex-wrap:wrap;align-items:center">
-      ${posChips}<span style="width:10px"></span>${sortChips}
-      <span style="width:10px"></span>
-      <div class="sub-tab ${st.bbScoring==="half"?"active":""}" onclick="bbSetScoring('half')">.5 PPR</div>
-      <div class="sub-tab ${st.bbScoring==="full"?"active":""}" onclick="bbSetScoring('full')">Full PPR</div>
-      <div class="sub-tab ${st.bbDraftableOnly?"active":""}" onclick="bbToggleDraftable()">Draftable only</div>
-      <div class="sub-tab ${st.bbHideDrafted?"active":""}" onclick="bbToggleHide()">Hide unavailable</div>
-      <div class="draft-reset" onclick="bbResetDraft()" style="cursor:pointer;color:var(--ink-muted);font-size:var(--t-xs);margin-left:auto">Reset</div>
+    <div class="bb-controls-compact">
+      <label>Position <select onchange="bbSetPos(this.value)">${positions.map(p=>`<option value="${p}" ${st.bbPos===p?"selected":""}>${p}</option>`).join("")}</select></label>
+      <label>Rank by <select onchange="bbSetSort(this.value)">${sorts.map(([key,label])=>`<option value="${key}" ${st.bbSort===key?"selected":""}>${label}</option>`).join("")}</select></label>
+      <label>Scoring <select onchange="bbSetScoring(this.value)"><option value="half" ${st.bbScoring==="half"?"selected":""}>.5 PPR</option><option value="full" ${st.bbScoring==="full"?"selected":""}>Full PPR</option></select></label>
+      <button class="bb-control-toggle ${st.bbDraftableOnly?"active":""}" onclick="bbToggleDraftable()">Draftable only</button>
+      <button class="bb-control-toggle ${st.bbHideDrafted?"active":""}" onclick="bbToggleHide()">Hide unavailable</button>
+      <button class="bb-control-reset" onclick="bbResetDraft()">Reset</button>
     </div>
     <div class="bb-layout">
       <div class="bb-main">

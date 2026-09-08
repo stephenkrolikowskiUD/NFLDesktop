@@ -139,6 +139,14 @@ compact tape or market-window UI, not a stack of equal-weight cards or a cloud
 of pills. Show a few high-signal numbers, a short preview of live games, and
 put the full chooser or rationale behind an explicit open state.
 
+For ranked pick matrices, the actual call is primary, player names are
+supporting context, and visual weight must decay after the top few rows. Use
+the tier-colored row edge/rank as the conviction signal; do not reintroduce
+separate tier chips, dots, or a redundant market column. Best Ball controls
+must be compact native controls rather than a wall of pills, roster status must
+be one inline strip, and player badges are reserved for exceptions such as a
+one-turn risk or a data-quality warning, never the default state.
+
 Related UI convention from 2026-09-03: the weekly board, next-game-day board,
 and append-only audit trail are three different products. `Picks_Weekly` is the
 active-week board and must accumulate qualified picks as Thursday, Sunday, and
