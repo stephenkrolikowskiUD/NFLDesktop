@@ -163,6 +163,11 @@ expired picks. `Daily_Picks` is archival history for grading and CLV. Do not
 blend these surfaces or let a fallback masquerade as the authoritative board
 without saying so explicitly.
 
+An empty `Picks_Current` can be correct when the nearest scheduled game day
+has no qualified play while `Picks_Weekly` is populated. Keep the empty
+daily-board message, but let health and freshness use the weekly snapshot;
+never label this state as an engine outage or a missing model run.
+
 The "current" game day comes from `Schedule`, not from whichever date happens
 to have a curated pick. If the Wednesday opener has no qualified play, show an
 empty Wednesday slate; do not skip it and label Thursday as the next NFL game

@@ -606,11 +606,14 @@ function getPickGuard(latestDate,picksCount){
   const tonightCount=st.mode==="qb"?st.pTonight.length:st.tonight.length;
   if(!tonightCount)return null;
   const today=easternTodayISO();
+  const weeklySnapshot=st.weeklyPicks||[];
   const currentRows=latestDate
     ?(st.picks||[]).filter(p=>normalizeDate(rowField(p,"DATE"))===latestDate&&toNum(rowField(p,"RUN_NUMBER"))===getLatestPickRun())
     :(st.picks||[]);
   const currentPlayerPickCount=currentRows.filter(p=>!isGameMarketMetric(rowField(p,"prop_type"))).length;
   if(!picksCount){
+    // A nearest-game-day board can legitimately be empty while the weekly board is healthy.
+    if(weeklySnapshot.length)return null;
     return st.props.length
       ?{level:"warn",text:"Engine issue — model picks are missing or incomplete for this week's slate."}
       :{level:"info",text:"No model picks for this week yet. Props may still be loading."};
@@ -674,8 +677,9 @@ function freshnessSignal(label,rows,{warnHours,staleHours,fields=["LAST_UPDATED"
 function getModelFreshness(){
   const latestDate=getLatestPickDate(),latestRun=getLatestPickRun();
   const currentPicks=(st.picks||[]).filter(p=>normalizeDate(rowField(p,"DATE"))===latestDate&&toNum(rowField(p,"RUN_NUMBER"))===latestRun);
+  const healthPicks=currentPicks.length?currentPicks:(st.weeklyPicks||[]);
   return[
-    freshnessSignal("Model picks",currentPicks,{warnHours:8,staleHours:20,fields:["LAST_UPDATED","RUN_TIME"]}),
+    freshnessSignal(currentPicks.length?"Model picks":"Weekly picks",healthPicks,{warnHours:8,staleHours:20,fields:["LAST_UPDATED","RUN_TIME"]}),
     freshnessSignal("Sportsbook markets",st.props,{warnHours:3,staleHours:8}),
     freshnessSignal("Skill-player logs",st.gameLogs,{warnHours:18,staleHours:36,fields:["LAST_UPDATED","_generated_at"]}),
     freshnessSignal("QB logs",st.pGameLogs,{warnHours:18,staleHours:36,fields:["LAST_UPDATED","_generated_at"]}),
@@ -3195,12 +3199,14 @@ function renderShortlistPicksView(){
 
 function renderModelPicksView(convergenceHTML,{title=weeklyPickLabel(),subtitle="Ranked best bets across every game this week with a live market.",rows=st.weeklyPicks,sourceNote="",emptyMessage=""}={}){
   const allBoardPicks=rows||[];
+  // A daily slice may be empty even though the active weekly model run succeeded.
+  const healthRows=allBoardPicks.length?allBoardPicks:(st.weeklyPicks||[]);
   const hasCalibrationStatus=allBoardPicks.some(p=>String(rowField(p,"RECOMMENDATION_STATUS")||"").trim());
   const todayPicks=hasCalibrationStatus
     ?allBoardPicks.filter(p=>String(rowField(p,"RECOMMENDATION_STATUS")).toUpperCase()==="PLAYABLE")
     :allBoardPicks;
   const researchCount=hasCalibrationStatus?allBoardPicks.length-todayPicks.length:0;
-  const modelIntro=`<section class="model-picks-intro"><div class="model-picks-title">${esc(title)}</div><div class="model-picks-sub">${esc(subtitle)}</div>${sourceNote?`<div class="model-picks-sub">${esc(sourceNote)}</div>`:""}${renderModelRunHealth(allBoardPicks)}${renderModelFreshness()}</section>`;
+  const modelIntro=`<section class="model-picks-intro"><div class="model-picks-title">${esc(title)}</div><div class="model-picks-sub">${esc(subtitle)}</div>${sourceNote?`<div class="model-picks-sub">${esc(sourceNote)}</div>`:""}${renderModelRunHealth(healthRows)}${renderModelFreshness()}</section>`;
   let html=convergenceHTML+modelIntro+renderPickGuard(st.pickGuard)+renderCalibrationPolicy();
 
   if(!todayPicks.length){
