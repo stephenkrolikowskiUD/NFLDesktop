@@ -172,6 +172,11 @@ Run-health targets are board-specific: the weekly board is measured against
 its broad 14-pick review target, while the focused next-slate board is a
 three-pick product. Never render a healthy 3/3 next-slate delivery as 3/14.
 
+`This Week's Shortlist` is a full-week surface and must source its model
+recommendations from `Picks_Weekly`. It may scan the live market board across
+the whole slate, but it must never inherit the three-pick `Picks_Current`
+slice used by the focused next-game-day tab.
+
 The "current" game day comes from `Schedule`, not from whichever date happens
 to have a curated pick. If the Wednesday opener has no qualified play, show an
 empty Wednesday slate; do not skip it and label Thursday as the next NFL game

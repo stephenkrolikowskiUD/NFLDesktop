@@ -1315,10 +1315,17 @@ function getConvictionLegs(){
   });
   if(!bets.length)return[];
 
+  // This Week's Shortlist is a week-wide product. Its market scan already
+  // covers the slate, so its recommendation map must come from Picks_Weekly,
+  // not the focused next-game-day Picks_Current slice.
+  const shortlistPicks=(st.weeklyPicks&&st.weeklyPicks.length)?st.weeklyPicks:(st.picks||[]);
   const latestDate=getLatestPickDate();
   const latestRun=getLatestPickRun();
   const aiMap=new Map();
-  st.picks.filter(pk=>normalizeDate(rowField(pk,"DATE"))===latestDate&&toNum(rowField(pk,"RUN_NUMBER"))===latestRun).forEach(pk=>{if(pk.player){const playerKey=normalizePlayerName(pk.player);aiMap.set(playerKey,pk);aiMap.set(`${playerKey}|${normalizePropMetric(pk.prop_type)}|${normalizeLeanText(pk.lean)}`,pk)}});
+  const activePickRows=shortlistPicks===st.picks
+    ?shortlistPicks.filter(pk=>normalizeDate(rowField(pk,"DATE"))===latestDate&&toNum(rowField(pk,"RUN_NUMBER"))===latestRun)
+    :shortlistPicks;
+  activePickRows.forEach(pk=>{if(pk.player){const playerKey=normalizePlayerName(pk.player);aiMap.set(playerKey,pk);aiMap.set(`${playerKey}|${normalizePropMetric(pk.prop_type)}|${normalizeLeanText(pk.lean)}`,pk)}});
   const streakMap=new Map();
   try{
     const streaks=getStreaks();
