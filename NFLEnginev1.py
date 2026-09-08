@@ -569,8 +569,46 @@ def _slate_identity(df: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
+def _next_schedule_opponents(schedule: pd.DataFrame, now: datetime) -> dict[str, str]:
+    """Map each team to its next regular-season opponent for slate filtering."""
+    if schedule.empty or not {"gameday", "home_team", "away_team"}.issubset(schedule.columns):
+        return {}
+    games = schedule.copy()
+    if "game_type" in games.columns:
+        games = games[games["game_type"].astype(str).str.upper() == "REG"]
+    game_dates = pd.to_datetime(games["gameday"], errors="coerce").dt.date
+    games = games[game_dates >= now.date()].sort_values(["gameday", "gametime"], kind="stable")
+    opponents = {}
+    for _, game in games.iterrows():
+        away = str(game.get("away_team") or "").strip().upper()
+        home = str(game.get("home_team") or "").strip().upper()
+        if away and home:
+            opponents.setdefault(away, home)
+            opponents.setdefault(home, away)
+    return opponents
+
+
+def _current_roster_identity(rosters: pd.DataFrame) -> pd.DataFrame:
+    """Return the active 2026 identity record for each player ID."""
+    if rosters.empty or "gsis_id" not in rosters.columns:
+        return pd.DataFrame()
+    active = rosters.copy()
+    if "status" in active.columns:
+        active = active[active["status"].isin(["ACT", "RES", "DEV"])]
+    keep = [c for c in ["gsis_id", "team", "position"] if c in active.columns]
+    if not {"gsis_id", "team"}.issubset(keep):
+        return pd.DataFrame()
+    return (active[keep]
+            .dropna(subset=["gsis_id", "team"])
+            .drop_duplicates(subset=["gsis_id"])
+            .rename(columns={"gsis_id": "player_id", "team": "team_now",
+                             "position": "position_now"}))
+
+
 def build_slate_tab(stats: pd.DataFrame, snaps: pd.DataFrame,
-                    positions: list[str]) -> pd.DataFrame:
+                    positions: list[str], schedule: pd.DataFrame | None = None,
+                    now: datetime | None = None,
+                    rosters: pd.DataFrame | None = None) -> pd.DataFrame:
     """Season-to-date per-player aggregate for one position group.
 
     This is the "who's available and how are they used" surface. Pre-season it
@@ -600,12 +638,22 @@ def build_slate_tab(stats: pd.DataFrame, snaps: pd.DataFrame,
     ).reset_index()
     agg["games"] = grouped.size().values
 
-    # Latest team/opponent, so the slate reflects current affiliation rather
-    # than whoever they played for in week 1.
+    # Historical rows provide performance context only. Current team and
+    # position come from the active-season roster below.
     latest = (pool.sort_values("week")
                   .groupby("player_id", as_index=False)
                   .last()[["player_id", "team", "opponent_team"]])
     agg = agg.merge(latest, how="left", on="player_id")
+
+    roster_identity = _current_roster_identity(rosters if rosters is not None else pd.DataFrame())
+    if not roster_identity.empty:
+        agg = agg.merge(roster_identity, how="left", on="player_id")
+        # A slate is a current-roster surface. Do not offer a player who has
+        # no active 2026 roster record, even if their 2025 stats remain here.
+        agg = agg[agg["team_now"].notna()].copy()
+        agg["team"] = agg["team_now"]
+        if "position_now" in agg.columns:
+            agg["position"] = agg["position_now"].fillna(agg["position"])
 
     if not snaps.empty and "gsis_id" in snaps.columns and "offense_pct" in snaps.columns:
         snap_avg = (snaps.groupby("gsis_id", as_index=False)["offense_pct"]
@@ -617,6 +665,11 @@ def build_slate_tab(stats: pd.DataFrame, snaps: pd.DataFrame,
         agg[c] = agg[c].round(4)
 
     agg = _slate_identity(agg)
+    next_opponents = _next_schedule_opponents(schedule, now or datetime.now(eastern)) if schedule is not None else {}
+    if next_opponents:
+        agg["opp_abbr_tonight"] = agg["team_abbr"].map(next_opponents).fillna(agg["opp_abbr"])
+    else:
+        agg["opp_abbr_tonight"] = agg["opp_abbr"]
     sort_col = "fantasy_points_ppr" if "fantasy_points_ppr" in agg.columns else "games"
     return agg.sort_values(sort_col, ascending=False).reset_index(drop=True)
 
@@ -1341,8 +1394,10 @@ def main():
     tabs = {
         # Tabs the NFL dashboard reads
         "Schedule": build_schedule_tab(games_tab),
-        "Slate_Skill": build_slate_tab(stats, snaps, SKILL_POSITIONS),
-        "Slate_QB": build_slate_tab(stats, snaps, ["QB"]),
+        "Slate_Skill": build_slate_tab(
+            stats, snaps, SKILL_POSITIONS, schedule=schedule, now=started, rosters=rosters_now),
+        "Slate_QB": build_slate_tab(
+            stats, snaps, ["QB"], schedule=schedule, now=started, rosters=rosters_now),
         "Skill_Game_Logs": skill_logs,
         "QB_Game_Logs": qb_logs,
         "Team_Rankings": build_team_rankings_tab(team_stats),

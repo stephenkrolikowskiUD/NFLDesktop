@@ -2224,8 +2224,13 @@ function draftRowGameId(row){
   const team=String(rowField(row,"team_abbr")||"").trim().toUpperCase();
   const opp=String(rowField(row,"opp_abbr_tonight","tonight_opp","opp_abbr")||"").trim().toUpperCase();
   const pair=entryPairId(team,opp);
-  const matches=getDraftSlateGames().filter(game=>entryPairId(game.home,game.away)===pair);
-  return matches[0]?.id||(pair?`pair:${pair}`:"");
+  const games=getDraftSlateGames();
+  const matches=games.filter(game=>entryPairId(game.home,game.away)===pair);
+  if(matches.length)return matches[0].id;
+  // Existing sheets may still contain a player's last historical opponent.
+  // A single selected game for their team is enough to place them safely.
+  const teamMatches=games.filter(game=>game.home===team||game.away===team);
+  return teamMatches.length===1?teamMatches[0].id:(pair?`pair:${pair}`:"");
 }
 function draftRowInSlate(row){return draftSlateSelection().has(draftRowGameId(row))}
 function draftSlateMemoKey(){return [...draftSlateSelection()].sort().join(",")||"none"}

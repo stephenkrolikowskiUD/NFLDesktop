@@ -153,6 +153,13 @@ to have a curated pick. If the Wednesday opener has no qualified play, show an
 empty Wednesday slate; do not skip it and label Thursday as the next NFL game
 day. The dashboard label must use the same schedule-derived date.
 
+`Slate_Skill` and `Slate_QB` use historical stats for performance context only.
+Their player team, position, and active eligibility must come from the current
+season roster; their opponent must be stamped from the next scheduled game.
+Never filter a current contest using a historical team or opponent: that shows
+moved players on the wrong team and can silently remove an entire position
+group when the selected matchup differs from Week 18.
+
 ### Display curation may never run before the historical ledger
 
 The one-prop-per-player rule is a decision-board convenience, not a data
