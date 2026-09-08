@@ -758,6 +758,8 @@ td.push{color:var(--push);font-weight:700}
 .shortlist-name-row{display:flex;align-items:center;gap:10px}
 .shortlist-name{margin-top:3px;font-size:var(--t-md);font-weight:800;color:var(--ink-0)}
 .shortlist-meta{margin-top:2px;color:var(--ink-muted);font-size:var(--t-xs)}
+.shortlist-meta-with-logos{display:flex;align-items:center;gap:6px}
+.shortlist-meta-with-logos .team-logo-stack{min-width:38px;transform:scale(.8);transform-origin:left center;margin-right:-8px}
 .shortlist-call{text-align:right;white-space:nowrap;align-self:end}
 .shortlist-call-line{display:block;font-family:"Barlow Condensed",system-ui,sans-serif;font-size:var(--t-xl);line-height:1;font-weight:800;color:var(--ink-0)}
 .shortlist-call span{display:block;color:var(--accent-soft);font-size:var(--t-xs);font-weight:700}
