@@ -832,6 +832,7 @@ td.push{color:var(--push);font-weight:700}
 .analysis-shell{padding:0 16px 18px}
 .analysis-hero{padding:18px 0 14px;border-bottom:1px solid var(--border-1)}
 .analysis-hero-top{display:flex;align-items:flex-end;justify-content:space-between;gap:18px}
+.analysis-player-identity{display:flex;align-items:center;gap:12px;min-width:0}
 .analysis-eyebrow{color:var(--ink-muted);font-size:10px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;margin-bottom:5px}
 .analysis-player{font-family:"Barlow Condensed",system-ui,sans-serif;font-size:34px;font-weight:800;line-height:1;letter-spacing:.01em}
 .analysis-context{color:var(--ink-muted);font-size:var(--t-xs);margin-top:6px}

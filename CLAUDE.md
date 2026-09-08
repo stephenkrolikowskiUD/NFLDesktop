@@ -182,6 +182,10 @@ team logos as matchup context. Both must preserve their existing initials or
 team-abbreviation fallbacks; visual assets clarify a pick but never replace
 its name, matchup, or call.
 
+The player analysis workspace uses the larger hero headshot beside the player
+identity in its header. Keep the prop call separate on the opposite side so
+the portrait adds recognition without competing with the decision.
+
 The "current" game day comes from `Schedule`, not from whichever date happens
 to have a curated pick. If the Wednesday opener has no qualified play, show an
 empty Wednesday slate; do not skip it and label Thursday as the next NFL game

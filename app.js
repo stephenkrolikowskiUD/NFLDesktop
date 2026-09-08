@@ -5018,10 +5018,13 @@ function renderDashboardPage(){
     ${player?`<div class="analysis-shell">
       <header class="analysis-hero">
         <div class="analysis-hero-top">
-          <div>
-            <div class="analysis-eyebrow">${isP?"QB analysis":"Skill-player analysis"}</div>
-            <div class="analysis-player">${esc(player)}</div>
-            <div class="analysis-context">${esc(contextBits||"Team and matchup loading")}</div>
+          <div class="analysis-player-identity">
+            ${renderPlayerHeadshot(player,{size:"hero"})}
+            <div>
+              <div class="analysis-eyebrow">${isP?"QB analysis":"Skill-player analysis"}</div>
+              <div class="analysis-player">${esc(player)}</div>
+              <div class="analysis-context">${esc(contextBits||"Team and matchup loading")}</div>
+            </div>
           </div>
           <div class="analysis-focus">
             <div class="analysis-focus-value">${esc(nflMetricLabel(selectedMetric))}</div>
