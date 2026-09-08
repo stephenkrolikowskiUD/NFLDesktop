@@ -442,6 +442,8 @@ td.push{color:var(--push);font-weight:700}
 .entry-game-card.selected{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 10%,var(--surface-1))}
 .entry-game-card.started{opacity:.48}
 .entry-game-top{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.entry-game-identity{display:flex;align-items:center;gap:8px;min-width:0}
+.entry-game-identity .team-logo-stack{flex:0 0 auto;min-width:42px}
 .entry-game-matchup{font-family:"Barlow Condensed",system-ui,sans-serif;font-size:var(--t-md);font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .entry-game-time{font-size:var(--t-xs);font-weight:800;color:var(--accent);white-space:nowrap}
 .entry-game-meta{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:6px;font-size:10px;color:var(--ink-muted)}

@@ -2685,8 +2685,9 @@ function renderGameSelector(games){
     const candidateCount=buildCandidatePool(g.id).candidates.length;
     const selected=sel===g.id;
     const status=g.started?"Locked":selected?"Selected":"Open";
+    const [awayTeam,homeTeam]=g.teams||[];
     return `<button class="entry-game-card ${selected?"selected":""} ${g.started?"started":""}" onclick='setGameEntryGame(${JSON.stringify(g.id)})'>
-      <div class="entry-game-top"><span class="entry-game-matchup">${esc(g.baseLabel)}</span><span class="entry-game-time">${esc(g.timeText||"Time TBD")}</span></div>
+      <div class="entry-game-top"><div class="entry-game-identity">${renderTeamLogoStack(awayTeam,homeTeam)}<span class="entry-game-matchup">${esc(g.baseLabel)}</span></div><span class="entry-game-time">${esc(g.timeText||"Time TBD")}</span></div>
       <div class="entry-game-meta"><span class="entry-game-status">${status}</span><span class="entry-game-props">${candidateCount?`${candidateCount} options`:"No props"}</span></div>
     </button>`;
   };
