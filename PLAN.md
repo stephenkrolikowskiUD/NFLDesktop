@@ -1,6 +1,6 @@
 # NFLDesktop Roadmap
 
-_Last updated: 2026-09-07_
+_Last updated: 2026-09-09_
 
 ## Where We Are
 NFL is no longer a greenfield build. The core dashboard, engine, season-long projection layer, Lookup, and game-market board are live. The first real Week 1 player-prop run completed on September 3: 138 unique lines across 52 players produced 14 validated Gemini consensus picks, which wrote to `Picks_Current` and the append-only `Daily_Picks` ledger with regular-season phase and model identity stamped correctly.
@@ -26,6 +26,8 @@ The pick workflow is split deliberately: `Picks_Weekly` is the curated all-week 
 - ✅ Live Gemini player-prop generation proven through GitHub Actions on a real Week 1 board
 - ✅ Separate weekly, next-game-day, and append-only history pick surfaces
 - ✅ Team logo support and compact matrix-based picks presentation
+- ✅ Current-week injury guard: confirmed unavailable players are excluded before
+  pick generation, and teammate absences are passed as review context
 
 ## In Progress
 - 🟠 Weekly picks grading — generation is live; settlement remains unproven. `picks.py` runs Gemini three-pass consensus + recovery, validates every line against the live market, and preserves every qualified pick in `Daily_Picks` even when the display boards limit a player to one prop. `NFLGrader1.py` has per-game kickoff readiness, player_id-first matching, team-market grading, and `Pick_Performance` aggregation. What remains: confirm completed Week 1 player and team picks grade correctly, including push treatment and CLV refresh, then verify the sportsbook-outage warning with a deliberate monitored dry run.
@@ -39,6 +41,8 @@ The pick workflow is split deliberately: `Picks_Weekly` is the curated all-week 
    - Confirm `Picks_Current` clears immediately after each game-day slate begins and advances to the next unstarted game day
    - Force one monitored outage-path run after launch by withholding or breaking the Odds API call and confirming the dashboard surfaces the sportsbook warning instead of quietly looking healthy off baseline-only data
    - Resolve legacy preseason rows that cannot map to a real schedule as explicit DNP/archival records rather than retrying forever
+   - Re-run the engine after confirmed Week 1 inactives and verify the log reports
+     excluded unavailable prop rows plus teammate absence context
 
 2. **Best Ball draft helper polish**
    - Tighten layout so the board stays primary

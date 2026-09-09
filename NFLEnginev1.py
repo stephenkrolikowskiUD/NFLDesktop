@@ -1181,8 +1181,13 @@ def main():
     snaps = nv.attach_gsis_id(nv.load_snap_counts(seasons=[stats_season]))
     print(f"   snap counts: {len(snaps)} rows")
 
-    injuries = nv.load_injuries(seasons=[stats_season])
-    print(f"   injuries: {len(injuries)} rows")
+    # Injury reports are a current-slate input, not historical performance
+    # context. Loading the stats baseline here would miss a Week 1 inactive.
+    injuries = nv.load_injuries(seasons=[schedule_season])
+    if injuries.empty:
+        print(f"   ⚠️  no {schedule_season} injuries — falling back to {stats_season} reference reports")
+        injuries = nv.load_injuries(seasons=[stats_season])
+    print(f"   injuries {schedule_season}: {len(injuries)} rows")
 
     team_stats = nv.load_team_stats(seasons=[stats_season])
     print(f"   team stats: {len(team_stats)} rows")
@@ -1363,8 +1368,13 @@ def main():
         else:
             gemini_key = load_secret("GEMINI_API_KEY", "🤖 Gemini API Key: ", allow_missing=True)
             all_logs = pd.concat([skill_logs, qb_logs], ignore_index=True) if not qb_logs.empty else skill_logs
-            player_ctx = pk.build_player_context(board, all_logs, projections, injuries)
+            player_ctx = pk.build_player_context(
+                board, all_logs, projections, injuries, active_week=week
+            )
+            excluded_unavailable = player_ctx.attrs.get("excluded_unavailable_props", 0)
             print(f"   player context: {len(player_ctx)} priced prop rows")
+            if excluded_unavailable:
+                print(f"   ⛔ excluded {excluded_unavailable} prop row(s) for confirmed unavailable players")
 
             games_str = build_week_games_str(schedule, week)
             fresh_picks = pk.generate_weekly_picks(gemini_key, GEMINI_MODEL, player_ctx,

@@ -213,6 +213,12 @@ Never filter a current contest using a historical team or opponent: that shows
 moved players on the wrong team and can silently remove an entire position
 group when the selected matchup differs from Week 18.
 
+Injury reports are current-slate data: load them from the schedule season and
+filter them to the active week. Confirmed unavailable players must be removed
+from player-prop candidate context before any Gemini call. Their absence may be
+shown to teammates as context, but never converted into an untested automatic
+usage boost or a guaranteed replacement pick.
+
 The Draft QB pool must come from `Slate_QB`. `Starting_QBs` is supplemental
 confirmation data and may legitimately be empty before beat reports arrive;
 never let an empty `Starting_QBs` tab replace the roster-backed QB slate.

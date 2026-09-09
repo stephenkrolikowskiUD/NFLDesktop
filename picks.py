@@ -252,8 +252,53 @@ def _win_prob_to_margin(prob: float, k: float = 0.145) -> float | None:
     return math.log(prob / (1.0 - prob)) / k
 
 
+UNAVAILABLE_INJURY_STATUSES = {
+    "OUT", "IR", "INJURED RESERVE", "SUSPENDED", "PUP", "NFI",
+}
+
+
+def _injury_status(value) -> str:
+    """Normalize upstream status values without turning missing values into text."""
+    return "" if pd.isna(value) else str(value).strip().upper()
+
+
+def _active_injury_reports(injuries: pd.DataFrame, week: int | None) -> pd.DataFrame:
+    """Keep only the current week's reports so old injuries cannot leak forward."""
+    if injuries is None or injuries.empty:
+        return pd.DataFrame()
+    reports = injuries.copy()
+    if week is not None and "week" in reports.columns:
+        report_week = pd.to_numeric(reports["week"], errors="coerce")
+        current = reports[report_week == int(week)]
+        if not current.empty:
+            reports = current
+    if "report_status" in reports.columns:
+        reports["_injury_status"] = reports["report_status"].map(_injury_status)
+    else:
+        reports["_injury_status"] = ""
+    return reports
+
+
+def _team_absence_context(reports: pd.DataFrame) -> dict[str, str]:
+    """Summarize confirmed inactive teammates for the AI review context."""
+    if reports.empty or "team" not in reports.columns:
+        return {}
+    context: dict[str, list[str]] = {}
+    for _, report in reports.iterrows():
+        if report.get("_injury_status", "") not in UNAVAILABLE_INJURY_STATUSES:
+            continue
+        team = str(report.get("team", "")).strip().upper()
+        name = str(report.get("full_name", report.get("player_name", ""))).strip()
+        position = str(report.get("position", "")).strip().upper()
+        if not team or not name:
+            continue
+        context.setdefault(team, []).append(" ".join(part for part in [name, position, "OUT"] if part))
+    return {team: "; ".join(names[:4]) for team, names in context.items()}
+
+
 def build_player_context(props_board: pd.DataFrame, game_logs: pd.DataFrame,
                          projections: pd.DataFrame, injuries: pd.DataFrame,
+                         active_week: int | None = None,
                          max_players: int = 80) -> pd.DataFrame:
     """One row per real prop line, with a hit-rate/EV signal and model context.
 
@@ -273,6 +318,14 @@ def build_player_context(props_board: pd.DataFrame, game_logs: pd.DataFrame,
     logs = game_logs.copy()
     logs["_name_norm"] = logs["player_display_name"].map(_norm_name)
     board["_name_norm"] = board["player"].map(_norm_name)
+    injury_reports = _active_injury_reports(injuries, active_week)
+    unavailable_ids = set(
+        injury_reports.loc[
+            injury_reports["_injury_status"].isin(UNAVAILABLE_INJURY_STATUSES), "gsis_id"
+        ].dropna().astype(str)
+    ) if "gsis_id" in injury_reports.columns else set()
+    absence_context = _team_absence_context(injury_reports)
+    excluded_unavailable_props = 0
 
     rows = []
     for _, prop in board.iterrows():
@@ -299,14 +352,20 @@ def build_player_context(props_board: pd.DataFrame, game_logs: pd.DataFrame,
         under_ev = under_hits - _implied_prob(under_odds) if pd.notna(under_odds) else np.nan
 
         latest = player_logs.sort_values("week").iloc[-1]
+        player_id = str(latest.get("player_id", "") or "")
+        if player_id in unavailable_ids:
+            # Sportsbooks can leave an inactive player's prop posted briefly.
+            # Exclude it before it can consume a candidate slot or reach Gemini.
+            excluded_unavailable_props += 1
+            continue
         proj_row = None
         if not projections.empty and "player_id" in projections.columns:
             match = projections[projections["player_id"].astype(str) == str(latest.get("player_id"))]
             proj_row = match.iloc[0] if not match.empty else None
 
         inj_row = pd.DataFrame()
-        if not injuries.empty and "gsis_id" in injuries.columns:
-            inj_row = injuries[injuries["gsis_id"].astype(str) == str(latest.get("player_id"))]
+        if not injury_reports.empty and "gsis_id" in injury_reports.columns:
+            inj_row = injury_reports[injury_reports["gsis_id"].astype(str) == player_id]
 
         event_away = str(prop.get("event_away_abbr", prop.get("event_away", ""))).strip().upper()
         event_home = str(prop.get("event_home_abbr", prop.get("event_home", ""))).strip().upper()
@@ -337,11 +396,9 @@ def build_player_context(props_board: pd.DataFrame, game_logs: pd.DataFrame,
             "vorp": proj_row.get("vorp") if proj_row is not None else np.nan,
             "model_confidence": proj_row.get("confidence") if proj_row is not None else "",
             "ecr": proj_row.get("ecr") if proj_row is not None else np.nan,
-            # report_status can be a real NaN within a matched row (not just a
-            # missing row) — str(nan) would otherwise become the literal text
-            # "nan" in injury_context downstream, so sanitize at the source.
-            "injury_status": (lambda v: "" if pd.isna(v) else v)(
-                inj_row.iloc[0].get("report_status") if not inj_row.empty else ""),
+            "injury_status": (inj_row.iloc[0].get("_injury_status", "")
+                              if not inj_row.empty else ""),
+            "team_absences": absence_context.get(str(latest.get("team", "")).strip().upper(), ""),
         })
 
     if not rows:
@@ -363,7 +420,9 @@ def build_player_context(props_board: pd.DataFrame, game_logs: pd.DataFrame,
     guaranteed = ctx[ctx["is_star"]].head(15)
     rest = ctx[~ctx.index.isin(guaranteed.index)]
     pool = pd.concat([guaranteed, rest]).head(max_players)
-    return pool.drop(columns=["_best_ev"], errors="ignore").reset_index(drop=True)
+    pool = pool.drop(columns=["_best_ev"], errors="ignore").reset_index(drop=True)
+    pool.attrs["excluded_unavailable_props"] = excluded_unavailable_props
+    return pool
 
 
 # ============================================================================
@@ -388,7 +447,8 @@ RULES:
 - {TIER_RULES_TEXT}
 - STAR players are the top 20 by projected season points in this week's valid prop pool (flagged is_star=true). Prefer at least 4 of your {GEMINI_TARGET_PICKS} final picks from STARs; non-stars fill remaining slots only with exceptional edges.
 - The model_confidence field (from a backtested season-long projection model) and vorp/ecr context are informative but not decisive on their own — weigh them alongside the hit-rate/EV signal and matchup, the same way you'd weigh any other input.
-- Treat injury_status other than blank/"" as a real signal: "Questionable" or worse should generally cap confidence at STRONG; do not use SMASH on a player with any non-blank injury_status unless the signal is overwhelming.
+- Treat injury_status other than blank/"" as a real signal: "Questionable" or worse should generally cap confidence at STRONG; do not use SMASH on a player with any non-blank injury_status unless the signal is overwhelming. Confirmed unavailable players are already excluded from PLAYER DATA.
+- team_absences lists confirmed unavailable teammates. Consider the role opportunity, but do not assume a replacement earns extra volume unless the real line, usage history, and matchup support it.
 ANALYSIS FACTORS:
 - Season hit rate and EV% against the real line, recent usage trend, target share / snap share where relevant, opponent context, and injury status.
 - Prefer props where the model's own projection context (vorp, model_confidence) agrees with the market signal over ones where they conflict, but don't discard a strong market signal just because the model disagrees — note the disagreement in the rationale instead.
