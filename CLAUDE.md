@@ -190,6 +190,10 @@ Game Builder matchup cards use the same compact pair of team logos before the
 matchup label. Keep the text label, kickoff, and availability data visible;
 logos improve scan speed but must not become logos-only controls.
 
+During the Week 1 launch window, Dash carries one compact beta notice with an
+honest research-not-guarantee disclaimer and a direct Quick Tour link to Info.
+Keep it brief and editorial, not a modal, repeated warning, or marketing card.
+
 The "current" game day comes from `Schedule`, not from whichever date happens
 to have a curated pick. If the Wednesday opener has no qualified play, show an
 empty Wednesday slate; do not skip it and label Thursday as the next NFL game

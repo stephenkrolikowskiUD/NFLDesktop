@@ -4597,6 +4597,14 @@ function renderAppHeader({activeTab,showCtrl,player,metricOpts,curTonight}){
     </div>`;
 }
 
+function renderWeekOneLaunchNote(activeTab){
+  if(activeTab!=="dashboard")return "";
+  return `<section class="week-one-launch" aria-label="Week 1 beta notice">
+    <div class="week-one-launch-copy"><span class="week-one-launch-kicker">Week 1 beta</span><span>Live lines, live data, first-week chaos. Research desk, not a magic 8-ball.</span></div>
+    <div class="week-one-launch-actions"><button type="button" onclick="switchTab('method')">Quick tour <span aria-hidden="true">&rarr;</span></button><button type="button" onclick="st.picksView='picks';switchTab('picks')">Week 1 picks</button></div>
+  </section>`;
+}
+
 function weeklyPickLabel(){
   const week=toNum(rowField((st.weeklyPicks||[])[0]||{},"WEEK"));
   return week?`Week ${week} Picks`:"Weekly Picks";
@@ -4817,10 +4825,11 @@ function renderLookupPage(activeTab){
 
 function renderMethodPage(activeTab){
   return `<div id="pg-method" class="page ${activeTab==="method"?"active":""}">
-    <div style="padding:16px"><div style="text-align:center;margin-bottom:16px"><div style="font-size:28px;margin-bottom:4px">🏈</div><div style="color:var(--accent);font-weight:800;font-size:var(--t-md)">How This Dashboard Works</div><div style="color:var(--accent-soft);font-size:var(--t-xs);margin-top:4px">Under the hood of the NFL DFS engine</div></div>
+    <div style="padding:16px"><div style="text-align:center;margin-bottom:16px"><div style="font-size:28px;margin-bottom:4px">🏈</div><div style="color:var(--accent);font-weight:800;font-size:var(--t-md)">How This Dashboard Works</div><div style="color:var(--accent-soft);font-size:var(--t-xs);margin-top:4px">A fast Week 1 tour</div></div>
+      <div class="quick-tour"><div class="quick-tour-title">Start here</div><ol><li><strong>Shortlist</strong> is the stricter, smaller research set.</li><li><strong>Week 1 Picks</strong> covers the full slate; the day tab is only the next game day.</li><li><strong>Open a player</strong> to check logs, role, line history, and available books.</li><li><strong>Pick History</strong> is the audit trail. A pick is research, never a guarantee.</li></ol></div>
       <div class="card" style="margin-bottom:10px"><div class="card-title">📡 Data Sources</div><div style="font-size:var(--t-sm);color:var(--ink-1);line-height:1.6"><div style="margin-bottom:6px"><span style="color:var(--accent);font-weight:700">nflverse</span> — Weekly player logs, snap counts, schedule, injuries, and team context.</div><div style="margin-bottom:6px"><span style="color:var(--accent);font-weight:700">The Odds API</span> — Live spreads, totals, and player props across supported books.</div><div style="margin-bottom:6px"><span style="color:var(--accent);font-weight:700">Projection layer</span> — Season-long rankings and weekly usage context adapted for NFL.</div><div><span style="color:var(--accent);font-weight:700">Google Sheets</span> — Central warehouse. The engine writes the tabs and the dashboard reads them live.</div></div></div>
       <div class="card" style="margin-bottom:10px"><div class="card-title">⚙️ Calculations</div><div style="font-size:var(--t-sm);color:var(--ink-1);line-height:1.6"><span style="color:var(--accent);font-weight:700">Rolling Form</span> recent-game and season context · <span style="color:var(--accent);font-weight:700">Usage Signals</span> targets, carries, attempts, snaps · <span style="color:var(--accent);font-weight:700">Opponent Context</span> team offense and defense baselines · <span style="color:var(--accent);font-weight:700">EV%</span> hit rate vs implied odds · <span style="color:var(--accent);font-weight:700">Line Movement</span> opening vs current price snapshots</div></div>
-      <div class="card" style="margin-bottom:10px"><div class="card-title">Model Picks</div><div style="font-size:var(--t-sm);color:var(--ink-1);line-height:1.6">NFL model picks are live from the current deterministic market-and-form pipeline. The dashboard already tracks provenance, confidence tiers, and recommendation cohorts here. What is still planned is the fuller AI-review and grading layer, not the core pick feed itself.</div></div>
+      <div class="card" style="margin-bottom:10px"><div class="card-title">Model Picks</div><div style="font-size:var(--t-sm);color:var(--ink-1);line-height:1.6">Every pick starts with a real posted line, historical hit-rate and price context, then passes through three Gemini review runs before validation. The dashboard tracks provenance, confidence tiers, CLV, and results over time. Treat it as a decision aid, not a promise.</div></div>
       <div class="card" style="margin-bottom:10px"><div class="card-title">Market Edge & Slips</div><div style="font-size:var(--t-sm);color:var(--ink-1);line-height:1.6">The market-edge signal compares historical hit rates to implied odds as one input. Slips combine that signal with model review and recent form.</div></div>
       <div class="card" style="margin-bottom:10px"><div class="card-title">Touchdown Board</div><div style="font-size:var(--t-sm);color:var(--ink-1);line-height:1.6">The touchdown board ranks players by scoring usage, recent role, opponent context, and best-book pricing. It is meant to narrow the field, not force a play.</div></div>
       <div class="card" style="margin-bottom:10px"><div class="card-title">📖 Abbreviations</div><div style="font-size:var(--t-sm);color:var(--ink-1);line-height:1.7">REC — Receptions · REC_YDS — Receiving Yards · REC_TDS — Receiving Touchdowns<br>RUSH_YDS — Rushing Yards · RUSH_TDS — Rushing Touchdowns · CARRIES — Carries · TGT — Targets<br>ANY_TD — Anytime Touchdown · PASS_YDS — Passing Yards · PASS_TDS — Passing Touchdowns<br>COMP — Completions · ATT — Attempts · INT — Interceptions · UD_FP — Underdog Fantasy Points<br>EV% — Expected Value (hit rate minus implied odds) · CLV — Closing Line Value<br>SMASH / STRONG / LEAN — Confidence tiers for tracked recommendations</div></div>
@@ -5128,6 +5137,7 @@ function render(){
   app.innerHTML=`
   ${renderAppHeader({activeTab,showCtrl,player,metricOpts,curTonight})}
   ${renderDataWarnings()}
+  ${renderWeekOneLaunchNote(activeTab)}
 
   ${renderDashboardPage()}
 
