@@ -4598,7 +4598,7 @@ function renderAppHeader({activeTab,showCtrl,player,metricOpts,curTonight}){
 }
 
 function renderWeekOneLaunchNote(activeTab){
-  if(activeTab!=="dashboard")return "";
+  if(activeTab!=="dashboard"&&activeTab!=="picks")return "";
   return `<section class="week-one-launch" aria-label="Week 1 beta notice">
     <div class="week-one-launch-copy"><span class="week-one-launch-kicker">Week 1 beta</span><span>Live lines, live data, first-week chaos. Research desk, not a magic 8-ball.</span></div>
     <div class="week-one-launch-actions"><button type="button" onclick="switchTab('method')">Quick tour <span aria-hidden="true">&rarr;</span></button><button type="button" onclick="st.picksView='picks';switchTab('picks')">Week 1 picks</button></div>
