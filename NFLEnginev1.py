@@ -1159,10 +1159,11 @@ def main():
 
     odds_api_key = load_secret("ODDS_API_KEY", "🔑 Odds API Key: ", allow_missing=True)
 
-    # nflverse labels a season by its September start, so Jan–Aug reports the
-    # prior year. Ahead of kickoff, that prior season is the projection baseline.
+    # nflverse labels a season by its September start. Only the March-August
+    # offseason needs the upcoming schedule year; once September arrives,
+    # stats, schedule, injuries, and rosters must remain in the live season.
     stats_season = nv.current_season()
-    schedule_season = stats_season + 1 if started.month >= 3 else stats_season
+    schedule_season = stats_season + 1 if 3 <= started.month < 9 else stats_season
     print(f"📅 stats baseline: {stats_season} · schedule: {schedule_season}")
 
     print("\n📡 nflverse")

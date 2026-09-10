@@ -197,6 +197,12 @@ must never override a schedule kickoff. Active pick boards should not display
 the default `PENDING` state: it means only "not graded yet." Keep outcomes and
 pending status in Pick History, where the result lifecycle is the point.
 
+Season handoff is an offseason-only concern. Use the upcoming schedule year
+from March through August; from September onward, keep stats, schedule,
+injuries, rosters, projections, and model identity on the live NFL season.
+Never let a September run request a future nflverse season and silently fall
+back to a mismatched prior schedule.
+
 During the Week 1 launch window, Dash and Picks carry one compact beta notice
 with an honest research-not-guarantee disclaimer and a direct Quick Tour link
 to Info. Keep it brief and editorial, not a modal, repeated warning, or
