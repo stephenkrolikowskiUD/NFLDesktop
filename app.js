@@ -442,12 +442,11 @@ function riskBadges(name,isP,{showLimited=true}={}){
   if(showLimited&&f.limited)out.push(`<span class="risk-badge risk-limited">${icon('warn')}LIMITED SAMPLE</span>`);
   return out.join("");
 }
-function pickFooterStatus(locked,flags,pending){
+function pickFooterStatus(locked,flags){
   const states=[];
   if(locked)states.push("LOCKED");
   if(flags.returning)states.push("RETURNING");
   if(flags.limited)states.push("LIMITED SAMPLE");
-  if(pending)states.push("PENDING");
   return states.length?`<div class="pick-footer"><span class="pick-footer-status">${states.join(" · ")}</span></div>`:"";
 }
 function normalizePlayerName(name){
@@ -2589,15 +2588,22 @@ function entryPairId(a,b){a=String(a||'').trim().toUpperCase();b=String(b||'').t
 function entryGameFromText(game){const s=String(game||'').trim();const m=s.match(/\b([A-Z]{2,4})\s*(?:@|vs\.?|VS)\s*([A-Z]{2,4})\b/);if(!m)return null;return {id:entryPairId(m[1],m[2]),label:s,teams:[m[1],m[2]]}}
 function entryTodayISO(){const parts=new Intl.DateTimeFormat('en-US',{timeZone:'America/New_York',year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(new Date()).reduce((a,p)=>(a[p.type]=p.value,a),{});return `${parts.year}-${parts.month}-${parts.day}`}
 function entryDateISO(v){if(v===undefined||v===null||String(v).trim()==='')return '';const raw=String(v).trim();if(/^\d{4}-\d{2}-\d{2}$/.test(raw))return raw;const md=raw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);if(md)return `${md[3]}-${md[1].padStart(2,"0")}-${md[2].padStart(2,"0")}`;const n=Number(raw);if(Number.isFinite(n)&&n>20000&&n<90000){const d=new Date(Math.round((n-25569)*86400*1000));return d.toISOString().slice(0,10)}const d=new Date(raw);if(Number.isNaN(d.getTime()))return typeof normalizeDate==='function'?normalizeDate(raw):'';const parts=new Intl.DateTimeFormat('en-US',{timeZone:'America/New_York',year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(d).reduce((a,p)=>(a[p.type]=p.value,a),{});return `${parts.year}-${parts.month}-${parts.day}`}
-function entryRowDate(row){return entryField(row,['DATE','date','GAME_DATE','game_date','Date','GAME_DAY','game_day','start_date','START_DATE','commence_time','COMMENCE_TIME','game_time','GAME_TIME','start_time','START_TIME'])}
+function entryRowDate(row){return entryField(row,['DATE','date','GAME_DATE','game_date','Date','GAME_DAY','game_day','gameday','GAMEDAY','start_date','START_DATE','commence_time','COMMENCE_TIME','game_time','GAME_TIME','gametime','GAMETIME','start_time','START_TIME'])}
 function entryRowIsToday(row){const raw=entryRowDate(row);const iso=entryDateISO(raw);return !iso||iso===entryTodayISO()}
-function entryStartValue(row){return entryField(row,['commence_time','COMMENCE_TIME','game_time','GAME_TIME','start_time','START_TIME','GAME_DATE','game_date','DATE','date'])}
+function entryStartValue(row){
+  const explicit=entryField(row,['commence_time','COMMENCE_TIME','start_time','START_TIME']);
+  if(explicit)return explicit;
+  const date=entryDateISO(entryField(row,['GAME_DATE','game_date','gameday','GAMEDAY','DATE','date']));
+  const time=entryField(row,['GAME_TIME','game_time','gametime','GAMETIME']);
+  return date&&time?`${date} ${time}`:(time||date);
+}
 function entryStartMeta(v){
   if(v===undefined||v===null||String(v).trim()==='')return{ms:Number.POSITIVE_INFINITY,quality:0};
   const raw=String(v).trim();
   const dateOnly=/^\d{4}-\d{2}-\d{2}$/.test(raw);
   const timeOnly=raw.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)(?:\s*(?:EDT|EST|ET))?$/i);
-  let parsed=timeOnly?new Date(`${entryTodayISO()}T${String((Number(timeOnly[1])%12)+(timeOnly[3].toUpperCase()==="PM"?12:0)).padStart(2,"0")}:${timeOnly[2]}:00-04:00`):new Date(raw);
+  const eastern=parseEasternTimestamp(raw);
+  let parsed=Number.isFinite(eastern)?new Date(eastern):(timeOnly?new Date(`${entryTodayISO()}T${String((Number(timeOnly[1])%12)+(timeOnly[3].toUpperCase()==="PM"?12:0)).padStart(2,"0")}:${timeOnly[2]}:00-04:00`):new Date(raw));
   if(Number.isNaN(parsed.getTime()))return{ms:Number.POSITIVE_INFINITY,quality:0};
   return{ms:parsed.getTime(),quality:dateOnly?1:2};
 }
@@ -2607,27 +2613,28 @@ function entryAllPicks(){return Array.isArray(st.picks)&&st.picks.length?st.pick
 function entryRosterRows(){const rows=[];const add=(arr,type)=>{(arr||[]).forEach(r=>{const player=entryPlayer(r),team=entryTeam(r),opp=entryOpp(r);if(player&&team&&opp)rows.push({player,team,opp,type,row:r,id:entryPairId(team,opp)})})};add(st.tonight,'player');add(st.pTonight,'player');add(st.gTonight,'player');return rows}
 function getEntryGames(){return getMemo('gameEntry:games',()=>{
   const byId=new Map();
-  const add=(id,label,teams=[],time='')=>{
+  const add=(id,label,teams=[],time='',source='derived')=>{
     if(!id)return;
     const start=entryStartMeta(time);
     const baseLabel=label||teams.join(' vs ');
+    const sourcePriority=source==='schedule'?2:(source==='pick'?1:0);
     if(!byId.has(id)){
-      byId.set(id,{id,baseLabel,teams,time,sortTime:start.ms,timeQuality:start.quality});
+      byId.set(id,{id,baseLabel,teams,time,sortTime:start.ms,timeQuality:start.quality,timeSourcePriority:sourcePriority});
       return;
     }
     const g=byId.get(id);
     if((baseLabel||'').includes('@'))g.baseLabel=baseLabel;
-    if(start.quality>g.timeQuality||(start.quality===g.timeQuality&&start.ms<g.sortTime)){
-      g.time=time;g.sortTime=start.ms;g.timeQuality=start.quality;
+    if(sourcePriority>g.timeSourcePriority||(sourcePriority===g.timeSourcePriority&&(start.quality>g.timeQuality||(start.quality===g.timeQuality&&start.ms<g.sortTime)))){
+      g.time=time;g.sortTime=start.ms;g.timeQuality=start.quality;g.timeSourcePriority=sourcePriority;
     }
   };
-  entryLatestPicks().forEach(p=>{const g=entryGameFromText(rowField(p,"game","matchup"));if(g)add(g.id,`${g.teams[0]} @ ${g.teams[1]}`,g.teams,entryStartValue(p))});
+  entryLatestPicks().forEach(p=>{const g=entryGameFromText(rowField(p,"game","matchup"));if(g)add(g.id,`${g.teams[0]} @ ${g.teams[1]}`,g.teams,entryStartValue(p),'pick')});
   entryRosterRows().forEach(r=>{if(entryRowIsToday(r.row))add(r.id,`${r.team} vs ${r.opp}`,[r.team,r.opp],entryStartValue(r.row))});
   (st.schedule||[]).forEach(r=>{
     if(!entryRowIsToday(r))return;
     const away=String(entryField(r,['away_team','AWAY_TEAM','away','AWAY','away_abbr','away_team_abbr'])||'').toUpperCase();
     const home=String(entryField(r,['home_team','HOME_TEAM','home','HOME','home_abbr','home_team_abbr'])||'').toUpperCase();
-    if(away&&home)add(entryPairId(away,home),`${away} @ ${home}`,[away,home],entryStartValue(r));
+    if(away&&home)add(entryPairId(away,home),`${away} @ ${home}`,[away,home],entryStartValue(r),'schedule');
   });
   const now=Date.now();
   return [...byId.values()].map(g=>({...g,label:g.baseLabel,timeText:entryDisplayTime(g.time),started:Number.isFinite(g.sortTime)&&g.sortTime<=now}))
@@ -3105,7 +3112,6 @@ function pickStatusLine(model){
   if(model.locked)states.push("LOCKED");
   if(model.flags.returning)states.push("RETURNING");
   if(model.flags.limited)states.push("LIMITED SAMPLE");
-  if(model.pending)states.push("PENDING");
   if(model.result)states.push(model.result+(model.hasActual?` ${model.actual}`:""));
   if(model.lineupRisk)states.push("LINEUP RISK");
   return states.join(" · ");

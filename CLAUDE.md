@@ -190,6 +190,13 @@ Game Builder matchup cards use the same compact pair of team logos before the
 matchup label. Keep the text label, kickoff, and availability data visible;
 logos improve scan speed but must not become logos-only controls.
 
+Game Builder kickoff labels and ordering must come from `Schedule` first.
+Combine its `gameday`/`game_date` and `gametime`/`game_time` fields into a
+real Eastern timestamp; roster and pick rows are fallback context only and
+must never override a schedule kickoff. Active pick boards should not display
+the default `PENDING` state: it means only "not graded yet." Keep outcomes and
+pending status in Pick History, where the result lifecycle is the point.
+
 During the Week 1 launch window, Dash and Picks carry one compact beta notice
 with an honest research-not-guarantee disclaimer and a direct Quick Tour link
 to Info. Keep it brief and editorial, not a modal, repeated warning, or
