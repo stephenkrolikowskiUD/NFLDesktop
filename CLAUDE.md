@@ -203,6 +203,12 @@ injuries, rosters, projections, and model identity on the live NFL season.
 Never let a September run request a future nflverse season and silently fall
 back to a mismatched prior schedule.
 
+Early-season role modeling is a separate rule: use the completed prior season
+for player stats, snap counts, and team aggregates through Weeks 1-2, while
+the schedule, rosters, injuries, odds, and model identity stay in the live
+season. Do not switch historical performance to a one-game current-season
+sample and silently collapse the projection/player-context board.
+
 During the Week 1 launch window, Dash and Picks carry one compact beta notice
 with an honest research-not-guarantee disclaimer and a direct Quick Tour link
 to Info. Keep it brief and editorial, not a modal, repeated warning, or

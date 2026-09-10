@@ -64,6 +64,7 @@ PICKS_DAYS = {d.strip().lower() for d in
 SKIP_PICKS = os.getenv("NFL_SKIP_PICKS", "").lower() in {"1", "true", "yes"}
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.6-flash")
 KEEP_REFERENCE_TABS = os.getenv("NFL_KEEP_REFERENCE_TABS", "").lower() in {"1", "true", "yes"}
+EARLY_SEASON_BASELINE_WEEKS = 2
 
 eastern = pytz.timezone("US/Eastern")
 
@@ -162,6 +163,15 @@ def log_launch_readiness(season_phase: str, model_version: str, model_era: str) 
     else:
         if MODEL_VERSION_OVERRIDE or MODEL_ERA_OVERRIDE:
             print("   ℹ️  preseason run is using explicit model identity overrides")
+
+
+def resolve_stats_baseline_season(schedule_season: int, schedule: pd.DataFrame,
+                                  now: datetime) -> int:
+    """Use the completed prior season until enough live games exist to model roles."""
+    active_week = phase.current_regular_week(schedule, now)
+    if active_week is not None and active_week <= EARLY_SEASON_BASELINE_WEEKS:
+        return schedule_season - 1
+    return schedule_season
 
 
 def log_pick_generation_outcome(*, preseason_team_markets_live: bool, board: pd.DataFrame,
@@ -1161,10 +1171,9 @@ def main():
 
     # nflverse labels a season by its September start. Only the March-August
     # offseason needs the upcoming schedule year; once September arrives,
-    # stats, schedule, injuries, and rosters must remain in the live season.
-    stats_season = nv.current_season()
-    schedule_season = stats_season + 1 if 3 <= started.month < 9 else stats_season
-    print(f"📅 stats baseline: {stats_season} · schedule: {schedule_season}")
+    # the schedule must remain in the live season.
+    live_season = nv.current_season()
+    schedule_season = live_season + 1 if 3 <= started.month < 9 else live_season
 
     print("\n📡 nflverse")
     teams = nv.load_teams()
@@ -1172,9 +1181,14 @@ def main():
 
     schedule = nv.load_schedules(seasons=[schedule_season])
     if schedule.empty:
-        print(f"   ⚠️  no {schedule_season} schedule — falling back to {stats_season}")
-        schedule = nv.load_schedules(seasons=[stats_season])
+        print(f"   ⚠️  no {schedule_season} schedule — falling back to {live_season}")
+        schedule_season = live_season
+        schedule = nv.load_schedules(seasons=[schedule_season])
     print(f"   schedule: {len(schedule)} games")
+
+    stats_season = resolve_stats_baseline_season(schedule_season, schedule, started)
+    baseline_note = " (prior-season early baseline)" if stats_season != schedule_season else ""
+    print(f"📅 stats baseline: {stats_season}{baseline_note} · schedule: {schedule_season}")
 
     stats = nv.load_player_stats(seasons=[stats_season])
     print(f"   player stats: {len(stats)} rows")
