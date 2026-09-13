@@ -1,6 +1,6 @@
 # NFLDesktop Roadmap
 
-_Last updated: 2026-09-10_
+_Last updated: 2026-09-13_
 
 ## Where We Are
 NFL is no longer a greenfield build. The core dashboard, engine, season-long projection layer, Lookup, and game-market board are live. The first real Week 1 player-prop run completed on September 3: 138 unique lines across 52 players produced 14 validated Gemini consensus picks, which wrote to `Picks_Current` and the append-only `Daily_Picks` ledger with regular-season phase and model identity stamped correctly.
