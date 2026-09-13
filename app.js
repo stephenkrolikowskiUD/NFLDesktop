@@ -3856,6 +3856,10 @@ function bbRows(){
     ecrSd:toNum(rowField(r,"ecr_sd")),
     ecrBest:toNum(rowField(r,"ecr_best")),
     ecrWorst:toNum(rowField(r,"ecr_worst")),
+    ecrAdp:toNum(rowField(r,"ecr_adp")),
+    consensusSource:String(rowField(r,"consensus_source")||"nflverse FantasyPros best-ball snapshot"),
+    consensusFormat:String(rowField(r,"consensus_format")||"best ball"),
+    consensusUpdated:String(rowField(r,"consensus_updated")||""),
     projPpr:toNum(rowField(r,"proj_ppr")),
     projReceptions:toNum(rowField(r,"proj_receptions")),
     projGames:toNum(rowField(r,"proj_games")),
@@ -4307,6 +4311,9 @@ function renderBestBallView(){
   const sourceScoring=bbSourceScoring();
   const scoringLabel=st.bbScoring==="full"?"full PPR":".5 PPR";
   const all=bbWithDisplayStats(bbRows(),st.bbScoring);
+  const consensusSource=all[0]?.consensusSource||"nflverse FantasyPros best-ball snapshot";
+  const consensusFormat=all[0]?.consensusFormat||"best ball";
+  const consensusUpdated=all[0]?.consensusUpdated||"";
   const queue=all.filter(r=>st.bbQueue.has(r.id));
   if(!all.length){
     return `<section><div class="card" style="margin:16px">
@@ -4441,7 +4448,7 @@ function renderBestBallView(){
       <div style="color:var(--accent);font-size:var(--t-sm);font-weight:700">Best Ball Draft Board <span class="bb-flag">Current preseason board</span></div>
       <div style="color:var(--ink-muted);font-size:var(--t-xs);line-height:1.5;margin-top:2px">
 ${sourceScoring?`<span class="bb-flag">${esc(scoringLabel)}</span> `:""}
-        Draft surface is live for current preseason best-ball work. Model projection and FantasyPros best-ball consensus stay side by side here.
+        Draft surface is live for current preseason best-ball work. Model projection and <strong>${esc(consensusSource)}</strong> (${esc(consensusFormat)}) stay side by side here${consensusUpdated?` · updated ${esc(consensusUpdated)}`:""}.
         <strong>Disagreement is a question, not an edge.</strong> Backtested over 7 seasons on a
         model-independent sample, this board beats simple carry-forward on both error and ranking,
         but only by a modest margin. That means the signal is useful, not magical: use it to
@@ -4478,7 +4485,7 @@ ${sourceScoring?`<span class="bb-flag">${esc(scoringLabel)}</span> `:""}
             <th title="Projected games played">G</th>
             <th title="Points above the last startable player at this position in the selected scoring view">VORP</th>
             <th title="Model rank by VORP">Mdl</th>
-            <th title="FantasyPros best-ball expert consensus rank">ECR</th>
+            <th title="External consensus rank; source and format are disclosed above">ECR</th>
             <th title="ECR minus model rank. Positive = model higher on the player than consensus.">Δ</th>
           </tr></thead>
           <tbody>${body}</tbody>
@@ -4557,7 +4564,7 @@ ${sourceScoring?`<span class="bb-flag">${esc(scoringLabel)}</span> `:""}
       </div>
     </div>
     <div style="padding:0 16px 20px;color:var(--ink-quiet);font-size:var(--t-xs)">
-      Showing ${Math.min(rows.length,300)} of ${rows.length}. Draftable pool defaults to the first ${BB_DRAFTABLE_ECR} picks by model rank or consensus rank. Consensus scraped by nflverse from FantasyPros.
+      Showing ${Math.min(rows.length,300)} of ${rows.length}. Draftable pool defaults to the first ${BB_DRAFTABLE_ECR} picks by model rank or consensus rank. Consensus: ${esc(consensusSource)} (${esc(consensusFormat)})${consensusUpdated?` · updated ${esc(consensusUpdated)}`:""}.
     </div>
   </section>`;
 }
@@ -4712,7 +4719,7 @@ function renderLookupPage(activeTab){
       statCard(formatLookupStat(rowField(slate,"fantasy_points_ppr"),{digits:1}),"Fantasy Pts","season-to-date"),
     ];
     const contextCards=[
-      statCard(rowField(projection,"ecr")?`#${Math.round(toNum(rowField(projection,"ecr")))}`:"—","Consensus ECR",`delta ${compactSignedNumber(rowField(projection,"ecr_vs_model"))}`),
+      statCard(rowField(projection,"ecr")?`#${Math.round(toNum(rowField(projection,"ecr")))}`:"—","Consensus ECR",`${rowField(projection,"consensus_format")||"best ball"} · delta ${compactSignedNumber(rowField(projection,"ecr_vs_model"))}`),
       statCard(rowField(projection,"games_played")?Math.round(toNum(rowField(projection,"games_played"))):"—","Games Played",`proj ${formatLookupStat(rowField(projection,"proj_games"),{digits:1})}`),
       statCard(rowField(projection,"depth_rank")?`${esc(player.pos||"")}${Math.round(toNum(rowField(projection,"depth_rank")))}`:"—","Depth Rank",`mult ${formatLookupStat(rowField(projection,"depth_mult"),{digits:2})}`),
       statCard(opp?esc(opp):"—","Opponent",teamRankValue(oppRow,isQb?"passing_yards":"rushing_yards",isQb?"passing_yards_rank":"rushing_yards_rank",{digits:1,direction:"allowed"})),

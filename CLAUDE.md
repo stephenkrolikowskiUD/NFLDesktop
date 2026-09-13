@@ -216,6 +216,14 @@ matching current depth-chart ID before the player reaches Gemini or a display
 board. Revalidate `Picks_Weekly` against that identity set on every run; keep
 removed rows only in `Daily_Picks` history for audit and grading.
 
+External consensus is a cross-check, not a hidden model input. The Best Ball
+board may use a current FantasyPros API consensus feed when its personal key is
+available, but must disclose the source and format on every published
+`Projections` snapshot. If the API is absent or errors, fall back to the
+nflverse FantasyPros best-ball snapshot without silently relabelling one as the
+other. Keep consensus alongside the model rank; do not blend the two into an
+opaque draft ordering.
+
 During the Week 1 launch window, Dash and Picks carry one compact beta notice
 with an honest research-not-guarantee disclaimer and a direct Quick Tour link
 to Info. Keep it brief and editorial, not a modal, repeated warning, or

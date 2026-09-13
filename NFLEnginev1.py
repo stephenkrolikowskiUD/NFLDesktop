@@ -18,6 +18,7 @@ import gspread
 from gspread_dataframe import set_with_dataframe
 
 import nflverse_loader as nv
+import fantasypros_client as fp
 import nfl_phase as phase
 import odds_client as oc
 import projections as pj
@@ -1227,22 +1228,41 @@ def main():
     print(f"   rosters {schedule_season}: {len(rosters_now)} rows")
 
     print("\n📈 Projections")
-    best_ball_ecr = nv.load_ff_rankings("draft", page_types=BEST_BALL_PAGES)
+    fallback_ecr = nv.load_ff_rankings("draft", page_types=BEST_BALL_PAGES)
     ff_ids = nv.load_ff_playerids()
-    print(f"   best-ball consensus: {len(best_ball_ecr)} ranked")
     print(f"   scoring: {SCORING} ({pj.SCORING_FORMATS.get(SCORING, '?')} per reception)")
+    # Fresh API consensus is optional.  The public nflverse best-ball snapshot
+    # remains the zero-key fallback and is intentionally labelled differently
+    # downstream because current redraft consensus is not a best-ball ranking.
+    fantasypros_key = load_secret("FANTASYPROS_API_KEY", "🔑 FantasyPros API Key: ", allow_missing=True)
+    api_ecr = fp.load_nfl_consensus(schedule_season, SCORING, fantasypros_key)
+    if not api_ecr.empty:
+        consensus_ecr = api_ecr
+        consensus_source = api_ecr.attrs.get("source", "FantasyPros API consensus")
+        consensus_format = api_ecr.attrs.get("format", "")
+        consensus_updated = api_ecr.attrs.get("updated", "")
+        print(f"   ✅ {consensus_source}: {len(consensus_ecr)} ranked ({consensus_format})")
+    else:
+        consensus_ecr = fallback_ecr
+        consensus_source = "nflverse FantasyPros best-ball snapshot"
+        consensus_format = "best ball"
+        consensus_updated = ""
+        print(f"   ℹ️  {consensus_source}: {len(consensus_ecr)} ranked")
     # "latest" is correct for the upcoming season — the newest snapshot is the
     # current pre-season depth chart.
     depth = nv.depth_ranks(seasons=[schedule_season], snapshot="latest")
     print(f"   depth chart: {len(depth)} players")
     pick_eligible = pick_eligible_roster_identity(rosters_now, depth)
     print(f"   pick-eligible roster/depth identities: {len(pick_eligible)}")
-    projections = pj.build_projections(stats, rosters_now, best_ball_ecr, ff_ids,
+    projections = pj.build_projections(stats, rosters_now, consensus_ecr, ff_ids,
                                        scoring=SCORING, depth=depth)
     if not projections.empty:
         # Stamp the format so the dashboard can label the board rather than
         # assuming PPR — the point totals are meaningless without it.
         projections["scoring_format"] = SCORING
+        projections["consensus_source"] = consensus_source
+        projections["consensus_format"] = consensus_format
+        projections["consensus_updated"] = consensus_updated
     print(f"   projections: {len(projections)} players")
 
     print("\n📡 Odds API")

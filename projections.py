@@ -2,8 +2,10 @@
 #
 # WHAT THIS IS: per-game production rates from last season, shrunk toward the
 # positional mean by sample size, scaled by projected availability, with
-# FantasyPros best-ball consensus (ECR) carried alongside — never blended into
-# one opaque number.
+# FantasyPros consensus (ECR) carried alongside — never blended into one
+# opaque number. The engine prefers an optional current API feed and otherwise
+# uses nflverse's best-ball snapshot; rows carry their source so UI copy stays
+# honest about the distinction.
 #
 # WHAT THE BACKTEST SAYS (see backtest.py; 7 folds 2018->2025, top 200 on a
 # model-independent eval set): this now beats a naive carry-forward on both MAE
@@ -481,7 +483,7 @@ def attach_ecr(df: pd.DataFrame, ecr: pd.DataFrame,
     """
     if df.empty or ecr.empty:
         df = df.copy()
-        for c in ("ecr", "ecr_sd", "ecr_best", "ecr_worst", "bye"):
+        for c in ("ecr", "ecr_sd", "ecr_best", "ecr_worst", "bye", "ecr_adp"):
             df[c] = np.nan
         return df
 
@@ -508,7 +510,8 @@ def attach_ecr(df: pd.DataFrame, ecr: pd.DataFrame,
         print(f"   {flag} ECR crosswalk matched {rate:.1%} of non-DST players")
 
     cols = {"gsis_id": "gsis_id", "ecr": "ecr", "sd": "ecr_sd",
-            "best": "ecr_best", "worst": "ecr_worst", "bye": "bye"}
+            "best": "ecr_best", "worst": "ecr_worst", "bye": "bye",
+            "ecr_adp": "ecr_adp"}
     have = {k: v for k, v in cols.items() if k in board.columns}
     slim = (board.dropna(subset=["gsis_id"])[list(have)]
                  .rename(columns=have)
@@ -708,7 +711,7 @@ def build_projections(stats: pd.DataFrame, rosters: pd.DataFrame,
         "consensus_weight", "age_mult", "depth_rank", "depth_mult",
         "vorp", "replacement_ppr",
         "model_rank", "model_pos_rank",
-        "ecr", "ecr_sd", "ecr_best", "ecr_worst", "ecr_vs_model", "bye",
+        "ecr", "ecr_sd", "ecr_best", "ecr_worst", "ecr_adp", "ecr_vs_model", "bye",
         "proj_source", "confidence", "target_share", "wopr",
         "proj_targets", "proj_receptions", "proj_receiving_yards",
         "proj_receiving_tds", "proj_carries", "proj_rushing_yards",
