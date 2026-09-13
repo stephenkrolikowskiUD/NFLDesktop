@@ -299,6 +299,7 @@ def _team_absence_context(reports: pd.DataFrame) -> dict[str, str]:
 def build_player_context(props_board: pd.DataFrame, game_logs: pd.DataFrame,
                          projections: pd.DataFrame, injuries: pd.DataFrame,
                          active_week: int | None = None,
+                         eligible_player_ids: set[str] | None = None,
                          max_players: int = 80) -> pd.DataFrame:
     """One row per real prop line, with a hit-rate/EV signal and model context.
 
@@ -326,6 +327,7 @@ def build_player_context(props_board: pd.DataFrame, game_logs: pd.DataFrame,
     ) if "gsis_id" in injury_reports.columns else set()
     absence_context = _team_absence_context(injury_reports)
     excluded_unavailable_props = 0
+    excluded_ineligible_props = 0
 
     rows = []
     for _, prop in board.iterrows():
@@ -353,6 +355,11 @@ def build_player_context(props_board: pd.DataFrame, game_logs: pd.DataFrame,
 
         latest = player_logs.sort_values("week").iloc[-1]
         player_id = str(latest.get("player_id", "") or "")
+        if eligible_player_ids is not None and player_id not in eligible_player_ids:
+            # Historical logs and stale sportsbook listings are not enough to
+            # establish that someone is currently available to play.
+            excluded_ineligible_props += 1
+            continue
         if player_id in unavailable_ids:
             # Sportsbooks can leave an inactive player's prop posted briefly.
             # Exclude it before it can consume a candidate slot or reach Gemini.
@@ -422,6 +429,7 @@ def build_player_context(props_board: pd.DataFrame, game_logs: pd.DataFrame,
     pool = pd.concat([guaranteed, rest]).head(max_players)
     pool = pool.drop(columns=["_best_ev"], errors="ignore").reset_index(drop=True)
     pool.attrs["excluded_unavailable_props"] = excluded_unavailable_props
+    pool.attrs["excluded_ineligible_props"] = excluded_ineligible_props
     return pool
 
 
@@ -1082,6 +1090,28 @@ def apply_one_pick_per_player(df: pd.DataFrame) -> pd.DataFrame:
     if (~player_props).any():
         return pd.concat([trimmed, out.loc[~player_props]], ignore_index=True)
     return trimmed
+
+
+def filter_picks_to_active_players(picks: pd.DataFrame, active_player_ids: set[str],
+                                   active_player_names: set[str]) -> pd.DataFrame:
+    """Remove stale player props from display boards while preserving team markets.
+
+    Current eligibility is an input to recommendation display, not historical
+    grading. The append-only Daily_Picks ledger intentionally remains intact.
+    """
+    if picks.empty:
+        return picks.copy()
+
+    out = picks.copy()
+    prop_types = _column_or_default(out, "prop_type", "").astype(str).str.upper()
+    team_market = prop_types.isin(TEAM_MARKET_METRICS)
+    player_ids = _column_or_default(out, "player_id", "").astype(str).str.strip()
+    player_names = _column_or_default(out, "player", "").map(_norm_name)
+    has_player_id = player_ids.ne("") & player_ids.str.lower().ne("nan")
+    id_allowed = player_ids.isin(active_player_ids)
+    name_allowed = player_names.isin(active_player_names)
+    keep = team_market | (has_player_id & id_allowed) | (~has_player_id & name_allowed)
+    return out.loc[keep].copy().reset_index(drop=True)
 
 
 def build_weekly_pick_board(fresh_picks: pd.DataFrame, prior_weekly: pd.DataFrame,

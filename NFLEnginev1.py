@@ -605,14 +605,25 @@ def _current_roster_identity(rosters: pd.DataFrame) -> pd.DataFrame:
     active = rosters.copy()
     if "status" in active.columns:
         active = active[active["status"].isin(["ACT", "RES", "DEV"])]
-    keep = [c for c in ["gsis_id", "team", "position", "headshot_url"] if c in active.columns]
+    keep = [c for c in ["gsis_id", "team", "position", "full_name", "headshot_url"] if c in active.columns]
     if not {"gsis_id", "team"}.issubset(keep):
         return pd.DataFrame()
     return (active[keep]
             .dropna(subset=["gsis_id", "team"])
             .drop_duplicates(subset=["gsis_id"])
             .rename(columns={"gsis_id": "player_id", "team": "team_now",
-                             "position": "position_now"}))
+                             "position": "position_now", "full_name": "player_name_now"}))
+
+
+def pick_eligible_roster_identity(rosters: pd.DataFrame, depth: pd.DataFrame) -> pd.DataFrame:
+    """Return current active players, requiring a depth-chart identity when available."""
+    active = _current_roster_identity(rosters)
+    if active.empty:
+        return active
+    if depth is None or depth.empty or "player_id" not in depth.columns:
+        return active
+    depth_ids = set(depth["player_id"].dropna().astype(str))
+    return active[active["player_id"].astype(str).isin(depth_ids)].copy()
 
 
 def build_slate_tab(stats: pd.DataFrame, snaps: pd.DataFrame,
@@ -1224,6 +1235,8 @@ def main():
     # current pre-season depth chart.
     depth = nv.depth_ranks(seasons=[schedule_season], snapshot="latest")
     print(f"   depth chart: {len(depth)} players")
+    pick_eligible = pick_eligible_roster_identity(rosters_now, depth)
+    print(f"   pick-eligible roster/depth identities: {len(pick_eligible)}")
     projections = pj.build_projections(stats, rosters_now, best_ball_ecr, ff_ids,
                                        scoring=SCORING, depth=depth)
     if not projections.empty:
@@ -1337,7 +1350,16 @@ def main():
     player_ctx = pd.DataFrame()
     gemini_key = ""
     week = (phase.current_preseason_week(games_tab, started) or season_phase.active_week) if season_phase.is_preseason else season_phase.active_week
+    eligible_player_ids = set(pick_eligible.get("player_id", pd.Series(dtype=str)).dropna().astype(str))
+    eligible_player_names = set(pick_eligible.get("player_name_now", pd.Series(dtype=str)).dropna().map(pk._norm_name))
     prior_weekly = fetch_pick_tab(sheets, SHEET_ID, "Picks_Weekly") if week is not None else pd.DataFrame()
+    if not prior_weekly.empty:
+        before_prior = len(prior_weekly)
+        prior_weekly = pk.filter_picks_to_active_players(
+            prior_weekly, eligible_player_ids, eligible_player_names
+        )
+        if len(prior_weekly) < before_prior:
+            print(f"   ⛔ removed {before_prior - len(prior_weekly)} stale player pick(s) from the weekly board")
     if week is not None and not prior_weekly.empty:
         picks_weekly = pk.build_weekly_pick_board(
             pd.DataFrame(), prior_weekly, week=week, season=schedule_season
@@ -1384,12 +1406,16 @@ def main():
             gemini_key = load_secret("GEMINI_API_KEY", "🤖 Gemini API Key: ", allow_missing=True)
             all_logs = pd.concat([skill_logs, qb_logs], ignore_index=True) if not qb_logs.empty else skill_logs
             player_ctx = pk.build_player_context(
-                board, all_logs, projections, injuries, active_week=week
+                board, all_logs, projections, injuries, active_week=week,
+                eligible_player_ids=eligible_player_ids
             )
             excluded_unavailable = player_ctx.attrs.get("excluded_unavailable_props", 0)
+            excluded_ineligible = player_ctx.attrs.get("excluded_ineligible_props", 0)
             print(f"   player context: {len(player_ctx)} priced prop rows")
             if excluded_unavailable:
                 print(f"   ⛔ excluded {excluded_unavailable} prop row(s) for confirmed unavailable players")
+            if excluded_ineligible:
+                print(f"   ⛔ excluded {excluded_ineligible} prop row(s) without a current roster/depth identity")
 
             games_str = build_week_games_str(schedule, week)
             fresh_picks = pk.generate_weekly_picks(gemini_key, GEMINI_MODEL, player_ctx,

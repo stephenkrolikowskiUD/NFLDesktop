@@ -209,6 +209,13 @@ the schedule, rosters, injuries, odds, and model identity stay in the live
 season. Do not switch historical performance to a one-game current-season
 sample and silently collapse the projection/player-context board.
 
+Player-prop recommendations must fail closed on current eligibility. Historical
+logs and a posted prop do not establish that a player is still in the league:
+require a current active-roster ID and, when the depth feed is available, a
+matching current depth-chart ID before the player reaches Gemini or a display
+board. Revalidate `Picks_Weekly` against that identity set on every run; keep
+removed rows only in `Daily_Picks` history for audit and grading.
+
 During the Week 1 launch window, Dash and Picks carry one compact beta notice
 with an honest research-not-guarantee disclaimer and a direct Quick Tour link
 to Info. Keep it brief and editorial, not a modal, repeated warning, or
