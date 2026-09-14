@@ -48,6 +48,16 @@ def load_nfl_consensus(season: int, scoring: str, api_key: str | None = None) ->
         )
         response.raise_for_status()
         payload = response.json()
+    except requests.HTTPError as exc:
+        status = exc.response.status_code if exc.response is not None else "unknown"
+        hint = {
+            401: "key rejected — confirm the full API key, not the request/activation code",
+            403: "key has no production API access — activate personal API access in FantasyPros",
+            404: "endpoint or requested season was not found",
+            429: "rate limit reached — wait before retrying",
+        }.get(status, "request failed")
+        print(f"   ⚠️  FantasyPros API consensus unavailable (HTTP {status}: {hint}) — using nflverse snapshot")
+        return pd.DataFrame()
     except (requests.RequestException, ValueError) as exc:
         print(f"   ⚠️  FantasyPros API consensus unavailable ({type(exc).__name__}) — using nflverse snapshot")
         return pd.DataFrame()

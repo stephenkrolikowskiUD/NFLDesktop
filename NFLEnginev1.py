@@ -1244,10 +1244,13 @@ def main():
         print(f"   ✅ {consensus_source}: {len(consensus_ecr)} ranked ({consensus_format})")
     else:
         consensus_ecr = fallback_ecr
-        consensus_source = "nflverse FantasyPros best-ball snapshot"
-        consensus_format = "best ball"
+        consensus_source = "nflverse FantasyPros best-ball snapshot" if not fallback_ecr.empty else "No external consensus available"
+        consensus_format = "best ball" if not fallback_ecr.empty else "unavailable"
         consensus_updated = ""
-        print(f"   ℹ️  {consensus_source}: {len(consensus_ecr)} ranked")
+        if fallback_ecr.empty:
+            print("   ⚠️  no FantasyPros API or nflverse consensus rows — publishing a model-only projection board")
+        else:
+            print(f"   ℹ️  {consensus_source}: {len(consensus_ecr)} ranked")
     # "latest" is correct for the upcoming season — the newest snapshot is the
     # current pre-season depth chart.
     depth = nv.depth_ranks(seasons=[schedule_season], snapshot="latest")

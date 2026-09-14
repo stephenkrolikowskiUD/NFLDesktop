@@ -30,6 +30,8 @@ The pick workflow is split deliberately: `Picks_Weekly` is the curated all-week 
   pick generation, and teammate absences are passed as review context
 - ✅ Optional FantasyPros API consensus for draft rankings, with labelled
   nflverse best-ball fallback when no personal API key is configured
+- ✅ Explicit model-only disclosure when both FantasyPros API and nflverse
+  consensus sources are unavailable; no silent source downgrade
 
 ## In Progress
 - 🟠 Weekly picks grading — generation is live; settlement remains unproven. `picks.py` runs Gemini three-pass consensus + recovery, validates every line against the live market, and preserves every qualified pick in `Daily_Picks` even when the display boards limit a player to one prop. `NFLGrader1.py` has per-game kickoff readiness, player_id-first matching, team-market grading, and `Pick_Performance` aggregation. What remains: confirm completed Week 1 player and team picks grade correctly, including push treatment and CLV refresh, then verify the sportsbook-outage warning with a deliberate monitored dry run.

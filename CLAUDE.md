@@ -221,8 +221,9 @@ board may use a current FantasyPros API consensus feed when its personal key is
 available, but must disclose the source and format on every published
 `Projections` snapshot. If the API is absent or errors, fall back to the
 nflverse FantasyPros best-ball snapshot without silently relabelling one as the
-other. Keep consensus alongside the model rank; do not blend the two into an
-opaque draft ordering.
+other. If both sources are unavailable, label the projection board model-only;
+never present a zero-row fallback as consensus. Keep consensus alongside the
+model rank; do not blend the two into an opaque draft ordering.
 
 During the Week 1 launch window, Dash and Picks carry one compact beta notice
 with an honest research-not-guarantee disclaimer and a direct Quick Tour link
