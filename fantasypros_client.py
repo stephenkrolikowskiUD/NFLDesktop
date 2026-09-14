@@ -31,7 +31,10 @@ def load_nfl_consensus(season: int, scoring: str, api_key: str | None = None) ->
     preserve that source label in the published projection rows so the draft
     board never presents it as an interchangeable best-ball ranking.
     """
-    key = (api_key or os.getenv("FANTASYPROS_API_KEY", "")).strip()
+    # FP_PRO_API_KEY is the repository secret. Keep the older name as a
+    # local-development fallback so existing local setups do not break.
+    key = (api_key or os.getenv("FP_PRO_API_KEY", "")
+           or os.getenv("FANTASYPROS_API_KEY", "")).strip()
     if not key:
         return pd.DataFrame()
 

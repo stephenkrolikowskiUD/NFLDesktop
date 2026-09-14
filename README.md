@@ -39,7 +39,7 @@ See [PLAN.md](./PLAN.md) for the active sprint priorities and Week 1 launch bar.
 ## Data Sources
 
 - **nflverse** — schedule, player stats, snap counts, injuries, rosters, play-by-play. Public release assets, **no API key, no rate limit**.
-- **FantasyPros API** (optional) — current consensus rankings for the configured scoring format. When `FANTASYPROS_API_KEY` is absent or the API is unavailable, the draft board falls back to nflverse's FantasyPros best-ball snapshot and labels that source clearly.
+- **FantasyPros API** (optional) — current consensus rankings for the configured scoring format. When `FP_PRO_API_KEY` is absent or the API is unavailable, the draft board falls back to nflverse's FantasyPros best-ball snapshot and labels that source clearly.
 - **The Odds API** (`americanfootball_nfl` / `americanfootball_nfl_preseason`) — multi-book pricing, featured game markets, and player props when books have opened them.
 - **Google Sheets workbook** — `1lcwCUprWZA8JWTfuI8cTGaKXZwvDmQ80E0bH3AVimkY`
 
@@ -268,7 +268,7 @@ paths used in this workspace before failing.
 ### GitHub Secrets (for Actions)
 - `ODDS_API_KEY`
 - `GEMINI_API_KEY`
-- `FANTASYPROS_API_KEY` (optional; current consensus rankings for Best Ball)
+- `FP_PRO_API_KEY` (optional; current consensus rankings for Best Ball)
 - `OPENWEATHER_API_KEY`
 - `GOOGLE_SERVICE_ACCOUNT_JSON` (full JSON content)
 

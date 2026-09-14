@@ -1234,7 +1234,7 @@ def main():
     # Fresh API consensus is optional.  The public nflverse best-ball snapshot
     # remains the zero-key fallback and is intentionally labelled differently
     # downstream because current redraft consensus is not a best-ball ranking.
-    fantasypros_key = load_secret("FANTASYPROS_API_KEY", "🔑 FantasyPros API Key: ", allow_missing=True)
+    fantasypros_key = load_secret("FP_PRO_API_KEY", "🔑 FantasyPros API Key: ", allow_missing=True)
     api_ecr = fp.load_nfl_consensus(schedule_season, SCORING, fantasypros_key)
     if not api_ecr.empty:
         consensus_ecr = api_ecr
