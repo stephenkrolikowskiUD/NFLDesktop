@@ -450,6 +450,11 @@ def grade_daily_picks(client) -> None:
         for col in missing_audit_cols:
             df[col] = ""
 
+    pending_context_rows = df[df["HIT"].astype(str).str.strip() == ""]
+    if pending_context_rows.empty:
+        print("   0 ungraded row(s) — settled ledger is immutable; skipping data reload")
+        return
+
     print("\n📡 Loading schedule + game logs for grading...")
     import nflverse_loader as nv
     import NFLEnginev1 as eng
@@ -465,7 +470,6 @@ def grade_daily_picks(client) -> None:
     col_idx = {name: i for i, name in enumerate(header)}
     updates = []
     invalid_context = 0
-    pending_context_rows = df[df["HIT"].astype(str).str.strip() == ""]
     for idx, pick in pending_context_rows.iterrows():
         valid, reason = validate_pick_schedule_context(pick, schedule_results)
         if valid:
