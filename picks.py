@@ -296,6 +296,21 @@ def _team_absence_context(reports: pd.DataFrame) -> dict[str, str]:
     return {team: "; ".join(names[:4]) for team, names in context.items()}
 
 
+# nflverse and sportsbook feeds occasionally use different legacy aliases.
+# Normalize only the handful that matter to event/schedule identity checks.
+TEAM_ABBR_ALIASES = {
+    "LAR": "LA", "STL": "LA", "OAK": "LV", "SD": "LAC", "JAC": "JAX",
+}
+
+
+def normalize_team_abbr(value) -> str:
+    """Return a schedule-compatible NFL team abbreviation."""
+    if value is None or pd.isna(value):
+        return ""
+    team = str(value or "").strip().upper()
+    return TEAM_ABBR_ALIASES.get(team, team)
+
+
 def build_player_context(props_board: pd.DataFrame, game_logs: pd.DataFrame,
                          projections: pd.DataFrame, injuries: pd.DataFrame,
                          active_week: int | None = None,
@@ -328,6 +343,7 @@ def build_player_context(props_board: pd.DataFrame, game_logs: pd.DataFrame,
     absence_context = _team_absence_context(injury_reports)
     excluded_unavailable_props = 0
     excluded_ineligible_props = 0
+    excluded_event_team_mismatch_props = 0
 
     rows = []
     for _, prop in board.iterrows():
@@ -374,20 +390,27 @@ def build_player_context(props_board: pd.DataFrame, game_logs: pd.DataFrame,
         if not injury_reports.empty and "gsis_id" in injury_reports.columns:
             inj_row = injury_reports[injury_reports["gsis_id"].astype(str) == player_id]
 
-        event_away = str(prop.get("event_away_abbr", prop.get("event_away", ""))).strip().upper()
-        event_home = str(prop.get("event_home_abbr", prop.get("event_home", ""))).strip().upper()
+        event_away = normalize_team_abbr(prop.get("event_away_abbr", prop.get("event_away", "")))
+        event_home = normalize_team_abbr(prop.get("event_home_abbr", prop.get("event_home", "")))
+        # Historical logs provide form only. The active roster identity is the
+        # authority for a live prop's team/opponent and must belong to its event.
+        current_team = normalize_team_abbr(proj_row.get("team_now") if proj_row is not None else "")
+        if not current_team or current_team not in {event_away, event_home}:
+            excluded_event_team_mismatch_props += 1
+            continue
+        current_opponent = event_home if current_team == event_away else event_away
         kickoff = pd.to_datetime(prop.get("commence_time"), utc=True, errors="coerce")
         kickoff_eastern = kickoff.tz_convert(eastern) if pd.notna(kickoff) else None
 
         rows.append({
             "player": prop["player"],
             "player_id": latest.get("player_id"),
-            "team": latest.get("team"),
-            "opponent": latest.get("opponent_team"),
+            "team": current_team,
+            "opponent": current_opponent,
             "game": f"{event_away} @ {event_home}" if event_away and event_home else "",
             "GAME_DATE": kickoff_eastern.strftime("%Y-%m-%d") if kickoff_eastern else "",
             "GAME_TIME": kickoff_eastern.strftime("%I:%M %p").lstrip("0") if kickoff_eastern else "",
-            "position": latest.get("position"),
+            "position": (proj_row.get("position") if proj_row is not None else latest.get("position")),
             "metric": prop["metric"],
             "line": line,
             "best_over_odds": over_odds,
@@ -405,7 +428,7 @@ def build_player_context(props_board: pd.DataFrame, game_logs: pd.DataFrame,
             "ecr": proj_row.get("ecr") if proj_row is not None else np.nan,
             "injury_status": (inj_row.iloc[0].get("_injury_status", "")
                               if not inj_row.empty else ""),
-            "team_absences": absence_context.get(str(latest.get("team", "")).strip().upper(), ""),
+            "team_absences": absence_context.get(current_team, ""),
         })
 
     if not rows:
@@ -430,6 +453,7 @@ def build_player_context(props_board: pd.DataFrame, game_logs: pd.DataFrame,
     pool = pool.drop(columns=["_best_ev"], errors="ignore").reset_index(drop=True)
     pool.attrs["excluded_unavailable_props"] = excluded_unavailable_props
     pool.attrs["excluded_ineligible_props"] = excluded_ineligible_props
+    pool.attrs["excluded_event_team_mismatch_props"] = excluded_event_team_mismatch_props
     return pool
 
 
@@ -1049,6 +1073,7 @@ PICK_OUTPUT_COLUMNS = [
     "confidence", "rationale", "injury_context", "SELECTION_METHOD",
     "MODEL_VERSION", "MODEL_ERA", "SEASON_PHASE", "ODDS_SPORT", "GAME_TYPE",
     "RECOMMENDATION_STATUS", "CALIBRATION_SCORE",
+    "CONTEXT_STATUS",
     "DISPLAY_SELECTION", "DISPLAY_LINE",
     "PICK_BOOK", "PICK_ODDS", "IMPLIED_PROBABILITY", "MODEL_HIT_RATE",
     "MODEL_EV_PCT", "MODEL_EDGE_SCORE", "CONSENSUS_COUNT", "CONSENSUS_RUNS",
@@ -1062,8 +1087,15 @@ def _pick_key(row) -> tuple:
     prop_type = str(row.get("prop_type", "")).upper()
     if prop_type in TEAM_MARKET_METRICS:
         return _market_fallback_key(row)
-    return (_norm_name(row.get("player")), prop_type,
-            str(row.get("lean", "")).upper())
+    # The same player/market can legitimately appear in different games or at
+    # a new line. Those are distinct decisions; unchanged daily resurfacing is
+    # not and must not inflate the permanent ledger.
+    return (
+        str(row.get("SEASON", "")), str(row.get("WEEK", "")),
+        str(row.get("GAME_DATE", "")), str(row.get("game", "")).upper(),
+        str(row.get("player_id", "")).strip() or _norm_name(row.get("player")),
+        prop_type, str(row.get("lean", "")).upper(), str(row.get("line", "")),
+    )
 
 
 def _market_fallback_key(row) -> tuple:
@@ -1251,7 +1283,7 @@ def assemble_pick_tabs(fresh_picks: pd.DataFrame, prior_daily: pd.DataFrame,
                        week: int, season: int, *, model_version: str = "",
                        model_era: str = "", season_phase: str = "",
                        odds_sport: str = "", game_type: str = "") -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Stamp DATE/RUN_NUMBER, dedup against today's existing Daily_Picks rows,
+    """Stamp DATE/RUN_NUMBER, dedup against existing Daily_Picks decisions,
     and return (fresh-pick-snapshot, Daily_Picks-rows-to-append).
 
     RUN_NUMBER logic is unchanged from MLB: max existing RUN_NUMBER for
@@ -1312,12 +1344,12 @@ def assemble_pick_tabs(fresh_picks: pd.DataFrame, prior_daily: pd.DataFrame,
                 run_number = int(existing.max()) + 1
     out["RUN_NUMBER"] = run_number
 
-    # Same-day dedup: if this exact (player, prop, lean) was already picked
-    # earlier today, don't append a duplicate row to Daily_Picks history.
-    seen_today = set()
-    if not today_prior.empty:
-        seen_today = {_pick_key(r) for _, r in today_prior.iterrows()}
-    to_append = out[~out.apply(_pick_key, axis=1).isin(seen_today)].copy()
+    # The dashboard may refresh several times before kickoff. Preserve a new
+    # line, but do not append the same decision again on every engine run.
+    seen_history = set()
+    if not prior_daily.empty:
+        seen_history = {_pick_key(r) for _, r in prior_daily.iterrows()}
+    to_append = out[~out.apply(_pick_key, axis=1).isin(seen_history)].copy()
 
     cols = [c for c in PICK_OUTPUT_COLUMNS if c in out.columns]
     picks_current = out[cols].copy()

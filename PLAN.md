@@ -1,11 +1,13 @@
 # NFLDesktop Roadmap
 
-_Last updated: 2026-09-13_
+_Last updated: 2026-09-15_
 
 ## Where We Are
 NFL is no longer a greenfield build. The core dashboard, engine, season-long projection layer, Lookup, and game-market board are live. The first real Week 1 player-prop run completed on September 3: 138 unique lines across 52 players produced 14 validated Gemini consensus picks, which wrote to `Picks_Current` and the append-only `Daily_Picks` ledger with regular-season phase and model identity stamped correctly.
 
-The pick workflow is split deliberately: `Picks_Weekly` is the curated all-week decision board, `Picks_Current` is the nearest unstarted game-day slice, and `Daily_Picks` is the complete historical ledger for grading and CLV. On September 7, the kickoff parser, history preservation, and board-row disclosure behavior were corrected before opening kickoff. On September 10, live-season rollover and early-season baseline guards were added after a September run incorrectly requested 2027 nflverse data and then exposed a one-game 2026 baseline that collapsed the player-context board. On September 13, player-prop eligibility was made fail-closed against current roster and depth-chart identities, with weekly-board revalidation to remove stale player picks without altering history. The Best Ball board can now also prefer a current FantasyPros API consensus feed when a personal key is present, while preserving the nflverse best-ball snapshot as a labelled fallback. The remaining proof point is a completed Week 1 game flowing through `NFLGrader1.py` into `Pick_Performance`; the grader has not yet settled a real regular-season pick.
+The pick workflow is split deliberately: `Picks_Weekly` is the curated all-week decision board, `Picks_Current` is the nearest unstarted game-day slice, and `Daily_Picks` is the complete historical ledger for grading and CLV. On September 7, the kickoff parser, history preservation, and board-row disclosure behavior were corrected before opening kickoff. On September 10, live-season rollover and early-season baseline guards were added after a September run incorrectly requested 2027 nflverse data and then exposed a one-game 2026 baseline that collapsed the player-context board. On September 13, player-prop eligibility was made fail-closed against current roster and depth-chart identities, with weekly-board revalidation to remove stale player picks without altering history. The Best Ball board can now also prefer a current FantasyPros API consensus feed when a personal key is present, while preserving the nflverse best-ball snapshot as a labelled fallback.
+
+The first Week 1 grading report is quarantined, not a model conclusion. The audit found that player props were joining live odds events to a player's last historical team/opponent, while the grader settled by player ID + week without confirming the stored matchup. That let wrong-event rows, including future-dated rows, inherit a real Week 1 box score. The original 26.1% / -47.0% headline is therefore not a valid scorecard. The pipeline now requires roster-backed player/event identity, authoritative schedule stamping, invalid-context quarantine, and first-publish deduplication in performance reporting. The next grader run will preserve mismatched historical rows as `INVALID_CONTEXT` and rebuild the scorecard from schedule-valid decisions only.
 
 ## Shipped
 - ✅ nflverse-first data pipeline (schedule, rosters, weekly stats, snap counts, injuries, depth-chart context)
@@ -34,14 +36,17 @@ The pick workflow is split deliberately: `Picks_Weekly` is the curated all-week 
   consensus sources are unavailable; no silent source downgrade
 
 ## In Progress
-- 🟠 Weekly picks grading — generation is live; settlement remains unproven. `picks.py` runs Gemini three-pass consensus + recovery, validates every line against the live market, and preserves every qualified pick in `Daily_Picks` even when the display boards limit a player to one prop. `NFLGrader1.py` has per-game kickoff readiness, player_id-first matching, team-market grading, and `Pick_Performance` aggregation. What remains: confirm completed Week 1 player and team picks grade correctly, including push treatment and CLV refresh, then verify the sportsbook-outage warning with a deliberate monitored dry run.
+- 🟠 Weekly picks audit and grading repair — the first settlement report is quarantined because stale player-event context contaminated it. Confirm the next grader run marks invalid historical rows without deletion, rebuilds `Pick_Performance` from schedule-valid first-published decisions, and only then evaluate market/tier performance on the clean sample.
 - 🟡 Best Ball board layout polish and mobile compaction
 - 🟡 Game Builder presentation and entry ergonomics
 - 🟡 Season-long projection explainer / trust layer
 
 ## Current Sprint Priorities
-1. **Prove the picks + grader loop end to end (generation is live; settlement needs its first real pass)**
-   - Let `NFLGrader1.py` run after the Thursday opener and confirm `Pick_Performance` receives real hit/miss/push results for player and team-market picks
+1. **Complete the Week 1 data-integrity audit before adjusting the model**
+   - Run `NFLGrader1.py` with the quarantine guard and confirm invalid legacy rows are labelled `INVALID_CONTEXT`, never deleted or silently regraded
+   - Rebuild `Pick_Performance` from unique first-published, schedule-valid decisions and record its true sample size before changing any tier floor or prompt
+   - Inspect the cleaned cohort by prop type, price, direction, confidence, and game day; suppress a market only when the clean sample supports it
+   - Confirm a new engine run rejects player/event team mismatches before Gemini sees them, then run the grader after the next completed game as an end-to-end proof
    - Confirm `Picks_Current` clears immediately after each game-day slate begins and advances to the next unstarted game day
    - Force one monitored outage-path run after launch by withholding or breaking the Odds API call and confirming the dashboard surfaces the sportsbook warning instead of quietly looking healthy off baseline-only data
    - Resolve legacy preseason rows that cannot map to a real schedule as explicit DNP/archival records rather than retrying forever

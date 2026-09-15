@@ -95,6 +95,23 @@ This file is for durable repo rules and bug-shaped lessons. For date-sensitive
 status, pre-kickoff checklists, and "what is still open right now," read
 `PLAN.md` first.
 
+## Player picks require an authoritative event identity
+
+Historical player logs are evidence for form, not proof of a player's current
+team or opponent. A live player prop may be considered only when the current
+roster-backed projection team is one of the Odds API event's two teams; derive
+the opponent from that event and then restamp the matchup/date/kickoff from
+the nflverse schedule before writing any board or ledger row. Never infer a
+current matchup from a player's most recent historical game log.
+
+The grader must fail closed too. Before assigning a hit, it must prove the
+stored team/opponent, matchup text, and game date all agree with the official
+schedule for the pick's season and week. If an older row cannot meet that
+standard, preserve it as `INVALID_CONTEXT`; do not guess a matchup or settle
+it from a matching player/week box score. `Daily_Picks` is an append-only
+audit log, while `Pick_Performance` measures the first published unique
+game/player/market/side decision rather than every refresh snapshot.
+
 ## Sheet-derived UI strings must be escaped at render time
 
 `app.js` already has an `esc()` convention for strings that came from Sheets,

@@ -967,7 +967,7 @@ def build_week_games_str(schedule: pd.DataFrame, week: int) -> str:
 
 
 def stamp_pick_schedule(picks: pd.DataFrame, schedule: pd.DataFrame, week: int) -> pd.DataFrame:
-    """Attach authoritative kickoff fields before boards are split by game day."""
+    """Attach authoritative kickoff fields only when the pick matches schedule."""
     if picks.empty:
         return picks
 
@@ -978,18 +978,34 @@ def stamp_pick_schedule(picks: pd.DataFrame, schedule: pd.DataFrame, week: int) 
         out["GAME_TIME"] = ""
         return out
 
-    game_lookup = {
-        f"{str(row.get('away_team', '')).upper()} @ {str(row.get('home_team', '')).upper()}": row
-        for _, row in games.iterrows()
-    }
-    dates, times = [], []
+    pair_lookup = {}
+    for _, row in games.iterrows():
+        away = pk.normalize_team_abbr(row.get("away_team"))
+        home = pk.normalize_team_abbr(row.get("home_team"))
+        pair_lookup[(away, home)] = row
+        pair_lookup[(home, away)] = row
+
+    dates, times, matchups, contexts = [], [], [], []
     for _, pick in out.iterrows():
-        matchup = str(pick.get("game", "")).upper().strip()
-        game = game_lookup.get(matchup)
-        dates.append(game.get("gameday", "") if game is not None else pick.get("GAME_DATE", ""))
-        times.append(game.get("gametime", "") if game is not None else pick.get("GAME_TIME", ""))
+        team = pk.normalize_team_abbr(pick.get("team"))
+        opponent = pk.normalize_team_abbr(pick.get("opponent"))
+        game = pair_lookup.get((team, opponent))
+        if game is None:
+            dates.append(pick.get("GAME_DATE", ""))
+            times.append(pick.get("GAME_TIME", ""))
+            matchups.append(pick.get("game", ""))
+            contexts.append("INVALID_CONTEXT")
+            continue
+        away = pk.normalize_team_abbr(game.get("away_team"))
+        home = pk.normalize_team_abbr(game.get("home_team"))
+        dates.append(game.get("gameday", ""))
+        times.append(game.get("gametime", ""))
+        matchups.append(f"{away} @ {home}")
+        contexts.append("SCHEDULE_VALID")
     out["GAME_DATE"] = dates
     out["GAME_TIME"] = times
+    out["game"] = matchups
+    out["CONTEXT_STATUS"] = contexts
     return out
 
 
@@ -1434,11 +1450,14 @@ def main():
             )
             excluded_unavailable = player_ctx.attrs.get("excluded_unavailable_props", 0)
             excluded_ineligible = player_ctx.attrs.get("excluded_ineligible_props", 0)
+            excluded_event_mismatch = player_ctx.attrs.get("excluded_event_team_mismatch_props", 0)
             print(f"   player context: {len(player_ctx)} priced prop rows")
             if excluded_unavailable:
                 print(f"   ⛔ excluded {excluded_unavailable} prop row(s) for confirmed unavailable players")
             if excluded_ineligible:
                 print(f"   ⛔ excluded {excluded_ineligible} prop row(s) without a current roster/depth identity")
+            if excluded_event_mismatch:
+                print(f"   ⛔ excluded {excluded_event_mismatch} prop row(s) whose player team did not match the live event")
 
             games_str = build_week_games_str(schedule, week)
             fresh_picks = pk.generate_weekly_picks(gemini_key, GEMINI_MODEL, player_ctx,
@@ -1483,6 +1502,15 @@ def main():
                         print(f"   ➕ {len(targeted_current)} dedicated next-slate pick(s) added")
                 else:
                     print(f"   ⚠️  no priced player context for next game day {target_date}")
+        # The schedule is authoritative for every persisted board/ledger row.
+        # Invalid player-event joins never reach Daily_Picks or the grader.
+        fresh_picks = stamp_pick_schedule(fresh_picks, schedule, week)
+        invalid_context = int((fresh_picks.get("CONTEXT_STATUS", pd.Series("SCHEDULE_VALID", index=fresh_picks.index))
+                               == "INVALID_CONTEXT").sum())
+        if invalid_context:
+            print(f"   ⛔ removed {invalid_context} pick(s) without an authoritative schedule matchup")
+            fresh_picks = fresh_picks[fresh_picks["CONTEXT_STATUS"] == "SCHEDULE_VALID"].copy()
+
         prior_daily = fetch_prior_daily_picks(sheets, SHEET_ID)
         fresh_snapshot, daily_picks_new = pk.assemble_pick_tabs(
             fresh_picks, prior_daily, week=week, season=schedule_season,

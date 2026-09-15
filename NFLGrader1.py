@@ -39,7 +39,8 @@ import gspread
 import json
 
 from nfl_phase import PRESEASON_PHASE, REGULAR_SEASON_PHASE, infer_pick_phase
-from picks import actual_value_for_metric, BINARY_METRICS, TEAM_MARKET_METRICS  # single source of truth
+from picks import (actual_value_for_metric, BINARY_METRICS, TEAM_MARKET_METRICS,
+                   normalize_team_abbr)  # single source of truth
 from sports_common import (
     col_letter,
     get_gspread_client,
@@ -212,7 +213,7 @@ def build_kickoff_lookup(schedule: pd.DataFrame) -> dict:
         key_week = g.get("week")
         for team in (g.get("home_team"), g.get("away_team")):
             if team:
-                lookup[(team, key_season, key_week)] = kickoff
+                lookup[(normalize_team_abbr(team), key_season, key_week)] = kickoff
     return lookup
 
 
@@ -293,8 +294,8 @@ def build_schedule_result_lookup(schedule: pd.DataFrame) -> dict:
     for _, row in schedule.iterrows():
         season = row.get("season")
         week = row.get("week")
-        home = str(row.get("home_team") or "").strip().upper()
-        away = str(row.get("away_team") or "").strip().upper()
+        home = normalize_team_abbr(row.get("home_team"))
+        away = normalize_team_abbr(row.get("away_team"))
         if home and away:
             lookup[(season, week, home, away)] = row
             lookup[(season, week, away, home)] = row
@@ -309,18 +310,47 @@ def fallback_matchup_pair(pick: pd.Series) -> tuple[str, str]:
     real team/opponent pair, so parsing the stored matchup lets those legacy
     rows grade instead of staying pending forever.
     """
-    team = str(pick.get("team") or "").strip().upper()
-    opponent = str(pick.get("opponent") or "").strip().upper()
+    team = normalize_team_abbr(pick.get("team"))
+    opponent = normalize_team_abbr(pick.get("opponent"))
     if team and opponent:
         return team, opponent
 
     matchup = str(pick.get("game") or "").strip().upper()
     if "@" not in matchup:
         return team, opponent
-    away, home = [part.strip() for part in matchup.split("@", 1)]
+    away, home = [normalize_team_abbr(part) for part in matchup.split("@", 1)]
     if away and home:
         return away, home
     return team, opponent
+
+
+def validate_pick_schedule_context(pick: pd.Series, schedule_results: dict) -> tuple[bool, str]:
+    """Require the stored player/event context to agree with NFL schedule data.
+
+    Player stats are keyed by player and week, not by opponent. Without this
+    check a stale team or event can be settled against the right player's box
+    score from the wrong game, which is worse than leaving a pick pending.
+    """
+    season = safe_float(pick.get("SEASON"))
+    week = safe_float(pick.get("WEEK"))
+    team, opponent = fallback_matchup_pair(pick)
+    game_row = schedule_results.get((season, week, team, opponent))
+    if game_row is None:
+        return False, "NO_SCHEDULE_MATCH"
+
+    scheduled_away = normalize_team_abbr(game_row.get("away_team"))
+    scheduled_home = normalize_team_abbr(game_row.get("home_team"))
+    stored_game = str(pick.get("game") or "").strip().upper()
+    if "@" in stored_game:
+        stored_away, stored_home = [normalize_team_abbr(part) for part in stored_game.split("@", 1)]
+        if (stored_away, stored_home) != (scheduled_away, scheduled_home):
+            return False, "GAME_MISMATCH"
+
+    stored_date = pd.to_datetime(pick.get("GAME_DATE"), errors="coerce")
+    scheduled_date = pd.to_datetime(game_row.get("gameday"), errors="coerce")
+    if pd.notna(stored_date) and pd.notna(scheduled_date) and stored_date.date() != scheduled_date.date():
+        return False, "DATE_MISMATCH"
+    return True, ""
 
 
 def find_team_market_game(schedule_results: dict, season, week: float,
@@ -397,19 +427,51 @@ def grade_daily_picks(client) -> None:
               f"grade against an assumption about what's there")
         return
 
-    ungraded = df[df["HIT"].astype(str).str.strip() == ""]
-    print(f"   {len(ungraded)} ungraded row(s)")
-    if ungraded.empty:
-        return
-
     print("\n📡 Loading schedule + game logs for grading...")
     import nflverse_loader as nv
     import NFLEnginev1 as eng
 
-    seasons_needed = sorted({int(s) for s in pd.to_numeric(ungraded["SEASON"], errors="coerce").dropna().unique()})
+    seasons_needed = sorted({int(s) for s in pd.to_numeric(df["SEASON"], errors="coerce").dropna().unique()})
     schedule = pd.concat([nv.load_schedules(seasons=[s]) for s in seasons_needed], ignore_index=True) if seasons_needed else pd.DataFrame()
     kickoff_lookup = build_kickoff_lookup(schedule)
     schedule_results = build_schedule_result_lookup(schedule)
+
+    # Audit the entire ledger before looking for blank rows. A previously
+    # settled result can still be invalid if its saved event/date does not
+    # describe the scheduled game for that player/team/week.
+    col_idx = {name: i for i, name in enumerate(header)}
+    updates = []
+    invalid_context = 0
+    for idx, pick in df.iterrows():
+        valid, reason = validate_pick_schedule_context(pick, schedule_results)
+        if valid:
+            continue
+        sheet_row = idx + 2
+        existing = str(pick.get("HIT") or "").strip().upper()
+        if existing != "INVALID":
+            invalid_context += 1
+            updates.extend([
+                (sheet_row, "ACTUAL_STAT", reason),
+                (sheet_row, "HIT", "INVALID"),
+                (sheet_row, "RESULT", "INVALID_CONTEXT"),
+                (sheet_row, "REALIZED_PROFIT", ""),
+                (sheet_row, "ACTUAL_ROI_PER_PICK", ""),
+            ])
+            df.at[idx, "HIT"] = "INVALID"
+            df.at[idx, "RESULT"] = "INVALID_CONTEXT"
+            df.at[idx, "ACTUAL_STAT"] = reason
+    if invalid_context:
+        print(f"   ⛔ quarantined {invalid_context} row(s) with invalid schedule context")
+
+    ungraded = df[df["HIT"].astype(str).str.strip() == ""]
+    print(f"   {len(ungraded)} ungraded row(s)")
+    if ungraded.empty:
+        if updates:
+            cells = [{"range": f"{col_letter(col_idx[col])}{row}", "values": [[val]]}
+                     for row, col, val in updates if col in col_idx]
+            if cells:
+                ws.batch_update(cells)
+        return
 
     stats = pd.concat([nv.load_player_stats(seasons=[s]) for s in seasons_needed], ignore_index=True) if seasons_needed else pd.DataFrame()
     game_logs = pd.concat([
@@ -420,8 +482,6 @@ def grade_daily_picks(client) -> None:
     print(f"   game logs: {len(game_logs)} rows across {len(seasons_needed)} season(s)")
 
     now = datetime.now(eastern)
-    col_idx = {name: i for i, name in enumerate(header)}
-    updates = []
     graded = hits = misses = pushes = dnp = not_ready = ambiguous_skipped = 0
 
     for idx, pick in ungraded.iterrows():
@@ -501,7 +561,8 @@ def grade_daily_picks(client) -> None:
         ws.batch_update(cells)
 
     print(f"\n✅ Graded {graded} ({hits}-{misses}-{pushes} hit-miss-push), "
-          f"{dnp} DNP, {not_ready} not ready yet, {ambiguous_skipped} skipped (ambiguous)")
+          f"{dnp} DNP, {not_ready} not ready yet, {ambiguous_skipped} skipped (ambiguous), "
+          f"{invalid_context} invalid-context")
 
 
 # ============================================================================
@@ -544,6 +605,24 @@ def pick_perf_prepare_df(df_all: pd.DataFrame) -> pd.DataFrame:
     df["week"] = df.get("WEEK", pd.Series("", index=idx)).astype(str)
     df["date_parsed"] = pd.to_datetime(df.get("DATE", pd.Series("", index=idx)), errors="coerce")
     df["day_of_week"] = df["date_parsed"].dt.strftime("%a").fillna("unknown")
+    # Daily_Picks is an audit log of board refreshes. Performance must measure
+    # the first published recommendation, not count the same game/player/side
+    # again every time the engine reruns before kickoff.
+    player_identity = df.get("player_id", pd.Series("", index=idx)).fillna("").astype(str).str.strip()
+    player_identity = player_identity.where(player_identity.ne(""), df.get("player", pd.Series("", index=idx)).map(normalize_person_name))
+    game_identity = df.get("GAME_DATE", pd.Series("", index=idx)).fillna("").astype(str)
+    game_identity = game_identity.where(game_identity.ne(""), df.get("game", pd.Series("", index=idx)).fillna("").astype(str))
+    df["_evaluation_key"] = (
+        df.get("SEASON", pd.Series("", index=idx)).astype(str) + "|" + df["week"] + "|" +
+        game_identity + "|" + player_identity + "|" + df["prop_type_norm"] + "|" + df["lean_norm"]
+    )
+    published = pd.to_datetime(
+        df.get("RUN_TIME", pd.Series("", index=idx)), format="mixed", errors="coerce"
+    )
+    df["_published_at"] = published.fillna(df["date_parsed"])
+    df = (df.sort_values(["_published_at", "RUN_NUMBER"], kind="stable")
+            .drop_duplicates(subset="_evaluation_key", keep="first")
+            .drop(columns=["_evaluation_key", "_published_at"]))
     df["has_lineup_risk"] = df.get("injury_context", pd.Series("", index=idx)).fillna("").astype(str).str.upper().str.startswith("LINEUP RISK")
     df["model_era"] = df.apply(pick_model_era, axis=1)
     df["RUN_NUMBER"] = pd.to_numeric(df.get("RUN_NUMBER", pd.Series(np.nan, index=idx)), errors="coerce").fillna(0).astype(int).astype(str)
