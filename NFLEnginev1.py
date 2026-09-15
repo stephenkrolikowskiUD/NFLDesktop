@@ -1349,6 +1349,7 @@ def main():
 
     print("\n🔧 Building tabs")
     name_map = build_team_name_map(teams)
+    team_identity_available = bool(name_map)
     games_tab = build_games_tab(schedule, odds, name_map)
     game_markets_tab = build_game_markets_tab(games_tab)
     skill_logs = build_game_logs_tab(stats, SKILL_POSITIONS)
@@ -1391,14 +1392,24 @@ def main():
     week = (phase.current_preseason_week(games_tab, started) or season_phase.active_week) if season_phase.is_preseason else season_phase.active_week
     eligible_player_ids = set(pick_eligible.get("player_id", pd.Series(dtype=str)).dropna().astype(str))
     eligible_player_names = set(pick_eligible.get("player_name_now", pd.Series(dtype=str)).dropna().map(pk._norm_name))
+    eligible_player_teams = {
+        str(row.player_id): pk.normalize_team_abbr(row.team_now)
+        for row in pick_eligible[["player_id", "team_now"]].dropna().itertuples(index=False)
+    } if {"player_id", "team_now"}.issubset(pick_eligible.columns) else {}
     prior_weekly = fetch_pick_tab(sheets, SHEET_ID, "Picks_Weekly") if week is not None else pd.DataFrame()
     if not prior_weekly.empty:
         before_prior = len(prior_weekly)
         prior_weekly = pk.filter_picks_to_active_players(
-            prior_weekly, eligible_player_ids, eligible_player_names
+            prior_weekly, eligible_player_ids, eligible_player_names, eligible_player_teams
         )
         if len(prior_weekly) < before_prior:
-            print(f"   ⛔ removed {before_prior - len(prior_weekly)} stale player pick(s) from the weekly board")
+            print(f"   ⛔ removed {before_prior - len(prior_weekly)} stale player/team pick(s) from the weekly board")
+        prior_weekly = stamp_pick_schedule(prior_weekly, schedule, week)
+        invalid_prior = int((prior_weekly.get("CONTEXT_STATUS", pd.Series("SCHEDULE_VALID", index=prior_weekly.index))
+                             == "INVALID_CONTEXT").sum())
+        if invalid_prior:
+            print(f"   ⛔ removed {invalid_prior} prior board pick(s) without an authoritative schedule matchup")
+            prior_weekly = prior_weekly[prior_weekly["CONTEXT_STATUS"] == "SCHEDULE_VALID"].copy()
     if week is not None and not prior_weekly.empty:
         picks_weekly = pk.build_weekly_pick_board(
             pd.DataFrame(), prior_weekly, week=week, season=schedule_season
@@ -1423,6 +1434,8 @@ def main():
         print(f"   ⏭️  {generation_reason} — leaving Picks_Current as-is")
     elif week is None:
         print("   ⚠️  could not determine current week — skipping picks")
+    elif not team_identity_available and not preseason_team_markets_live:
+        print("   ⚠️  team identity data unavailable — skipping player-pick generation rather than misjoining live events")
     elif board.empty and not preseason_team_markets_live:
         # No real market lines yet means nothing to validate a pick against —
         # generating anyway would mean either inventing lines or running the
@@ -1451,6 +1464,7 @@ def main():
             excluded_unavailable = player_ctx.attrs.get("excluded_unavailable_props", 0)
             excluded_ineligible = player_ctx.attrs.get("excluded_ineligible_props", 0)
             excluded_event_mismatch = player_ctx.attrs.get("excluded_event_team_mismatch_props", 0)
+            excluded_missing_projection_identity = player_ctx.attrs.get("excluded_missing_projection_identity_props", 0)
             print(f"   player context: {len(player_ctx)} priced prop rows")
             if excluded_unavailable:
                 print(f"   ⛔ excluded {excluded_unavailable} prop row(s) for confirmed unavailable players")
@@ -1458,6 +1472,8 @@ def main():
                 print(f"   ⛔ excluded {excluded_ineligible} prop row(s) without a current roster/depth identity")
             if excluded_event_mismatch:
                 print(f"   ⛔ excluded {excluded_event_mismatch} prop row(s) whose player team did not match the live event")
+            if excluded_missing_projection_identity:
+                print(f"   ⛔ excluded {excluded_missing_projection_identity} prop row(s) without a projection-backed current team")
 
             games_str = build_week_games_str(schedule, week)
             fresh_picks = pk.generate_weekly_picks(gemini_key, GEMINI_MODEL, player_ctx,

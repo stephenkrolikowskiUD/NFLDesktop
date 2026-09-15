@@ -104,13 +104,15 @@ the opponent from that event and then restamp the matchup/date/kickoff from
 the nflverse schedule before writing any board or ledger row. Never infer a
 current matchup from a player's most recent historical game log.
 
-The grader must fail closed too. Before assigning a hit, it must prove the
-stored team/opponent, matchup text, and game date all agree with the official
-schedule for the pick's season and week. If an older row cannot meet that
-standard, preserve it as `INVALID_CONTEXT`; do not guess a matchup or settle
-it from a matching player/week box score. `Daily_Picks` is an append-only
-audit log, while `Pick_Performance` measures the first published unique
-game/player/market/side decision rather than every refresh snapshot.
+The persisted weekly boards must run through the same roster and schedule
+validation on every engine pass, including a no-generation run. The grader
+must fail closed for unresolved picks, but a settled `YES`/`NO`/`PUSH` result
+is durable evidence and must never be overwritten by a later schedule update.
+If a pending older row cannot meet the schedule standard, preserve it as
+`INVALID_CONTEXT` with `PRIOR_*` and timestamped `GRADE_AUDIT_*` fields; do
+not guess a matchup or settle it from a matching player/week box score.
+`Pick_Performance` collapses only an unchanged refresh. A changed line or
+selection method is a distinct recommendation with its own result.
 
 ## Sheet-derived UI strings must be escaped at render time
 

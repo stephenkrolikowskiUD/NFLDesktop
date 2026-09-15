@@ -84,6 +84,7 @@ PICK_PERFORMANCE_COLUMNS = [
     "LAST_UPDATED",
 ]
 PICK_PERFORMANCE_SNAPSHOT_COLUMNS = ["SNAPSHOT_DATE", "METRIC_KEY", "METRIC_VALUE", "N_PICKS", "TIME_WINDOW"]
+GRADE_AUDIT_COLUMNS = ["PRIOR_HIT", "PRIOR_RESULT", "GRADE_AUDIT_STATUS", "GRADE_AUDIT_AT"]
 
 
 # ============================================================================
@@ -335,20 +336,29 @@ def validate_pick_schedule_context(pick: pd.Series, schedule_results: dict) -> t
     week = safe_float(pick.get("WEEK"))
     team, opponent = fallback_matchup_pair(pick)
     game_row = schedule_results.get((season, week, team, opponent))
+    metric = str(pick.get("prop_type", "")).upper()
+    # Pre-existing team-market rows may have an incorrect opponent even though
+    # their team has exactly one unambiguous game that week. Preserve the
+    # intentionally narrow legacy rescue path; fresh rows are schedule-stamped.
+    legacy_team_market = False
+    if game_row is None and metric in TEAM_MARKET_METRICS:
+        game_row = find_team_market_game(schedule_results, season, week, team, opponent)
+        legacy_team_market = game_row is not None
     if game_row is None:
         return False, "NO_SCHEDULE_MATCH"
 
     scheduled_away = normalize_team_abbr(game_row.get("away_team"))
     scheduled_home = normalize_team_abbr(game_row.get("home_team"))
     stored_game = str(pick.get("game") or "").strip().upper()
-    if "@" in stored_game:
+    if "@" in stored_game and not legacy_team_market:
         stored_away, stored_home = [normalize_team_abbr(part) for part in stored_game.split("@", 1)]
         if (stored_away, stored_home) != (scheduled_away, scheduled_home):
             return False, "GAME_MISMATCH"
 
     stored_date = pd.to_datetime(pick.get("GAME_DATE"), errors="coerce")
     scheduled_date = pd.to_datetime(game_row.get("gameday"), errors="coerce")
-    if pd.notna(stored_date) and pd.notna(scheduled_date) and stored_date.date() != scheduled_date.date():
+    if (pd.notna(stored_date) and pd.notna(scheduled_date)
+            and stored_date.date() != scheduled_date.date() and not legacy_team_market):
         return False, "DATE_MISMATCH"
     return True, ""
 
@@ -373,9 +383,9 @@ def find_team_market_game(schedule_results: dict, season, week: float,
 
 def actual_value_for_team_market(pick: pd.Series, game_row: pd.Series):
     metric = str(pick.get("prop_type", "")).upper()
-    team = str(pick.get("team") or "").strip().upper()
-    home = str(game_row.get("home_team") or "").strip().upper()
-    away = str(game_row.get("away_team") or "").strip().upper()
+    team = normalize_team_abbr(pick.get("team"))
+    home = normalize_team_abbr(game_row.get("home_team"))
+    away = normalize_team_abbr(game_row.get("away_team"))
     home_score = safe_float(game_row.get("home_score"))
     away_score = safe_float(game_row.get("away_score"))
     if home_score is None or away_score is None:
@@ -386,6 +396,10 @@ def actual_value_for_team_market(pick: pd.Series, game_row: pd.Series):
         opp_score = away_score if team == home else home_score if team == away else None
         if team_score is None or opp_score is None:
             return None
+        if team_score == opp_score:
+            # Moneylines refund on a tied NFL game; 0.5 reaches grade_pick's
+            # existing exact-line PUSH path for the stored 0.5 threshold.
+            return 0.5
         return 1.0 if team_score > opp_score else 0.0
 
     if metric == "SPREAD":
@@ -427,6 +441,15 @@ def grade_daily_picks(client) -> None:
               f"grade against an assumption about what's there")
         return
 
+    # Quarantine is an audit event, not a destructive correction. Extend the
+    # append-only ledger schema before any result can be changed.
+    missing_audit_cols = [col for col in GRADE_AUDIT_COLUMNS if col not in header]
+    if missing_audit_cols:
+        header = header + missing_audit_cols
+        ws.update(values=[header], range_name=f"A1:{col_letter(len(header) - 1)}1", value_input_option="RAW")
+        for col in missing_audit_cols:
+            df[col] = ""
+
     print("\n📡 Loading schedule + game logs for grading...")
     import nflverse_loader as nv
     import NFLEnginev1 as eng
@@ -436,30 +459,33 @@ def grade_daily_picks(client) -> None:
     kickoff_lookup = build_kickoff_lookup(schedule)
     schedule_results = build_schedule_result_lookup(schedule)
 
-    # Audit the entire ledger before looking for blank rows. A previously
-    # settled result can still be invalid if its saved event/date does not
-    # describe the scheduled game for that player/team/week.
+    # Audit only rows awaiting a result. A settled result is durable evidence:
+    # later schedule corrections must be logged for review, never silently
+    # overwrite a YES/NO/PUSH outcome in the historical ledger.
     col_idx = {name: i for i, name in enumerate(header)}
     updates = []
     invalid_context = 0
-    for idx, pick in df.iterrows():
+    pending_context_rows = df[df["HIT"].astype(str).str.strip() == ""]
+    for idx, pick in pending_context_rows.iterrows():
         valid, reason = validate_pick_schedule_context(pick, schedule_results)
         if valid:
             continue
         sheet_row = idx + 2
-        existing = str(pick.get("HIT") or "").strip().upper()
-        if existing != "INVALID":
-            invalid_context += 1
-            updates.extend([
-                (sheet_row, "ACTUAL_STAT", reason),
-                (sheet_row, "HIT", "INVALID"),
-                (sheet_row, "RESULT", "INVALID_CONTEXT"),
-                (sheet_row, "REALIZED_PROFIT", ""),
-                (sheet_row, "ACTUAL_ROI_PER_PICK", ""),
-            ])
-            df.at[idx, "HIT"] = "INVALID"
-            df.at[idx, "RESULT"] = "INVALID_CONTEXT"
-            df.at[idx, "ACTUAL_STAT"] = reason
+        invalid_context += 1
+        updates.extend([
+            (sheet_row, "PRIOR_HIT", str(pick.get("HIT") or "")),
+            (sheet_row, "PRIOR_RESULT", str(pick.get("RESULT") or "")),
+            (sheet_row, "GRADE_AUDIT_STATUS", f"QUARANTINED: {reason}"),
+            (sheet_row, "GRADE_AUDIT_AT", datetime.now(eastern).strftime("%Y-%m-%d %H:%M:%S %Z")),
+            (sheet_row, "ACTUAL_STAT", reason),
+            (sheet_row, "HIT", "INVALID"),
+            (sheet_row, "RESULT", "INVALID_CONTEXT"),
+            (sheet_row, "REALIZED_PROFIT", ""),
+            (sheet_row, "ACTUAL_ROI_PER_PICK", ""),
+        ])
+        df.at[idx, "HIT"] = "INVALID"
+        df.at[idx, "RESULT"] = "INVALID_CONTEXT"
+        df.at[idx, "ACTUAL_STAT"] = reason
     if invalid_context:
         print(f"   ⛔ quarantined {invalid_context} row(s) with invalid schedule context")
 
@@ -491,7 +517,7 @@ def grade_daily_picks(client) -> None:
             continue
 
         metric = str(pick.get("prop_type", "")).upper()
-        team_week_key = (pick.get("team"), safe_float(pick.get("SEASON")), safe_float(pick.get("WEEK")))
+        team_week_key = (normalize_team_abbr(pick.get("team")), safe_float(pick.get("SEASON")), safe_float(pick.get("WEEK")))
         actual = None
         line_val = safe_float(pick.get("line"))
 
@@ -606,15 +632,20 @@ def pick_perf_prepare_df(df_all: pd.DataFrame) -> pd.DataFrame:
     df["date_parsed"] = pd.to_datetime(df.get("DATE", pd.Series("", index=idx)), errors="coerce")
     df["day_of_week"] = df["date_parsed"].dt.strftime("%a").fillna("unknown")
     # Daily_Picks is an audit log of board refreshes. Performance must measure
-    # the first published recommendation, not count the same game/player/side
-    # again every time the engine reruns before kickoff.
+    # one exact published decision, not count an unchanged refresh again. A
+    # changed line or selection method is a distinct recommendation and keeps
+    # its own outcome; CLV continues to track in-place market movement.
     player_identity = df.get("player_id", pd.Series("", index=idx)).fillna("").astype(str).str.strip()
     player_identity = player_identity.where(player_identity.ne(""), df.get("player", pd.Series("", index=idx)).map(normalize_person_name))
     game_identity = df.get("GAME_DATE", pd.Series("", index=idx)).fillna("").astype(str)
     game_identity = game_identity.where(game_identity.ne(""), df.get("game", pd.Series("", index=idx)).fillna("").astype(str))
+    line_identity = pd.to_numeric(df.get("line", pd.Series(np.nan, index=idx)), errors="coerce").map(
+        lambda value: "" if pd.isna(value) else f"{value:g}"
+    )
     df["_evaluation_key"] = (
         df.get("SEASON", pd.Series("", index=idx)).astype(str) + "|" + df["week"] + "|" +
-        game_identity + "|" + player_identity + "|" + df["prop_type_norm"] + "|" + df["lean_norm"]
+        game_identity + "|" + player_identity + "|" + df["prop_type_norm"] + "|" + df["lean_norm"] + "|" +
+        line_identity + "|" + df["selection_method_norm"]
     )
     published = pd.to_datetime(
         df.get("RUN_TIME", pd.Series("", index=idx)), format="mixed", errors="coerce"

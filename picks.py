@@ -344,6 +344,7 @@ def build_player_context(props_board: pd.DataFrame, game_logs: pd.DataFrame,
     excluded_unavailable_props = 0
     excluded_ineligible_props = 0
     excluded_event_team_mismatch_props = 0
+    excluded_missing_projection_identity_props = 0
 
     rows = []
     for _, prop in board.iterrows():
@@ -376,11 +377,6 @@ def build_player_context(props_board: pd.DataFrame, game_logs: pd.DataFrame,
             # establish that someone is currently available to play.
             excluded_ineligible_props += 1
             continue
-        if player_id in unavailable_ids:
-            # Sportsbooks can leave an inactive player's prop posted briefly.
-            # Exclude it before it can consume a candidate slot or reach Gemini.
-            excluded_unavailable_props += 1
-            continue
         proj_row = None
         if not projections.empty and "player_id" in projections.columns:
             match = projections[projections["player_id"].astype(str) == str(latest.get("player_id"))]
@@ -395,8 +391,17 @@ def build_player_context(props_board: pd.DataFrame, game_logs: pd.DataFrame,
         # Historical logs provide form only. The active roster identity is the
         # authority for a live prop's team/opponent and must belong to its event.
         current_team = normalize_team_abbr(proj_row.get("team_now") if proj_row is not None else "")
-        if not current_team or current_team not in {event_away, event_home}:
+        missing_projection_identity = proj_row is None or not current_team
+        event_team_mismatch = bool(current_team) and current_team not in {event_away, event_home}
+        if missing_projection_identity:
+            excluded_missing_projection_identity_props += 1
+        if event_team_mismatch:
             excluded_event_team_mismatch_props += 1
+        if player_id in unavailable_ids:
+            # Sportsbooks can leave an inactive player's prop posted briefly.
+            # Count this independently from roster/event diagnostics.
+            excluded_unavailable_props += 1
+        if missing_projection_identity or event_team_mismatch or player_id in unavailable_ids:
             continue
         current_opponent = event_home if current_team == event_away else event_away
         kickoff = pd.to_datetime(prop.get("commence_time"), utc=True, errors="coerce")
@@ -454,6 +459,7 @@ def build_player_context(props_board: pd.DataFrame, game_logs: pd.DataFrame,
     pool.attrs["excluded_unavailable_props"] = excluded_unavailable_props
     pool.attrs["excluded_ineligible_props"] = excluded_ineligible_props
     pool.attrs["excluded_event_team_mismatch_props"] = excluded_event_team_mismatch_props
+    pool.attrs["excluded_missing_projection_identity_props"] = excluded_missing_projection_identity_props
     return pool
 
 
@@ -1125,7 +1131,8 @@ def apply_one_pick_per_player(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def filter_picks_to_active_players(picks: pd.DataFrame, active_player_ids: set[str],
-                                   active_player_names: set[str]) -> pd.DataFrame:
+                                   active_player_names: set[str],
+                                   active_player_teams: dict[str, str] | None = None) -> pd.DataFrame:
     """Remove stale player props from display boards while preserving team markets.
 
     Current eligibility is an input to recommendation display, not historical
@@ -1143,6 +1150,13 @@ def filter_picks_to_active_players(picks: pd.DataFrame, active_player_ids: set[s
     id_allowed = player_ids.isin(active_player_ids)
     name_allowed = player_names.isin(active_player_names)
     keep = team_market | (has_player_id & id_allowed) | (~has_player_id & name_allowed)
+    if active_player_teams:
+        stored_teams = _column_or_default(out, "team", "").map(normalize_team_abbr)
+        expected_teams = player_ids.map(active_player_teams)
+        # IDs are authoritative. A current player on a different team is not
+        # a safe persistent board pick, even when their name remains active.
+        team_matches = expected_teams.isna() | stored_teams.eq(expected_teams)
+        keep &= team_market | team_matches
     return out.loc[keep].copy().reset_index(drop=True)
 
 
