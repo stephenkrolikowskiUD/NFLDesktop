@@ -11,7 +11,10 @@ import pandas as pd
 import requests
 
 
-BASE_URL = "https://api.fantasypros.com/public/v2/json"
+# The public documentation page lives under /public/v2, but authenticated API
+# requests use the production /v2 route. Calling the documentation namespace
+# returns a generic 400 even with a valid personal key.
+BASE_URL = "https://api.fantasypros.com/v2/json"
 
 
 def fantasypros_scoring(scoring: str) -> str:
@@ -50,13 +53,22 @@ def load_nfl_consensus(season: int, scoring: str, api_key: str | None = None) ->
         payload = response.json()
     except requests.HTTPError as exc:
         status = exc.response.status_code if exc.response is not None else "unknown"
+        body = ""
+        if exc.response is not None:
+            try:
+                body = str(exc.response.json().get("message") or exc.response.text or "").strip()
+            except ValueError:
+                body = str(exc.response.text or "").strip()
+        body = " ".join(body.split())[:180]
         hint = {
             401: "key rejected — confirm the full API key, not the request/activation code",
             403: "key has no production API access — activate personal API access in FantasyPros",
             404: "endpoint or requested season was not found",
             429: "rate limit reached — wait before retrying",
+            400: "request rejected — inspect the API response detail below",
         }.get(status, "request failed")
-        print(f"   ⚠️  FantasyPros API consensus unavailable (HTTP {status}: {hint}) — using nflverse snapshot")
+        detail = f" ({body})" if body else ""
+        print(f"   ⚠️  FantasyPros API consensus unavailable (HTTP {status}: {hint}){detail} — using nflverse snapshot")
         return pd.DataFrame()
     except (requests.RequestException, ValueError) as exc:
         print(f"   ⚠️  FantasyPros API consensus unavailable ({type(exc).__name__}) — using nflverse snapshot")

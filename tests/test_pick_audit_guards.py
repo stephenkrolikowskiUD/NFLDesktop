@@ -1,6 +1,7 @@
 """Regression guards for the NFL pick identity and grading audit."""
 
 import unittest
+from unittest.mock import Mock, patch
 
 import pandas as pd
 
@@ -10,6 +11,7 @@ from NFLGrader1 import (
     pick_perf_prepare_df,
     validate_pick_schedule_context,
 )
+from fantasypros_client import load_nfl_consensus
 from picks import build_player_context, filter_picks_to_active_players
 
 
@@ -79,6 +81,25 @@ class PickAuditGuardTests(unittest.TestCase):
              "SELECTION_METHOD": "VALIDATED_MODEL", "DATE": "2026-09-08", "RUN_TIME": "2026-09-08 11:00:00", "RUN_NUMBER": 3},
         ])
         self.assertEqual(len(pick_perf_prepare_df(rows)), 3)
+
+    def test_fantasypros_uses_authenticated_production_endpoint(self):
+        response = Mock()
+        response.raise_for_status.return_value = None
+        response.json.return_value = {
+            "last_updated": "2026-09-16",
+            "players": [{
+                "player_id": 1, "player_name": "Test Player", "player_position_id": "RB",
+                "rank_ecr": 4, "rank_std": 1.2, "rank_min": 2, "rank_max": 7,
+            }],
+        }
+        with patch("fantasypros_client.requests.get", return_value=response) as get:
+            result = load_nfl_consensus(2026, "underdog", "test-key")
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result.iloc[0]["ecr"], 4)
+        self.assertEqual(get.call_args.args[0],
+                         "https://api.fantasypros.com/v2/json/nfl/2026/consensus-rankings")
+        self.assertEqual(get.call_args.kwargs["params"], {"position": "ALL", "scoring": "HALF"})
+        self.assertEqual(get.call_args.kwargs["headers"], {"x-api-key": "test-key"})
 
 
 if __name__ == "__main__":

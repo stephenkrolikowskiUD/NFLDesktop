@@ -1,6 +1,6 @@
 # NFLDesktop Roadmap
 
-_Last updated: 2026-09-15_
+_Last updated: 2026-09-16_
 
 ## Where We Are
 NFL is no longer a greenfield build. The core dashboard, engine, season-long projection layer, Lookup, and game-market board are live. The first real Week 1 player-prop run completed on September 3: 138 unique lines across 52 players produced 14 validated Gemini consensus picks, which wrote to `Picks_Current` and the append-only `Daily_Picks` ledger with regular-season phase and model identity stamped correctly.
@@ -8,6 +8,8 @@ NFL is no longer a greenfield build. The core dashboard, engine, season-long pro
 The pick workflow is split deliberately: `Picks_Weekly` is the curated all-week decision board, `Picks_Current` is the nearest unstarted game-day slice, and `Daily_Picks` is the complete historical ledger for grading and CLV. On September 7, the kickoff parser, history preservation, and board-row disclosure behavior were corrected before opening kickoff. On September 10, live-season rollover and early-season baseline guards were added after a September run incorrectly requested 2027 nflverse data and then exposed a one-game 2026 baseline that collapsed the player-context board. On September 13, player-prop eligibility was made fail-closed against current roster and depth-chart identities, with weekly-board revalidation to remove stale player picks without altering history. The Best Ball board can now also prefer a current FantasyPros API consensus feed when a personal key is present, while preserving the nflverse best-ball snapshot as a labelled fallback.
 
 The first Week 1 grading report is quarantined, not a model conclusion. The audit found that player props were joining live odds events to a player's last historical team/opponent, while the grader settled by player ID + week without confirming the stored matchup. That let wrong-event rows, including future-dated rows, inherit a real Week 1 box score. The original 26.1% / -47.0% headline is therefore not a valid scorecard. The clean rebuild is 15 decisive picks at 46.7% and -13.0% ROI, explicitly low sample. A second independent review hardened the persistent weekly boards, protected settled results from overwrite, restored legacy team-market rescue, and made performance deduplication preserve changed lines and selection methods. The first quarantine run predated the new audit fields, so the overwritten legacy values cannot be reconstructed from the ledger; future quarantines are now auditable.
+
+FantasyPros API consensus was initially unavailable despite a configured key because the client called the documentation namespace (`/public/v2`) instead of the authenticated production API namespace (`/v2`). The client now uses the documented production endpoint with the same `x-api-key` authentication and exposes a response detail for any future HTTP 400. The next engine run is the production verification; until then, the dashboard remains explicitly model-only rather than claiming consensus coverage.
 
 ## Shipped
 - ✅ nflverse-first data pipeline (schedule, rosters, weekly stats, snap counts, injuries, depth-chart context)
