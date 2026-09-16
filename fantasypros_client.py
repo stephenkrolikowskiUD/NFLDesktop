@@ -11,10 +11,9 @@ import pandas as pd
 import requests
 
 
-# The public documentation page lives under /public/v2, but authenticated API
-# requests use the production /v2 route. Calling the documentation namespace
-# returns a generic 400 even with a valid personal key.
-BASE_URL = "https://api.fantasypros.com/v2/json"
+# Free personal API keys use the documented public API namespace. Production
+# access is a separate FantasyPros entitlement and returns 403 for these keys.
+BASE_URL = "https://api.fantasypros.com/public/v2/json"
 
 
 def fantasypros_scoring(scoring: str) -> str:
@@ -62,7 +61,7 @@ def load_nfl_consensus(season: int, scoring: str, api_key: str | None = None) ->
         body = " ".join(body.split())[:180]
         hint = {
             401: "key rejected — confirm the full API key, not the request/activation code",
-            403: "key has no production API access — activate personal API access in FantasyPros",
+            403: "key is not authorized for this FantasyPros API endpoint",
             404: "endpoint or requested season was not found",
             429: "rate limit reached — wait before retrying",
             400: "request rejected — inspect the API response detail below",

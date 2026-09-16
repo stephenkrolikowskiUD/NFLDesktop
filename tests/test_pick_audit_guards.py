@@ -82,7 +82,7 @@ class PickAuditGuardTests(unittest.TestCase):
         ])
         self.assertEqual(len(pick_perf_prepare_df(rows)), 3)
 
-    def test_fantasypros_uses_authenticated_production_endpoint(self):
+    def test_fantasypros_uses_authenticated_public_endpoint(self):
         response = Mock()
         response.raise_for_status.return_value = None
         response.json.return_value = {
@@ -97,7 +97,7 @@ class PickAuditGuardTests(unittest.TestCase):
         self.assertEqual(len(result), 1)
         self.assertEqual(result.iloc[0]["ecr"], 4)
         self.assertEqual(get.call_args.args[0],
-                         "https://api.fantasypros.com/v2/json/nfl/2026/consensus-rankings")
+                         "https://api.fantasypros.com/public/v2/json/nfl/2026/consensus-rankings")
         self.assertEqual(get.call_args.kwargs["params"], {"position": "ALL", "scoring": "HALF"})
         self.assertEqual(get.call_args.kwargs["headers"], {"x-api-key": "test-key"})
 
