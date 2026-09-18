@@ -14,6 +14,7 @@ import requests
 # Free personal API keys use the documented public API namespace. Production
 # access is a separate FantasyPros entitlement and returns 403 for these keys.
 BASE_URL = "https://api.fantasypros.com/public/v2/json"
+NFL_CONSENSUS_POSITIONS = ("QB", "RB", "WR", "TE")
 
 
 def fantasypros_scoring(scoring: str) -> str:
@@ -41,42 +42,50 @@ def load_nfl_consensus(season: int, scoring: str, api_key: str | None = None) ->
         return pd.DataFrame()
 
     url = f"{BASE_URL}/nfl/{int(season)}/consensus-rankings"
-    try:
-        response = requests.get(
-            url,
-            params={"position": "ALL", "scoring": fantasypros_scoring(scoring)},
-            headers={"x-api-key": key},
-            timeout=30,
-        )
-        response.raise_for_status()
-        payload = response.json()
-    except requests.HTTPError as exc:
-        status = exc.response.status_code if exc.response is not None else "unknown"
-        body = ""
-        if exc.response is not None:
-            try:
-                body = str(exc.response.json().get("message") or exc.response.text or "").strip()
-            except ValueError:
-                body = str(exc.response.text or "").strip()
-        body = " ".join(body.split())[:180]
-        hint = {
-            401: "key rejected — confirm the full API key, not the request/activation code",
-            403: "key is not authorized for this FantasyPros API endpoint",
-            404: "endpoint or requested season was not found",
-            429: "rate limit reached — wait before retrying",
-            400: "request rejected — inspect the API response detail below",
-        }.get(status, "request failed")
-        detail = f" ({body})" if body else ""
-        print(f"   ⚠️  FantasyPros API consensus unavailable (HTTP {status}: {hint}){detail} — using nflverse snapshot")
-        return pd.DataFrame()
-    except (requests.RequestException, ValueError) as exc:
-        print(f"   ⚠️  FantasyPros API consensus unavailable ({type(exc).__name__}) — using nflverse snapshot")
-        return pd.DataFrame()
+    payloads = []
+    errors = []
+    for position in NFL_CONSENSUS_POSITIONS:
+        try:
+            response = requests.get(
+                url,
+                params={"position": position, "scoring": fantasypros_scoring(scoring)},
+                headers={"x-api-key": key},
+                timeout=30,
+            )
+            response.raise_for_status()
+            payloads.append(response.json())
+        except requests.HTTPError as exc:
+            status = exc.response.status_code if exc.response is not None else "unknown"
+            body = ""
+            if exc.response is not None:
+                try:
+                    body = str(exc.response.json().get("message") or exc.response.text or "").strip()
+                except ValueError:
+                    body = str(exc.response.text or "").strip()
+            body = " ".join(body.split())[:180]
+            hint = {
+                401: "key rejected — confirm the full API key, not the request/activation code",
+                403: "key is not authorized for this FantasyPros API endpoint",
+                404: "endpoint or requested season was not found",
+                429: "rate limit reached — wait before retrying",
+                400: "request rejected — inspect the API response detail below",
+            }.get(status, "request failed")
+            detail = f" ({body})" if body else ""
+            errors.append(f"{position}: HTTP {status}: {hint}{detail}")
+        except (requests.RequestException, ValueError) as exc:
+            errors.append(f"{position}: {type(exc).__name__}")
 
-    players = payload.get("players", []) if isinstance(payload, dict) else []
+    players = [
+        player
+        for payload in payloads if isinstance(payload, dict)
+        for player in payload.get("players", [])
+    ]
     if not players:
-        print("   ⚠️  FantasyPros API returned no consensus players — using nflverse snapshot")
+        detail = f" ({'; '.join(errors)})" if errors else ""
+        print(f"   ⚠️  FantasyPros API returned no consensus players{detail} — using nflverse snapshot")
         return pd.DataFrame()
+    if errors:
+        print(f"   ⚠️  FantasyPros API consensus partial: {'; '.join(errors)}")
 
     rows = []
     for player in players:
@@ -102,6 +111,10 @@ def load_nfl_consensus(season: int, scoring: str, api_key: str | None = None) ->
     result = pd.DataFrame(rows)
     if not result.empty:
         result.attrs["source"] = "FantasyPros API consensus"
-        result.attrs["updated"] = str(payload.get("last_updated") or "")
+        result.attrs["updated"] = next(
+            (str(payload.get("last_updated") or "") for payload in payloads
+             if isinstance(payload, dict) and payload.get("last_updated")),
+            "",
+        )
         result.attrs["format"] = f"{fantasypros_scoring(scoring)} redraft"
     return result

@@ -82,24 +82,32 @@ class PickAuditGuardTests(unittest.TestCase):
         ])
         self.assertEqual(len(pick_perf_prepare_df(rows)), 3)
 
-    def test_fantasypros_uses_authenticated_public_endpoint(self):
-        response = Mock()
-        response.raise_for_status.return_value = None
-        response.json.return_value = {
-            "last_updated": "2026-09-16",
-            "players": [{
-                "player_id": 1, "player_name": "Test Player", "player_position_id": "RB",
-                "rank_ecr": 4, "rank_std": 1.2, "rank_min": 2, "rank_max": 7,
-            }],
-        }
-        with patch("fantasypros_client.requests.get", return_value=response) as get:
+    def test_fantasypros_fetches_each_supported_position_from_public_endpoint(self):
+        def response_for(position):
+            response = Mock()
+            response.raise_for_status.return_value = None
+            response.json.return_value = {
+                "last_updated": "2026-09-16",
+                "players": [{
+                    "player_id": position, "player_name": f"Test {position}",
+                    "player_position_id": position, "rank_ecr": 4, "rank_std": 1.2,
+                    "rank_min": 2, "rank_max": 7,
+                }],
+            }
+            return response
+
+        with patch("fantasypros_client.requests.get", side_effect=[
+            response_for("QB"), response_for("RB"), response_for("WR"), response_for("TE"),
+        ]) as get:
             result = load_nfl_consensus(2026, "underdog", "test-key")
-        self.assertEqual(len(result), 1)
-        self.assertEqual(result.iloc[0]["ecr"], 4)
-        self.assertEqual(get.call_args.args[0],
-                         "https://api.fantasypros.com/public/v2/json/nfl/2026/consensus-rankings")
-        self.assertEqual(get.call_args.kwargs["params"], {"position": "ALL", "scoring": "HALF"})
-        self.assertEqual(get.call_args.kwargs["headers"], {"x-api-key": "test-key"})
+        self.assertEqual(len(result), 4)
+        self.assertEqual(result["pos"].tolist(), ["QB", "RB", "WR", "TE"])
+        self.assertEqual(get.call_count, 4)
+        for call, position in zip(get.call_args_list, ["QB", "RB", "WR", "TE"]):
+            self.assertEqual(call.args[0],
+                             "https://api.fantasypros.com/public/v2/json/nfl/2026/consensus-rankings")
+            self.assertEqual(call.kwargs["params"], {"position": position, "scoring": "HALF"})
+            self.assertEqual(call.kwargs["headers"], {"x-api-key": "test-key"})
 
 
 if __name__ == "__main__":
