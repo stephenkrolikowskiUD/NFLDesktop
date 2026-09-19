@@ -12,6 +12,8 @@ on:
     - cron: "0 23 * * 6"
     # Sun 10:00 AM ET — Sunday game-day refresh
     - cron: "0 14 * * 0"
+    # Sun 12:00 PM ET — rerun after the first inactive reports, before 1 PM kickoffs
+    - cron: "0 16 * * 0"
     # Sun 7:00 PM ET — pre-Monday refresh
     - cron: "0 23 * * 0"
     # Mon 7:00 PM ET — Monday game-day refresh
@@ -28,6 +30,9 @@ jobs:
       FP_PRO_API_KEY: ${{ secrets.FP_PRO_API_KEY }}
       OPENWEATHER_API_KEY: ${{ secrets.OPENWEATHER_API_KEY }}
       GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+      # Pick records must retain an explicit model identity for grading.
+      NFL_MODEL_VERSION: nfl-2026-regular-season-v1
+      NFL_MODEL_ERA: nfl-2026-regular-season-v1
     steps:
       - name: Check out repo
         uses: actions/checkout@v4
