@@ -1,6 +1,6 @@
 # NFLDesktop Roadmap
 
-_Last updated: 2026-09-16_
+_Last updated: 2026-09-22_
 
 ## Where We Are
 NFL is no longer a greenfield build. The core dashboard, engine, season-long projection layer, Lookup, and game-market board are live. The first real Week 1 player-prop run completed on September 3: 138 unique lines across 52 players produced 14 validated Gemini consensus picks, which wrote to `Picks_Current` and the append-only `Daily_Picks` ledger with regular-season phase and model identity stamped correctly.
@@ -10,6 +10,8 @@ The pick workflow is split deliberately: `Picks_Weekly` is the curated all-week 
 The first Week 1 grading report is quarantined, not a model conclusion. The audit found that player props were joining live odds events to a player's last historical team/opponent, while the grader settled by player ID + week without confirming the stored matchup. That let wrong-event rows, including future-dated rows, inherit a real Week 1 box score. The original 26.1% / -47.0% headline is therefore not a valid scorecard. The clean rebuild is 15 decisive picks at 46.7% and -13.0% ROI, explicitly low sample. A second independent review hardened the persistent weekly boards, protected settled results from overwrite, restored legacy team-market rescue, and made performance deduplication preserve changed lines and selection methods. The first quarantine run predated the new audit fields, so the overwritten legacy values cannot be reconstructed from the ledger; future quarantines are now auditable.
 
 FantasyPros API consensus is configured as an optional source for the draft board. The free personal API key uses FantasyPros' documented public base URL (`/public/v2/json`) with the `x-api-key` header; this was briefly misrouted to the separate production namespace and correctly rejected with HTTP 403. The public consensus endpoint rejects the documented `position=ALL` parameter in live use, so the client now fetches and combines `QB`, `RB`, `WR`, and `TE` rankings independently, retaining successful positions if another request fails. September 19 production verification succeeded with 40 HALF-redraft rankings and a 100% ECR crosswalk. The workflow also now stamps an explicit regular-season model version/era and refreshes at noon ET Sunday after early inactive reports.
+
+The Week 2 audit independently reproduced all 83 settled grades from fresh nflverse logs: 39 wins, 44 losses, 47.0% hit rate, and -8.3% price ROI. Nine legacy bad-context rows were correctly quarantined and no new schedule-invalid rows appeared after the September 15 hardening. The audit found that the main remaining problem is recommendation quality rather than grading: plus-money picks returned -35.3%, 2/3 Gemini consensus returned -28.4%, and Sunday overs hit 29.3%. For Week 3, those findings are implemented as temporary publication gates: Gemini picks require 3/3 agreement, plus-money and anytime-touchdown props remain research-only, and an OVER requires SMASH confidence. All candidates remain in the append-only ledger so the policy can be evaluated honestly rather than erasing misses.
 
 ## Shipped
 - ✅ nflverse-first data pipeline (schedule, rosters, weekly stats, snap counts, injuries, depth-chart context)
@@ -36,24 +38,27 @@ FantasyPros API consensus is configured as an optional source for the draft boar
   nflverse best-ball fallback when no personal API key is configured
 - ✅ Explicit model-only disclosure when both FantasyPros API and nflverse
   consensus sources are unavailable; no silent source downgrade
+- ✅ Week 2 grades independently verified against fresh nflverse game logs
+- ✅ Week 3 temporary publication guardrails: 3/3 Gemini consensus, no
+  plus-money or anytime-TD Playable picks, and SMASH-only overs
 
 ## In Progress
-- 🟠 Weekly picks audit and grading repair — the first settlement report is quarantined because stale player-event context contaminated it. Confirm the next grader run marks invalid historical rows without deletion, rebuilds `Pick_Performance` from schedule-valid first-published decisions, and only then evaluate market/tier performance on the clean sample.
+- 🟠 Pick calibration repair — replace raw prior-season line-clear frequency with a shrunk, calibrated probability before treating it as model hit rate or EV
+- 🟠 Measurement repair — distinguish user-visible board exposure from the complete research ledger, persist authoritative injury context, and make CLV movement measurable
+- 🟠 Defensive context repair — derive actual opponent yards/rates allowed instead of labelling offensive team totals as defense
 - 🟡 Best Ball board layout polish and mobile compaction
 - 🟡 Game Builder presentation and entry ergonomics
 - 🟡 Season-long projection explainer / trust layer
 
 ## Current Sprint Priorities
-1. **Complete the Week 1 data-integrity audit before adjusting the model**
-   - Run `NFLGrader1.py` with the quarantine guard and confirm invalid legacy rows are labelled `INVALID_CONTEXT`, never deleted or silently regraded
-   - Rebuild `Pick_Performance` from unique first-published, schedule-valid decisions and record its true sample size before changing any tier floor or prompt
-   - Inspect the cleaned cohort by prop type, price, direction, confidence, and game day; suppress a market only when the clean sample supports it
-   - Confirm a new engine run rejects player/event team mismatches before Gemini sees them, then run the grader after the next completed game as an end-to-end proof
-   - Confirm `Picks_Current` clears immediately after each game-day slate begins and advances to the next unstarted game day
-   - Force one monitored outage-path run after launch by withholding or breaking the Odds API call and confirming the dashboard surfaces the sportsbook warning instead of quietly looking healthy off baseline-only data
-   - Resolve legacy preseason rows that cannot map to a real schedule as explicit DNP/archival records rather than retrying forever
-   - Re-run the engine after confirmed Week 1 inactives and verify the log reports
-     excluded unavailable prop rows plus teammate absence context
+1. **Evaluate and harden the Week 3 recommendation policy**
+   - Run the engine with the temporary publication gates and verify the shortlist contains only 3/3, non-plus-money recommendations
+   - Confirm STRONG overs and all anytime-touchdown props remain visible for research but never receive Playable status
+   - Record board exposure separately from research-ledger inclusion so performance describes what users actually saw
+   - Replace raw historical line-clear rates with sample-aware, calibrated estimates before restoring broader Playable eligibility
+   - Persist source injury status and report timestamp with each pick; Gemini commentary must not be the audit field
+   - Replace fake defensive labels with correctly derived opponent-allowed statistics
+   - Redesign CLV comparison so it follows a defined market/book rather than selecting the line nearest the opener
 
 2. **Best Ball draft helper polish**
    - Tighten layout so the board stays primary

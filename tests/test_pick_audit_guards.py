@@ -12,10 +12,59 @@ from NFLGrader1 import (
     validate_pick_schedule_context,
 )
 from fantasypros_client import load_nfl_consensus
-from picks import build_player_context, filter_picks_to_active_players
+from picks import (
+    build_player_context,
+    build_weekly_pick_board,
+    filter_picks_to_active_players,
+    recommendation_status,
+)
 
 
 class PickAuditGuardTests(unittest.TestCase):
+    def test_week3_publication_guardrails(self):
+        base = {
+            "SELECTION_METHOD": "GEMINI", "confidence": "STRONG",
+            "CONSENSUS_COUNT": 3, "PICK_ODDS": -110, "prop_type": "REC_YDS",
+            "lean": "UNDER",
+        }
+        self.assertEqual(recommendation_status(base), "PLAYABLE")
+
+        two_of_three = {**base, "CONSENSUS_COUNT": 2}
+        self.assertEqual(recommendation_status(two_of_three), "RESEARCH")
+
+        plus_money = {**base, "PICK_ODDS": 105}
+        self.assertEqual(recommendation_status(plus_money), "RESEARCH")
+
+        anytime_td = {**base, "prop_type": "ANY_TD"}
+        self.assertEqual(recommendation_status(anytime_td), "RESEARCH")
+
+        strong_over = {**base, "lean": "OVER"}
+        self.assertEqual(recommendation_status(strong_over), "RESEARCH")
+        self.assertEqual(recommendation_status({**strong_over, "confidence": "SMASH"}), "PLAYABLE")
+
+    def test_validated_model_still_obeys_price_market_and_over_gates(self):
+        validated = {
+            "SELECTION_METHOD": "VALIDATED_MODEL", "confidence": "VALIDATED",
+            "CONSENSUS_COUNT": 1, "PICK_ODDS": -125, "prop_type": "RUSH_YDS",
+            "lean": "OVER",
+        }
+        self.assertEqual(recommendation_status(validated), "PLAYABLE")
+        self.assertEqual(recommendation_status({**validated, "PICK_ODDS": 110}), "RESEARCH")
+        self.assertEqual(recommendation_status({**validated, "prop_type": "ANY_TD"}), "RESEARCH")
+
+    def test_weekly_board_reclassifies_prior_rows_under_current_policy(self):
+        prior = pd.DataFrame([{
+            "SEASON": 2026, "WEEK": 3, "GAME_DATE": "2026-09-27",
+            "game": "A @ B", "player": "Prior Pick", "player_id": "p1",
+            "prop_type": "REC_YDS", "line": 50.5, "lean": "OVER",
+            "SELECTION_METHOD": "GEMINI", "confidence": "STRONG",
+            "CONSENSUS_COUNT": 2, "PICK_ODDS": 105, "rank": 1,
+            "RECOMMENDATION_STATUS": "PLAYABLE", "CALIBRATION_SCORE": 999,
+        }])
+        board = build_weekly_pick_board(pd.DataFrame(), prior, week=3, season=2026)
+        self.assertEqual(board.iloc[0]["RECOMMENDATION_STATUS"], "RESEARCH")
+        self.assertLess(board.iloc[0]["CALIBRATION_SCORE"], 100)
+
     def test_live_event_requires_current_team_and_derives_opponent(self):
         logs = pd.DataFrame([
             {"player_display_name": "Test Back", "player_id": "p1", "week": 1,

@@ -93,6 +93,12 @@ BINARY_METRICS = {"ANY_TD"}
 SUPPORTED_METRICS = set(METRIC_TO_LOG_COL) | BINARY_METRICS
 TEAM_MARKET_METRICS = {"SPREAD", "MONEYLINE", "TOTAL"}
 
+# Temporary Week 3 publication guardrails from the Week 2 audit. Keep these
+# explicit so they can be reevaluated after the sample grows instead of quietly
+# becoming permanent model assumptions.
+MIN_PLAYABLE_GEMINI_CONSENSUS = 3
+RESEARCH_ONLY_PLAYER_MARKETS = {"ANY_TD"}
+
 
 def actual_value_for_metric(log_row: pd.Series, metric: str):
     """The real outcome for one game log row, on the METRIC vocabulary.
@@ -144,12 +150,12 @@ def pick_selection_method(pick) -> str:
 
 
 def recommendation_status(pick) -> str:
-    """Public board gate kept intentionally simple until live NFL grading exists.
+    """Apply conservative Week 3 publication gates without deleting research.
 
-    MLB's status rules are sport-specific. NFL hasn't earned that level of
-    audited segmentation yet, so for launch we expose stronger convictions as
-    PLAYABLE and retain the rest for grading/research rather than pretending we
-    already know sharper positive-ROI cohorts.
+    Week 2 showed that plus-money props, 2/3 Gemini consensus, and ordinary
+    STRONG overs did not earn public-board status. These are temporary gates,
+    not claims of long-run profitability; every rejected row remains in the
+    research cohort and append-only grading ledger.
     """
     method = pick_selection_method(pick)
     confidence = normalize_confidence(
@@ -157,9 +163,28 @@ def recommendation_status(pick) -> str:
         allowed=("SMASH", "STRONG", "LEAN", "VALIDATED"),
         default="LEAN",
     )
-    if method == "VALIDATED_MODEL" and confidence in {"STRONG", "VALIDATED"}:
-        return "PLAYABLE"
-    if method == "GEMINI" and confidence in {"SMASH", "STRONG"}:
+    metric = str(pick.get("prop_type", "") or "").strip().upper()
+    lean = str(pick.get("lean", "") or "").strip().upper()
+    try:
+        odds = float(pick.get("PICK_ODDS"))
+    except (TypeError, ValueError):
+        return "RESEARCH"
+
+    if pd.isna(odds) or odds > 0 or metric in RESEARCH_ONLY_PLAYER_MARKETS:
+        return "RESEARCH"
+
+    # Overs need the highest available confidence label; Week 2 STRONG overs
+    # were the largest concentration of losses. Unders may also use STRONG.
+    playable_confidence = {"SMASH", "VALIDATED"} if lean == "OVER" else {
+        "SMASH", "STRONG", "VALIDATED",
+    }
+    if confidence not in playable_confidence:
+        return "RESEARCH"
+
+    if method == "GEMINI":
+        consensus = _safe_float(pick.get("CONSENSUS_COUNT"), 0.0)
+        return "PLAYABLE" if consensus >= MIN_PLAYABLE_GEMINI_CONSENSUS else "RESEARCH"
+    if method == "VALIDATED_MODEL":
         return "PLAYABLE"
     return "RESEARCH"
 
@@ -1176,9 +1201,11 @@ def build_weekly_pick_board(fresh_picks: pd.DataFrame, prior_weekly: pd.DataFram
     # A refreshed version of the same pick replaces the older snapshot.
     combined["_pick_key"] = combined.apply(_pick_key, axis=1).map(str)
     combined = combined.drop_duplicates(subset="_pick_key", keep="first").drop(columns="_pick_key")
-    combined["CALIBRATION_SCORE"] = pd.to_numeric(
-        _column_or_default(combined, "CALIBRATION_SCORE", 0), errors="coerce"
-    ).fillna(0)
+    # Re-evaluate the entire active board when publication policy changes.
+    # Prior rows retain their historical classification in Daily_Picks, but a
+    # stale PLAYABLE label must not bypass today's stricter public-board gate.
+    combined["RECOMMENDATION_STATUS"] = combined.apply(recommendation_status, axis=1)
+    combined["CALIBRATION_SCORE"] = combined.apply(calibrated_pick_priority, axis=1)
     combined["rank"] = pd.to_numeric(_column_or_default(combined, "rank", 999), errors="coerce").fillna(999)
     combined = combined.sort_values(
         by=["CALIBRATION_SCORE", "rank"], ascending=[False, True], kind="stable"
