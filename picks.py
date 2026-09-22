@@ -1,34 +1,10 @@
-# 🎯 Weekly picks generation (v1)
+# Weekly picks generation (v2)
 #
-# Ported from MLBDesktop's generate_gemini_picks() (MLBEnginev5-4.py), adapted
-# for a weekly rather than nightly sport. The mechanics that made MLB's version
-# reliable are kept close to verbatim on purpose:
-#   - 3-pass consensus at different temperatures, merged and deduped
-#   - one recovery pass only if the consensus underperforms
-#   - a deterministic, Gemini-free fallback built from real market lines that
-#     is the actual guarantee of a non-empty board, not the AI
-#   - never trust Gemini's stated line — snap every pick to a real market line
-#   - confidence tiers are Gemini's own labeled output, only ever DOWNGRADED
-#     afterward, never upgraded (an MLB audit finding: cross-run repetition
-#     isn't a reliable upgrade signal, so this deliberately doesn't try)
-#
-# What's genuinely different from MLB, not just renamed:
-#   - NFL already has a backtested season model (projections.py). Rather than
-#     inventing MLB-style ad-hoc per-stat edge heuristics, the "form" signal fed
-#     to Gemini is a single, uniform hit-rate/EV computation against the real
-#     market line, usable across every prop type including binary ones.
-#   - Anytime-TD and similar binary props need NO separate grading path: they
-#     already carry an implicit 0.5 line from odds_client.BINARY_MARKETS, so
-#     scoring "did they get a TD" as 1/0 against line=0.5 reuses the exact same
-#     over/under/push logic as a numeric prop. Same idea is reused at grading
-#     time in NFLGrader1.py.
-#   - Picks carry player_id (gsis_id) end to end, not just a name. MLB grades
-#     by name alone and has to detect+skip ambiguous name collisions after the
-#     fact; NFL's data is gsis_id-keyed throughout the rest of this pipeline, so
-#     grading can match on identity directly and only fall back to name
-#     matching for legacy/ungraded edge cases.
-#   - PICK_BOOK/PICK_ODDS snap to the best price across books (best_price_board
-#     already computes this), not a single reference book.
+# Live recommendations are generated deterministically from real market lines.
+# A market-anchored beta prior shrinks noisy prior-season line-clear rates, then
+# gives current-season usage evidence extra weight. The resulting probability
+# must clear a real expected-return threshold at an executable price; the board
+# never pads volume and keeps high-variance or injury-flagged props as research.
 
 import json
 import math
@@ -48,7 +24,6 @@ eastern = pytz.timezone("US/Eastern")
 # ============================================================================
 
 GEMINI_TARGET_PICKS = 14
-MIN_WEEKLY_PICKS = 9
 CONSENSUS_TEMPS = [0.35, 0.55, 0.75]
 RECOVERY_TEMP = 0.45
 MAX_OUTPUT_TOKENS = 8192
@@ -98,6 +73,17 @@ TEAM_MARKET_METRICS = {"SPREAD", "MONEYLINE", "TOTAL"}
 # becoming permanent model assumptions.
 MIN_PLAYABLE_GEMINI_CONSENSUS = 3
 RESEARCH_ONLY_PLAYER_MARKETS = {"ANY_TD"}
+
+# Player-prop probabilities begin at the current market and only move when the
+# player's evidence earns it. The old implementation treated a raw prior-year
+# line-clear rate as a forecast; this makes the market a 24-game beta prior and
+# upweights the small amount of current-season evidence without letting two
+# games overpower a full prior season.
+MARKET_PRIOR_GAMES = 24.0
+CURRENT_SEASON_GAME_WEIGHT = 3.0
+MIN_MODEL_EV_PCT = 2.5
+LIVE_MODEL_EXCLUDED_MARKETS = {"ANY_TD"}
+INJURY_RESEARCH_MARKERS = {"QUESTIONABLE", "DOUBTFUL", "OUT", "IR", "LIMITED", "DNP"}
 
 
 def actual_value_for_metric(log_row: pd.Series, metric: str):
@@ -165,12 +151,14 @@ def recommendation_status(pick) -> str:
     )
     metric = str(pick.get("prop_type", "") or "").strip().upper()
     lean = str(pick.get("lean", "") or "").strip().upper()
+    injury_context = str(pick.get("injury_context", "") or "").upper()
     try:
         odds = float(pick.get("PICK_ODDS"))
     except (TypeError, ValueError):
         return "RESEARCH"
 
-    if pd.isna(odds) or odds > 0 or metric in RESEARCH_ONLY_PLAYER_MARKETS:
+    if (pd.isna(odds) or odds > 0 or metric in RESEARCH_ONLY_PLAYER_MARKETS
+            or any(marker in injury_context for marker in INJURY_RESEARCH_MARKERS)):
         return "RESEARCH"
 
     # Overs need the highest available confidence label; Week 2 STRONG overs
@@ -246,6 +234,44 @@ def _implied_prob(american_odds) -> float:
     if odds == 0 or pd.isna(odds):
         return np.nan
     return (-odds / (-odds + 100)) if odds < 0 else (100 / (odds + 100))
+
+
+def _expected_return(probability, american_odds) -> float:
+    """Expected profit in units for a one-unit stake at an American price."""
+    implied = _implied_prob(american_odds)
+    if pd.isna(implied):
+        return np.nan
+    odds = float(american_odds)
+    payout = odds / 100.0 if odds > 0 else 100.0 / abs(odds)
+    return float(probability) * payout - (1.0 - float(probability))
+
+
+def _market_anchored_probability(historical_actuals: pd.Series,
+                                 current_actuals: pd.Series,
+                                 line: float, lean: str,
+                                 market_probability: float) -> tuple[float, float]:
+    """Return a shrunk forecast and its effective evidence-game count.
+
+    Historical outcomes are useful player evidence; recent outcomes are more
+    relevant to the live role. Both are regularized toward the no-vig market
+    probability, preventing an extreme 2025 record from masquerading as an
+    80%+ Week 3 forecast.
+    """
+    historical = pd.to_numeric(historical_actuals, errors="coerce").dropna()
+    current = pd.to_numeric(current_actuals, errors="coerce").dropna()
+    if lean == "UNDER":
+        historical_hits = float((historical < line).sum())
+        current_hits = float((current < line).sum())
+    else:
+        historical_hits = float((historical > line).sum())
+        current_hits = float((current > line).sum())
+
+    effective_games = len(historical) + CURRENT_SEASON_GAME_WEIGHT * len(current)
+    weighted_hits = historical_hits + CURRENT_SEASON_GAME_WEIGHT * current_hits
+    probability = (weighted_hits + MARKET_PRIOR_GAMES * market_probability) / (
+        effective_games + MARKET_PRIOR_GAMES
+    )
+    return round(float(probability), 4), round(float(effective_games), 1)
 
 
 def _line_matches(pick_line, real_line, tol: float = 1e-9) -> bool:
@@ -340,8 +366,9 @@ def build_player_context(props_board: pd.DataFrame, game_logs: pd.DataFrame,
                          projections: pd.DataFrame, injuries: pd.DataFrame,
                          active_week: int | None = None,
                          eligible_player_ids: set[str] | None = None,
+                         current_game_logs: pd.DataFrame | None = None,
                          max_players: int = 80) -> pd.DataFrame:
-    """One row per real prop line, with a hit-rate/EV signal and model context.
+    """One row per real prop line, with a calibrated model signal and context.
 
     Mirrors MLB's approach of only presenting players who have a REAL prop
     today — Gemini never gets to invent a market that doesn't exist. Unlike
@@ -358,6 +385,11 @@ def build_player_context(props_board: pd.DataFrame, game_logs: pd.DataFrame,
 
     logs = game_logs.copy()
     logs["_name_norm"] = logs["player_display_name"].map(_norm_name)
+    current_logs = current_game_logs.copy() if current_game_logs is not None else pd.DataFrame()
+    if not current_logs.empty and "player_display_name" in current_logs.columns:
+        current_logs["_name_norm"] = current_logs["player_display_name"].map(_norm_name)
+    else:
+        current_logs = pd.DataFrame()
     board["_name_norm"] = board["player"].map(_norm_name)
     injury_reports = _active_injury_reports(injuries, active_week)
     unavailable_ids = set(
@@ -381,19 +413,42 @@ def build_player_context(props_board: pd.DataFrame, game_logs: pd.DataFrame,
             lambda r: actual_value_for_metric(r, prop["metric"]), axis=1
         ).dropna()
         if len(actuals) < 3:
-            # Same floor MLB uses before trusting a hit-rate signal at all.
+            # The prior-season floor prevents a two-game current sample from
+            # manufacturing a player-specific signal.
             continue
+
+        player_current_logs = (
+            current_logs[current_logs["_name_norm"] == prop["_name_norm"]]
+            if not current_logs.empty else pd.DataFrame()
+        )
+        current_actuals = player_current_logs.apply(
+            lambda r: actual_value_for_metric(r, prop["metric"]), axis=1
+        ).dropna() if not player_current_logs.empty else pd.Series(dtype=float)
 
         line = pd.to_numeric(prop.get("line"), errors="coerce")
         if pd.isna(line):
             continue
 
-        over_hits = (actuals > line).mean()
-        under_hits = (actuals < line).mean()
         over_odds = prop.get("best_over_odds")
         under_odds = prop.get("best_under_odds")
-        over_ev = over_hits - _implied_prob(over_odds) if pd.notna(over_odds) else np.nan
-        under_ev = under_hits - _implied_prob(under_odds) if pd.notna(under_odds) else np.nan
+        market_over = pd.to_numeric(prop.get("market_over_probability"), errors="coerce")
+        market_under = pd.to_numeric(prop.get("market_under_probability"), errors="coerce")
+        if pd.isna(market_over) or pd.isna(market_under):
+            market_over, market_under = _market_prob_pair(over_odds, under_odds)
+        # Some sparse markets post only one side. A priced side still gets a
+        # conservative implied-probability anchor rather than being discarded.
+        market_over = market_over if market_over is not None else _implied_prob(over_odds)
+        market_under = market_under if market_under is not None else _implied_prob(under_odds)
+        if pd.isna(market_over) or pd.isna(market_under):
+            continue
+        over_probability, over_evidence_games = _market_anchored_probability(
+            actuals, current_actuals, line, "OVER", market_over
+        )
+        under_probability, under_evidence_games = _market_anchored_probability(
+            actuals, current_actuals, line, "UNDER", market_under
+        )
+        over_ev = _expected_return(over_probability, over_odds)
+        under_ev = _expected_return(under_probability, under_odds)
 
         latest = player_logs.sort_values("week").iloc[-1]
         player_id = str(latest.get("player_id", "") or "")
@@ -448,8 +503,13 @@ def build_player_context(props_board: pd.DataFrame, game_logs: pd.DataFrame,
             "best_under_odds": under_odds,
             "best_under_book": prop.get("best_under_book"),
             "games_sampled": len(actuals),
-            "over_hit_rate": round(float(over_hits), 3),
-            "under_hit_rate": round(float(under_hits), 3),
+            "current_games": len(current_actuals),
+            "over_market_probability": round(float(market_over), 3),
+            "under_market_probability": round(float(market_under), 3),
+            "over_hit_rate": over_probability,
+            "under_hit_rate": under_probability,
+            "over_evidence_games": over_evidence_games,
+            "under_evidence_games": under_evidence_games,
             "over_ev_pct": round(float(over_ev) * 100, 1) if pd.notna(over_ev) else np.nan,
             "under_ev_pct": round(float(under_ev) * 100, 1) if pd.notna(under_ev) else np.nan,
             "proj_ppr": proj_row.get("proj_ppr") if proj_row is not None else np.nan,
@@ -680,43 +740,64 @@ def apply_smash_cap(df: pd.DataFrame) -> pd.DataFrame:
 
 
 # ============================================================================
-# DETERMINISTIC FALLBACK — the real guarantee, no Gemini involved.
+# CALIBRATED MODEL SELECTION
 # ============================================================================
 
-def build_deterministic_fallback(player_ctx: pd.DataFrame, exclude_keys: set,
-                                 need: int) -> pd.DataFrame:
-    """Fill the weekly board from real market edges alone when Gemini
-    underdelivers. Tagged VALIDATED_MODEL to match the SELECTION_METHOD value
-    app.js's calibratedConfidenceForPick() already special-cases as the
-    'VALIDATED' confidence tier — no dashboard change needed for this to work.
+def build_calibrated_model_picks(player_ctx: pd.DataFrame,
+                                 max_picks: int = GEMINI_TARGET_PICKS) -> pd.DataFrame:
+    """Select live picks from calibrated probabilities, not LLM preference.
+
+    Each side must clear a true expected-return floor at its captured price.
+    The selector emits at most one thesis per player and never pads the board
+    to a target count. Legacy Gemini records remain auditable, but do not set
+    a production pick probability.
     """
-    if player_ctx.empty or need <= 0:
+    if player_ctx.empty or max_picks <= 0:
         return pd.DataFrame()
 
     ctx = player_ctx.copy()
     candidates = []
-    for lean, ev_col, hit_col, odds_col, book_col in [
-        ("OVER", "over_ev_pct", "over_hit_rate", "best_over_odds", "best_over_book"),
-        ("UNDER", "under_ev_pct", "under_hit_rate", "best_under_odds", "best_under_book"),
+    for lean, ev_col, probability_col, evidence_col, odds_col, book_col in [
+        ("OVER", "over_ev_pct", "over_hit_rate", "over_evidence_games", "best_over_odds", "best_over_book"),
+        ("UNDER", "under_ev_pct", "under_hit_rate", "under_evidence_games", "best_under_odds", "best_under_book"),
     ]:
-        rows = ctx[ctx[ev_col].notna() & (ctx[ev_col] > 3)].copy()
+        rows = ctx[
+            ctx[ev_col].notna()
+            & (ctx[ev_col] >= MIN_MODEL_EV_PCT)
+            & ~ctx["metric"].astype(str).str.upper().isin(LIVE_MODEL_EXCLUDED_MARKETS)
+        ].copy()
+        rows = rows[pd.to_numeric(rows[odds_col], errors="coerce") < 0]
         rows["_lean"] = lean
         rows["_ev"] = rows[ev_col]
-        rows["_hit"] = rows[hit_col]
+        rows["_probability"] = rows[probability_col]
+        rows["_evidence_games"] = rows[evidence_col]
         rows["_odds"] = rows[odds_col]
         rows["_book"] = rows[book_col]
         candidates.append(rows)
 
     if not candidates:
         return pd.DataFrame()
-    pool = pd.concat(candidates, ignore_index=True).sort_values("_ev", ascending=False)
+    pool = pd.concat(candidates, ignore_index=True).sort_values(
+        ["_ev", "_evidence_games"], ascending=False, kind="stable"
+    )
 
     rows = []
+    selected_players = set()
     for _, r in pool.iterrows():
-        key = (_norm_name(r["player"]), r["metric"], r["_lean"])
-        if key in exclude_keys:
+        player_key = _norm_name(r["player"])
+        if player_key in selected_players:
             continue
-        exclude_keys.add(key)
+        selected_players.add(player_key)
+        evidence = float(r["_evidence_games"])
+        ev = float(r["_ev"])
+        # The confidence is a reproducible score threshold, not a language
+        # model adjective. It maps directly to the Week 3 public-board gate.
+        if ev >= 9.0 and evidence >= 24:
+            confidence = "VALIDATED"
+        elif ev >= 4.0 and evidence >= 18:
+            confidence = "STRONG"
+        else:
+            confidence = "LEAN"
         rows.append({
             "rank": len(rows) + 1,
             "player": r["player"],
@@ -727,23 +808,27 @@ def build_deterministic_fallback(player_ctx: pd.DataFrame, exclude_keys: set,
             "prop_type": r["metric"],
             "line": r["line"],
             "lean": r["_lean"],
-            # >8% EV maps to STRONG-equivalent evidence, matching MLB's fallback
-            # convention of never labeling deterministic picks SMASH.
-            "confidence": "STRONG" if r["_ev"] > 8 else "LEAN",
-            "rationale": f"{r['_hit']:.0%} season hit rate vs. line, {r['_ev']:+.1f}% EV.",
+            "confidence": confidence,
+            "rationale": (
+                f"Market-anchored model: {r['_probability']:.0%} win probability "
+                f"across {evidence:.0f} weighted games, {ev:+.1f}% expected return."
+            ),
             "injury_context": str(r.get("injury_status", ""))[:120],
             "PICK_BOOK": r.get("_book"),
             "PICK_ODDS": r.get("_odds"),
             "IMPLIED_PROBABILITY": round(_implied_prob(r.get("_odds")), 4) if pd.notna(r.get("_odds")) else np.nan,
-            "MODEL_HIT_RATE": r["_hit"],
-            "MODEL_EV_PCT": r["_ev"],
-            "MODEL_EDGE_SCORE": r["_ev"],
-            "CONSENSUS_COUNT": 1,
+            "MODEL_HIT_RATE": r["_probability"],
+            "MODEL_EV_PCT": ev,
+            "MODEL_EDGE_SCORE": ev,
+            "MARKET_PROBABILITY": r.get("over_market_probability" if r["_lean"] == "OVER" else "under_market_probability"),
+            "EVIDENCE_GAMES": evidence,
+            "CURRENT_SEASON_GAMES": r.get("current_games", 0),
+            "CONSENSUS_COUNT": 0,
             "CONSENSUS_RUNS": "",
-            "CONSENSUS_TAG": "VALIDATED FALLBACK",
+            "CONSENSUS_TAG": "CALIBRATED MODEL V2",
             "SELECTION_METHOD": "VALIDATED_MODEL",
         })
-        if len(rows) >= need:
+        if len(rows) >= max_picks:
             break
 
     return pd.DataFrame(rows)
@@ -1031,66 +1116,19 @@ def call_gemini(client, model: str, prompt: str, temperature: float) -> list[dic
 # MAIN ENTRY POINT
 # ============================================================================
 
-def generate_weekly_picks(gemini_api_key: str, gemini_model: str,
-                          player_ctx: pd.DataFrame, games_str: str,
-                          week: int, season: int) -> pd.DataFrame:
-    """Fresh candidate picks for this week. Returns an empty frame (not an
-    exception) if there's simply no usable player context — the caller
-    decides what an empty result means for the tabs it writes.
-    """
+def generate_weekly_picks(player_ctx: pd.DataFrame) -> pd.DataFrame:
+    """Generate live picks from the calibrated model, without quota padding."""
     if player_ctx.empty:
         print("   ⚠️  no player context available — skipping pick generation")
         return pd.DataFrame()
 
-    allowed_metrics = sorted(player_ctx["metric"].unique().tolist())
-    prompt = build_prompt(week, season, games_str,
-                          player_ctx.to_string(index=False), allowed_metrics)
-
-    consensus_lists = []
-    if gemini_api_key:
-        from google import genai
-        client = genai.Client(api_key=gemini_api_key)
-        for i, temp in enumerate(CONSENSUS_TEMPS, start=1):
-            print(f"🤖 Calling Gemini ({gemini_model}) run {i}/{len(CONSENSUS_TEMPS)} (temp={temp:.2f})...")
-            picks = call_gemini(client, gemini_model, prompt, temp)
-            if picks:
-                consensus_lists.append(picks)
-    else:
-        print("   ⚠️  no Gemini API key — skipping AI passes, deterministic fallback only")
-
-    merged = build_consensus_pick_pool(consensus_lists) if consensus_lists else []
-    validated = validate_and_price_picks(merged, player_ctx)
-    print(f"🤝 Consensus + validation: {len(validated)} usable pick(s) from {len(merged)} candidate(s)")
-
-    if gemini_api_key and len(validated) < MIN_WEEKLY_PICKS:
-        print(f"⚠️  only {len(validated)} validated pick(s); requesting one recovery pass...")
-        recovery_prompt = build_recovery_prompt(prompt, len(validated))
-        recovery_picks = call_gemini(client, gemini_model, recovery_prompt, RECOVERY_TEMP)
-        if recovery_picks:
-            consensus_lists.append(recovery_picks)
-            merged = build_consensus_pick_pool(consensus_lists)
-            validated = validate_and_price_picks(merged, player_ctx)
-            print(f"   ↳ recovery merge: {len(validated)} usable pick(s)")
-
-    validated = apply_smash_cap(validated).head(GEMINI_TARGET_PICKS)
-
-    exclude_keys = {
-        (_norm_name(p), t, l) for p, t, l in
-        zip(validated.get("player", []), validated.get("prop_type", []), validated.get("lean", []))
-    }
-    still_needed = MIN_WEEKLY_PICKS - len(validated)
-    if still_needed > 0:
-        fallback = build_deterministic_fallback(player_ctx, exclude_keys, still_needed)
-        if not fallback.empty:
-            print(f"   ➕ {len(fallback)} deterministic fallback pick(s) added to reach the floor")
-            validated = pd.concat([validated, fallback], ignore_index=True)
-
-    if validated.empty:
-        return validated
-
-    validated["rank"] = range(1, len(validated) + 1)
-    validated["game"] = validated["game"].fillna("")
-    return validated.reset_index(drop=True)
+    picks = build_calibrated_model_picks(player_ctx)
+    print(f"🧮 Calibrated model: {len(picks)} pick(s) cleared the live EV threshold")
+    if picks.empty:
+        return picks
+    picks["rank"] = range(1, len(picks) + 1)
+    picks["game"] = picks["game"].fillna("")
+    return picks.reset_index(drop=True)
 
 
 # ============================================================================
@@ -1107,7 +1145,8 @@ PICK_OUTPUT_COLUMNS = [
     "CONTEXT_STATUS",
     "DISPLAY_SELECTION", "DISPLAY_LINE",
     "PICK_BOOK", "PICK_ODDS", "IMPLIED_PROBABILITY", "MODEL_HIT_RATE",
-    "MODEL_EV_PCT", "MODEL_EDGE_SCORE", "CONSENSUS_COUNT", "CONSENSUS_RUNS",
+    "MODEL_EV_PCT", "MODEL_EDGE_SCORE", "MARKET_PROBABILITY", "EVIDENCE_GAMES",
+    "CURRENT_SEASON_GAMES", "CONSENSUS_COUNT", "CONSENSUS_RUNS",
     "CONSENSUS_TAG", "CLV_OPEN_LINE", "CLV_LATEST_LINE", "CLV_DELTA",
     "CLV_LAST_UPDATE", "RESULT", "ACTUAL_STAT", "HIT", "REALIZED_PROFIT",
     "ACTUAL_ROI_PER_PICK", "LAST_UPDATED",
@@ -1123,6 +1162,7 @@ def _pick_key(row) -> tuple:
     # not and must not inflate the permanent ledger.
     return (
         str(row.get("SEASON", "")), str(row.get("WEEK", "")),
+        str(row.get("MODEL_VERSION", "")),
         str(row.get("GAME_DATE", "")), str(row.get("game", "")).upper(),
         str(row.get("player_id", "")).strip() or _norm_name(row.get("player")),
         prop_type, str(row.get("lean", "")).upper(), str(row.get("line", "")),
@@ -1132,9 +1172,10 @@ def _pick_key(row) -> tuple:
 def _market_fallback_key(row) -> tuple:
     prop_type = str(row.get("prop_type", "")).upper()
     game = str(row.get("game", "")).upper()
+    model_version = str(row.get("MODEL_VERSION", ""))
     if prop_type == "MONEYLINE":
-        return (game, prop_type)
-    return (game, prop_type, str(row.get("player", "")).upper())
+        return (model_version, game, prop_type)
+    return (model_version, game, prop_type, str(row.get("player", "")).upper())
 
 
 def apply_one_pick_per_player(df: pd.DataFrame) -> pd.DataFrame:

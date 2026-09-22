@@ -1306,25 +1306,15 @@ function getMarketEdges(){
 
 // ═══ SMART SLIP GENERATOR ═══
 function getConvictionLegs(){
-  const SLIP_WORTHY=new Set(["REC","REC_YDS","RUSH_YDS","CARRIES","TGT","ANY_TD","UD_FP","PASS_YDS","PASS_TDS","COMP","ATT"]);
-  const bets=getMarketEdges().filter(b=>b.edge>=0.05&&!b.returning&&!getLockInfo(b.name,b.isP).started).filter(b=>{
-    if(!SLIP_WORTHY.has(b.metric))return false;
-    if(b.lean==="UNDER"&&parseFloat(b.dkLine)<=0.5)return false;
-    return true;
-  });
-  if(!bets.length)return[];
-
-  // This Week's Shortlist is a week-wide product. Its market scan already
-  // covers the slate, so its recommendation map must come from Picks_Weekly,
-  // not the focused next-game-day Picks_Current slice.
+  // The public shortlist and slips are downstream of the production pick
+  // board. Do not reconstruct candidates from raw historical line-clear
+  // rates here: that was an uncalibrated parallel model.
   const shortlistPicks=(st.weeklyPicks&&st.weeklyPicks.length)?st.weeklyPicks:(st.picks||[]);
   const latestDate=getLatestPickDate();
   const latestRun=getLatestPickRun();
-  const aiMap=new Map();
   const activePickRows=shortlistPicks===st.picks
     ?shortlistPicks.filter(pk=>normalizeDate(rowField(pk,"DATE"))===latestDate&&toNum(rowField(pk,"RUN_NUMBER"))===latestRun)
     :shortlistPicks;
-  activePickRows.forEach(pk=>{if(pk.player){const playerKey=normalizePlayerName(pk.player);aiMap.set(playerKey,pk);aiMap.set(`${playerKey}|${normalizePropMetric(pk.prop_type)}|${normalizeLeanText(pk.lean)}`,pk)}});
   const streakMap=new Map();
   try{
     const streaks=getStreaks();
@@ -1332,39 +1322,26 @@ function getConvictionLegs(){
   }catch(e){reportNonFatal("Slip streak enrichment unavailable; continuing without streak context.",e)}
 
   const legs=[];
-  for(const b of bets){
-    const nl=normalizePlayerName(b.name);
-    const evScore=Math.min(b.edge*40,10);
-    let aiScore=0;
-    const aiPick=aiMap.get(`${nl}|${normalizePropMetric(b.metric)}|${b.lean}`)||aiMap.get(nl);
-    const selectionMethod=!aiPick?"MARKET_MODEL":String(rowField(aiPick,"SELECTION_METHOD")||rowField(aiPick,"CONSENSUS_TAG")).toUpperCase().includes("VALIDATED")?"VALIDATED_MODEL":"GEMINI";
-    const explicitStatus=String(rowField(aiPick||{},"RECOMMENDATION_STATUS")||"").toUpperCase();
-    let aiConflictLevel="",aiDisagreementText="";
-    const recommendationStatus=explicitStatus||(
-      selectionMethod==="VALIDATED_MODEL"&&b.edge>=0.08?"PLAYABLE"
-      :selectionMethod==="GEMINI"&&b.edge>=0.05&&!aiConflictLevel?"PLAYABLE"
-      :"RESEARCH"
-    );
-    if(aiPick){
-        const conf=normalizeConfidence(aiPick.confidence);
-        const aiLean=normalizeLeanText(aiPick.lean);
-        const aiMetric=normalizePropMetric(aiPick.prop_type);
-        const betMetric=normalizePropMetric(b.metric);
-        const aiComps=COMBO_STATS[aiMetric]||[aiMetric];
-        const betComps=COMBO_STATS[betMetric]||[betMetric];
-        const metricsRelated=betComps.some(c=>aiComps.includes(c))||aiComps.some(c=>betComps.includes(c));
-        if(metricsRelated && aiLean && aiLean!==b.lean){
-          aiConflictLevel=aiMetric===betMetric?"strong":"soft";
-          aiDisagreementText=aiMetric===betMetric?`AI says ${aiLean} ${aiMetric}`:`AI leans ${aiLean} ${aiMetric}`;
-          aiScore-=selectionMethod==="VALIDATED_MODEL"?2:0.75;
-        }else if(aiAgreesWithBet(aiPick,b)){
-          // Gemini conviction is context, not the ranking engine. The
-          // deterministic validated model earns materially more weight.
-          aiScore=selectionMethod==="VALIDATED_MODEL"?4:0.5;
-        }
-      }
+  for(const pick of activePickRows){
+    if(isGameMarketMetric(rowField(pick,"prop_type")))continue;
+    const name=String(rowField(pick,"player")||"").trim();
+    const metric=normalizePropMetric(rowField(pick,"prop_type"));
+    const lean=normalizeLeanText(rowField(pick,"lean"));
+    const odds=toNum(rowField(pick,"PICK_ODDS"));
+    const edge=toNum(rowField(pick,"MODEL_EV_PCT"))/100;
+    const hitRate=toNum(rowField(pick,"MODEL_HIT_RATE"));
+    const impliedProb=toNum(rowField(pick,"MARKET_PROBABILITY")||rowField(pick,"IMPLIED_PROBABILITY"));
+    const total=toNum(rowField(pick,"EVIDENCE_GAMES"));
+    const team=String(rowField(pick,"team")||"").trim();
+    const opp=String(rowField(pick,"opponent")||"").trim();
+    const recommendationStatus=String(rowField(pick,"RECOMMENDATION_STATUS")||"").toUpperCase();
+    if(!name||!metric||!lean||!Number.isFinite(odds)||!Number.isFinite(edge)||edge<=0||!Number.isFinite(hitRate)||hitRate<=0||hitRate>=1||!Number.isFinite(impliedProb)||impliedProb<=0||impliedProb>=1||!Number.isFinite(total)||total<=0)continue;
+    const isP=isQuarterbackProp(metric,name);
+    if(getLockInfo(name,isP).started)continue;
+    const flags=getSampleFlags(name,isP);
+    const nl=normalizePlayerName(name);
     let streakScore=0;
-    const logCol=propToLogCol(b.metric);
+    const logCol=propToLogCol(metric);
     const sk=`${nl}|${normalizePropMetric(logCol)}`;
     const streak=streakMap.get(sk);
     if(streak){
@@ -1372,31 +1349,19 @@ function getConvictionLegs(){
       else if(streak.streak>=5)streakScore=2;
       else if(streak.streak>=3)streakScore=1;
     }
-    const reliabilityScore=Math.min(b.total/10,2);
-    const hrScore=b.hitRate>=0.8?2:b.hitRate>=0.65?1:0;
-
-    let calibrationScore=0;
-    if(selectionMethod==="VALIDATED_MODEL"&&b.edge>=0.1)calibrationScore=4;
-    else if(selectionMethod==="VALIDATED_MODEL"&&b.edge>=0.05)calibrationScore=2;
-    else if(selectionMethod==="GEMINI"&&b.hitRate>=0.65&&b.edge>=0.05)calibrationScore=1;
-    else if(selectionMethod==="GEMINI"&&b.hasAIConflict)calibrationScore=-2;
-
-    const conviction=evScore+aiScore+calibrationScore+streakScore+reliabilityScore+hrScore;
-
-    let signals=[];
-    if(aiAgreesWithBet(aiPick,b)){const c=normalizeConfidence(aiPick.confidence);signals.push(selectionMethod==="VALIDATED_MODEL"?"VALIDATED":c==="SMASH"?"SMASH":c==="STRONG"?"STRONG":"AI")}
-    if(aiConflictLevel==="strong")signals.push(`${icon('warn')}AI conflict`);
-    else if(aiConflictLevel==="soft")signals.push(`${icon('warn')}AI cross-check`);
+    const evScore=Math.min(edge*40,10);
+    const reliabilityScore=Math.min(total/12,2);
+    const probabilityScore=hitRate>=0.58?2:hitRate>=0.54?1:0;
+    const conviction=evScore+streakScore+reliabilityScore+probabilityScore;
+    const signals=["CALIBRATED MODEL"];
     if(streak)signals.push(`🔥 ${streak.streak}G streak`);
-    if(b.edge>=0.15)signals.push("💎 Elite EV");
-    else if(b.edge>=0.08)signals.push("📈 Strong EV");
-    if(b.hitRate>=0.8)signals.push(`✅ ${(b.hitRate*100).toFixed(0)}% hit`);
+    if(edge>=0.09)signals.push("💎 Elite EV");
+    else if(edge>=0.04)signals.push("📈 Strong EV");
 
-    const scheduleRow=getScheduleRow(b.team,b.opp)||{};
+    const scheduleRow=getScheduleRow(team,opp)||{};
     const gameTotal=toNum(scheduleRow.over_under||scheduleRow.game_total);
-    const gameKey=[b.team||"",b.opp||""].sort().join("|");
-    const lineupRisk=String(aiPick?.injury_context||"").toUpperCase().startsWith("LINEUP RISK");
-    legs.push({...b,conviction,evScore,aiScore,calibrationScore,selectionMethod,recommendationStatus,streakScore,reliabilityScore,hrScore,signals,hasAI:aiAgreesWithBet(aiPick,b),aiConfidence:aiPick?(selectionMethod==="VALIDATED_MODEL"?"VALIDATED":normalizeConfidence(aiPick.confidence)):"",hasAIConflict:!!aiConflictLevel,aiConflictLevel,aiDisagreementText,lineupRisk,hasStreak:!!streak,streakLength:streak?.streak||0,teamSlot:b.teamSlot||`${b.team}${b.isP?":P":":B"}`,gameTotal,gameKey});
+    const gameKey=[team,opp].sort().join("|");
+    legs.push({name,metric,lean,odds,edge,hitRate,impliedProb,total,team,opp,dkLine:String(rowField(pick,"line")||""),prop:pick,isP,returning:flags.returning,limitedSample:flags.limited,conviction,evScore,selectionMethod:"VALIDATED_MODEL",recommendationStatus,streakScore,reliabilityScore,probabilityScore,signals,hasAI:false,aiConfidence:"VALIDATED",hasAIConflict:false,lineupRisk:false,hasStreak:!!streak,streakLength:streak?.streak||0,teamSlot:`${team}${isP?":P":":B"}`,gameTotal,gameKey});
   }
   legs.sort((a,b)=>b.conviction-a.conviction);
   return legs;
@@ -1426,8 +1391,8 @@ function getTonightShortlist(){
   return getMemo("tonightShortlist",()=>{
     const qualified=getConvictionLegs().filter(leg=>
       leg.recommendationStatus==="PLAYABLE"&&
-      leg.edge>=0.05&&
-      leg.total>=5&&
+      leg.edge>0&&
+      leg.total>0&&
       !!leg.team&&
       !!leg.opp&&
       !leg.returning&&
@@ -1549,12 +1514,12 @@ function renderTonightShortlist(){
     const preseasonPickRows=latestPreseasonGamePicks();
     if(preseasonPickRows.length&&!hasLivePlayerProps&&!livePlayerPickRows.length)return renderPreseasonShortlist(preseasonPickRows);
     const preseasonMarketsLive=!hasLivePlayerProps&&hasLiveSportsbookGameMarkets(st.gameMarkets);
-    return`<section class="shortlist-shell"><div class="shortlist-head"><div><div class="analysis-eyebrow">This week's decision board</div><div class="shortlist-title">This Week's Shortlist</div><div class="shortlist-sub">${preseasonMarketsLive?"Player props are not posted yet, so the board is surfacing preseason team markets first. Once books open player lines, this board will tighten back to qualified props only.":"Week 3 audit gates require 3/3 agreement and a non-plus-money price; overs must be SMASH, and anytime TD stays research-only."}</div></div><div class="shortlist-rule">${preseasonMarketsLive?"Preseason mode · team markets live":"Week 3 audit gates"}</div></div>${renderShortlistTray()}${preseasonMarketsLive?`<div class="props-pass" style="margin:0 0 18px"><div class="props-pass-title">Player props are still closed, but the board is live</div><div class="props-pass-copy">Books have posted spreads, moneylines, and totals for the preseason slate. Use these team-side markets while we wait for player props to unlock.</div></div>${renderGameMarketsBoard(st.propsTeam,st.gameMarkets)}`:`<div class="props-pass" style="margin:0"><div class="props-pass-title">No play clears every gate this week</div><div class="props-pass-copy">The data loaded correctly; the board is declining to promote a weak or conflicted option. Market Explorer still contains the wider research set.</div></div>`}</section>`;
+    return`<section class="shortlist-shell"><div class="shortlist-head"><div><div class="analysis-eyebrow">This week's decision board</div><div class="shortlist-title">This Week's Shortlist</div><div class="shortlist-sub">${preseasonMarketsLive?"Player props are not posted yet, so the board is surfacing preseason team markets first. Once books open player lines, this board will tighten back to qualified props only.":"The calibrated model could not clear its live expected-return, price, injury, and market-variance gates. Research rows remain available, but are not promoted as recommendations."}</div></div><div class="shortlist-rule">${preseasonMarketsLive?"Preseason mode · team markets live":"Calibrated model gates"}</div></div>${renderShortlistTray()}${preseasonMarketsLive?`<div class="props-pass" style="margin:0 0 18px"><div class="props-pass-title">Player props are still closed, but the board is live</div><div class="props-pass-copy">Books have posted spreads, moneylines, and totals for the preseason slate. Use these team-side markets while we wait for player props to unlock.</div></div>${renderGameMarketsBoard(st.propsTeam,st.gameMarkets)}`:`<div class="props-pass" style="margin:0"><div class="props-pass-title">No play clears every gate this week</div><div class="props-pass-copy">The data loaded correctly; the board is declining to promote a weak or conflicted option. Market Explorer still contains the wider research set.</div></div>`}</section>`;
   }
   const avgEdge=rows.reduce((sum,row)=>sum+row.edge,0)/rows.length;
-  const aiBacked=rows.filter(row=>row.hasAI).length;
+  const currentSeasonWeighted=rows.filter(row=>toNum(row.prop?.CURRENT_SEASON_GAMES)>0).length;
   const markets=new Set(rows.map(row=>row.metric)).size;
-  return`<section class="shortlist-shell"><div class="shortlist-head"><div><div class="analysis-eyebrow">This week's decision board</div><div class="shortlist-title">This Week's Shortlist</div><div class="shortlist-sub">Week 3 audit gates: 3/3 agreement, non-plus-money pricing, SMASH-only overs, and no playable anytime TD props.</div></div><div class="shortlist-rule">Ranked by conviction</div></div><div class="shortlist-summary-row"><span><strong>${rows.length}</strong> qualified</span><span><strong>+${(avgEdge*100).toFixed(1)}%</strong> average edge</span><span><strong>${aiBacked}</strong> AI-backed</span><span><strong>${markets}</strong> markets</span></div>${renderShortlistTray()}<div class="shortlist-grid">${rows.map((row,index)=>{
+  return`<section class="shortlist-shell"><div class="shortlist-head"><div><div class="analysis-eyebrow">This week's decision board</div><div class="shortlist-title">This Week's Shortlist</div><div class="shortlist-sub">Calibrated model picks only: market-anchored probabilities, current-season weighting, non-plus-money prices, and research-only injury or high-variance markets.</div></div><div class="shortlist-rule">Ranked by expected return</div></div><div class="shortlist-summary-row"><span><strong>${rows.length}</strong> qualified</span><span><strong>+${(avgEdge*100).toFixed(1)}%</strong> average expected return</span><span><strong>${currentSeasonWeighted}</strong> current-season weighted</span><span><strong>${markets}</strong> markets</span></div>${renderShortlistTray()}<div class="shortlist-grid">${rows.map((row,index)=>{
     const edgePct=(row.edge*100).toFixed(1);
     const hitPct=(row.hitRate*100).toFixed(0);
     const impliedPct=(row.impliedProb*100).toFixed(0);
@@ -1565,7 +1530,7 @@ function renderTonightShortlist(){
     const inTray=isInShortlistTray(row);
     const gameTime=gameStartTimeForTeams(row.team,row.opp);
     const opponentEffectText=opponentEffect?`<span><strong>Opponent effect:</strong> ${opponentEffect.effect>=0?"+":""}${opponentEffect.effect.toFixed(1)} model points for this ${row.lean.toLowerCase()}</span>`:"";
-    return`<article class="shortlist-card ${tier}${index===0?" top":""}" onclick="streakToDash('${esc(row.name)}','${propToLogCol(row.metric)}','${row.dkLine}')"><div class="shortlist-topline"><div class="shortlist-rank">${index===0?"Top play":`#${String(index+1).padStart(2,"0")}`}</div><div class="shortlist-tier ${tier}">${esc(row.hasAI?(row.aiConfidence||"AI"):"VALIDATED")}</div></div><div><div class="shortlist-name-row">${renderPlayerHeadshot(row.name)}<div><div class="shortlist-name">${playerLink(row.name,row.metric,row.dkLine)}</div><div class="shortlist-meta shortlist-meta-with-logos">${renderTeamLogoStack(row.team,row.opp)}<span>${esc(row.team)} vs ${esc(row.opp||"TBD")}${gameTime?` · ${esc(gameTime)}`:""} · ${esc(propTypeLabel(row.metric))} · ${row.hits}/${row.total} decisive games</span></div></div></div></div><div class="shortlist-call"><strong class="${callClass} shortlist-call-line">${row.lean} ${esc(row.dkLine)}</strong><span>${fmtOdds(row.odds)} · +${edgePct}% edge</span></div><div class="shortlist-evidence"><span><strong>${hitPct}% historical hit rate</strong> (${hitPct}% model vs ${impliedPct}% implied)</span><span><strong>Opponent profile:</strong> ${esc(matchup)}</span>${opponentEffectText}<span>${row.hasAI?`${esc(row.aiConfidence||"AI")} agrees with the market model`:"Validated model only — no AI conflict"}</span></div><div class="shortlist-footer"><div class="shortlist-footer-meta">${row.hasAI?"AI reviewed":"Validated model"} · ${fmtOdds(row.odds)} · ${row.edge>=0.15?"elite edge":row.edge>=0.08?"strong edge":"qualified edge"}${row.hasStreak?` · ${row.streakLength}G streak`:" · stable sample"}</div><button class="shortlist-action${inTray?" added":""}" onclick="event.stopPropagation();toggleShortlistTray('${esc(row.name)}','${esc(row.metric)}','${esc(row.dkLine)}','${row.lean}')">${inTray?"Remove":"Add to tray"}</button></div></article>`;
+    return`<article class="shortlist-card ${tier}${index===0?" top":""}" onclick="streakToDash('${esc(row.name)}','${propToLogCol(row.metric)}','${row.dkLine}')"><div class="shortlist-topline"><div class="shortlist-rank">${index===0?"Top play":`#${String(index+1).padStart(2,"0")}`}</div><div class="shortlist-tier ${tier}">${esc(row.hasAI?(row.aiConfidence||"AI"):"VALIDATED")}</div></div><div><div class="shortlist-name-row">${renderPlayerHeadshot(row.name)}<div><div class="shortlist-name">${playerLink(row.name,row.metric,row.dkLine)}</div><div class="shortlist-meta shortlist-meta-with-logos">${renderTeamLogoStack(row.team,row.opp)}<span>${esc(row.team)} vs ${esc(row.opp||"TBD")}${gameTime?` · ${esc(gameTime)}`:""} · ${esc(propTypeLabel(row.metric))} · ${row.total.toFixed(1)} weighted games</span></div></div></div></div><div class="shortlist-call"><strong class="${callClass} shortlist-call-line">${row.lean} ${esc(row.dkLine)}</strong><span>${fmtOdds(row.odds)} · +${edgePct}% expected return</span></div><div class="shortlist-evidence"><span><strong>${hitPct}% calibrated model probability</strong> (${hitPct}% model vs ${impliedPct}% no-vig market)</span><span><strong>Opponent profile:</strong> ${esc(matchup)}</span>${opponentEffectText}<span>${row.hasAI?`${esc(row.aiConfidence||"AI")} agrees with the market model`:"Validated model — raw historical rates are not used as forecasts"}</span></div><div class="shortlist-footer"><div class="shortlist-footer-meta">${row.hasAI?"AI reviewed":"Validated model"} · ${fmtOdds(row.odds)} · ${row.edge>=0.09?"elite expected return":row.edge>=0.04?"strong expected return":"qualified expected return"}${row.hasStreak?` · ${row.streakLength}G streak`:" · market-anchored"}</div><button class="shortlist-action${inTray?" added":""}" onclick="event.stopPropagation();toggleShortlistTray('${esc(row.name)}','${esc(row.metric)}','${esc(row.dkLine)}','${row.lean}')">${inTray?"Remove":"Add to tray"}</button></div></article>`;
   }).join("")}</div></section>`;
 }
 

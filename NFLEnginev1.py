@@ -63,7 +63,6 @@ SCORING = os.getenv("NFL_SCORING", pj.DEFAULT_SCORING)
 PICKS_DAYS = {d.strip().lower() for d in
              os.getenv("NFL_PICKS_DAYS", "Thursday,Sunday,Monday").split(",") if d.strip()}
 SKIP_PICKS = os.getenv("NFL_SKIP_PICKS", "").lower() in {"1", "true", "yes"}
-GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.6-flash")
 KEEP_REFERENCE_TABS = os.getenv("NFL_KEEP_REFERENCE_TABS", "").lower() in {"1", "true", "yes"}
 EARLY_SEASON_BASELINE_WEEKS = 2
 
@@ -147,8 +146,9 @@ def has_live_game_market_odds(games: pd.DataFrame, *, game_type: str | None = No
 
 
 def resolve_model_identity(schedule_season: int, season_phase: str) -> tuple[str, str]:
-    """Prevent regular-season picks from inheriting the preseason model label."""
-    model_version = MODEL_VERSION_OVERRIDE or f"nfl-{schedule_season}-{season_phase}-v1"
+    """Stamp the current phase and generation without static workflow pins."""
+    generation = "v2" if season_phase == phase.REGULAR_SEASON_PHASE else "v1"
+    model_version = MODEL_VERSION_OVERRIDE or f"nfl-{schedule_season}-{season_phase}-{generation}"
     model_era = MODEL_ERA_OVERRIDE or model_version
     return model_version, model_era
 
@@ -157,8 +157,7 @@ def log_launch_readiness(season_phase: str, model_version: str, model_era: str) 
     """Make launch-sensitive config obvious in the run log."""
     if season_phase != phase.PRESEASON_PHASE:
         if not MODEL_VERSION_OVERRIDE or not MODEL_ERA_OVERRIDE:
-            print("⚠️  regular-season model identity is using code defaults — "
-                  "set NFL_MODEL_VERSION and NFL_MODEL_ERA explicitly in the workflow before Week 1")
+            print("   ℹ️  phase-aware model identity is using code defaults")
         if model_version == model_era:
             print("   ℹ️  model era matches model version for this run")
     else:
@@ -177,7 +176,6 @@ def resolve_stats_baseline_season(schedule_season: int, schedule: pd.DataFrame,
 
 def log_pick_generation_outcome(*, preseason_team_markets_live: bool, board: pd.DataFrame,
                                 player_ctx: pd.DataFrame | None = None,
-                                gemini_key_present: bool = False,
                                 fresh_picks: pd.DataFrame | None = None) -> None:
     """Explain why a run produced no picks, instead of leaving a silent zero."""
     if preseason_team_markets_live:
@@ -193,10 +191,6 @@ def log_pick_generation_outcome(*, preseason_team_markets_live: bool, board: pd.
     player_ctx_rows = 0 if player_ctx is None else len(player_ctx)
     fresh_rows = 0 if fresh_picks is None else len(fresh_picks)
 
-    if not gemini_key_present:
-        print("   ⚠️  live player props are present but GEMINI_API_KEY is missing — "
-              "the board can only use deterministic fallback")
-
     if fresh_rows > 0:
         return
 
@@ -205,8 +199,8 @@ def log_pick_generation_outcome(*, preseason_team_markets_live: bool, board: pd.
               "player-context assembly — inspect projections / logs / injuries joins")
         return
 
-    print(f"   ⚠️  {board_rows} player-prop line(s) and {player_ctx_rows} priced context row(s) "
-          "were available, but picks generation returned 0 rows — inspect Gemini output or validation gates")
+    print(f"   ℹ️  {board_rows} player-prop line(s) and {player_ctx_rows} priced context row(s) "
+          "were available, but none cleared the calibrated model threshold")
 
 
 def should_generate_weekly_picks(*, started: datetime, board: pd.DataFrame,
@@ -1221,6 +1215,14 @@ def main():
     stats = nv.load_player_stats(seasons=[stats_season])
     print(f"   player stats: {len(stats)} rows")
 
+    # Once regular-season games exist, current usage gets extra weight in the
+    # prop model while the completed prior season remains the stabilizing base.
+    current_stats = stats if stats_season == schedule_season else nv.load_player_stats(
+        seasons=[schedule_season]
+    )
+    if stats_season != schedule_season:
+        print(f"   current-season player stats: {len(current_stats)} rows")
+
     snaps = nv.attach_gsis_id(nv.load_snap_counts(seasons=[stats_season]))
     print(f"   snap counts: {len(snaps)} rows")
 
@@ -1354,6 +1356,8 @@ def main():
     game_markets_tab = build_game_markets_tab(games_tab)
     skill_logs = build_game_logs_tab(stats, SKILL_POSITIONS)
     qb_logs = build_game_logs_tab(stats, ["QB"])
+    current_skill_logs = build_game_logs_tab(current_stats, SKILL_POSITIONS)
+    current_qb_logs = build_game_logs_tab(current_stats, ["QB"])
 
     # Authorized once here rather than per-use — picks needs it early to read
     # prior Daily_Picks state, and the final write below reuses this same
@@ -1388,7 +1392,6 @@ def main():
     picks_current = pd.DataFrame()
     daily_picks_new = pd.DataFrame()
     player_ctx = pd.DataFrame()
-    gemini_key = ""
     week = (phase.current_preseason_week(games_tab, started) or season_phase.active_week) if season_phase.is_preseason else season_phase.active_week
     eligible_player_ids = set(pick_eligible.get("player_id", pd.Series(dtype=str)).dropna().astype(str))
     eligible_player_names = set(pick_eligible.get("player_name_now", pd.Series(dtype=str)).dropna().map(pk._norm_name))
@@ -1410,6 +1413,12 @@ def main():
         if invalid_prior:
             print(f"   ⛔ removed {invalid_prior} prior board pick(s) without an authoritative schedule matchup")
             prior_weekly = prior_weekly[prior_weekly["CONTEXT_STATUS"] == "SCHEDULE_VALID"].copy()
+        if "MODEL_VERSION" in prior_weekly.columns:
+            prior_model = prior_weekly["MODEL_VERSION"].astype(str).str.strip()
+            superseded = int((prior_model != str(model_version)).sum())
+            if superseded:
+                print(f"   ⛔ superseded {superseded} active board pick(s) from an older model version")
+                prior_weekly = prior_weekly[prior_model == str(model_version)].copy()
     if week is not None and not prior_weekly.empty:
         picks_weekly = pk.build_weekly_pick_board(
             pd.DataFrame(), prior_weekly, week=week, season=schedule_season
@@ -1455,11 +1464,12 @@ def main():
                 fresh_picks=fresh_picks,
             )
         else:
-            gemini_key = load_secret("GEMINI_API_KEY", "🤖 Gemini API Key: ", allow_missing=True)
             all_logs = pd.concat([skill_logs, qb_logs], ignore_index=True) if not qb_logs.empty else skill_logs
+            current_all_logs = (pd.concat([current_skill_logs, current_qb_logs], ignore_index=True)
+                                if not current_qb_logs.empty else current_skill_logs)
             player_ctx = pk.build_player_context(
                 board, all_logs, projections, injuries, active_week=week,
-                eligible_player_ids=eligible_player_ids
+                eligible_player_ids=eligible_player_ids, current_game_logs=current_all_logs,
             )
             excluded_unavailable = player_ctx.attrs.get("excluded_unavailable_props", 0)
             excluded_ineligible = player_ctx.attrs.get("excluded_ineligible_props", 0)
@@ -1475,14 +1485,16 @@ def main():
             if excluded_missing_projection_identity:
                 print(f"   ⛔ excluded {excluded_missing_projection_identity} prop row(s) without a projection-backed current team")
 
-            games_str = build_week_games_str(schedule, week)
-            fresh_picks = pk.generate_weekly_picks(gemini_key, GEMINI_MODEL, player_ctx,
-                                                   games_str, week=week, season=schedule_season)
+            fresh_picks = pk.generate_weekly_picks(player_ctx)
+            # Stamp before the next-slate probe as well as the final ledger
+            # assembly, so v2 rows replace matching v2 board rows cleanly.
+            if not fresh_picks.empty:
+                fresh_picks["MODEL_VERSION"] = model_version
+                fresh_picks["MODEL_ERA"] = model_era
             log_pick_generation_outcome(
                 preseason_team_markets_live=False,
                 board=board,
                 player_ctx=player_ctx,
-                gemini_key_present=bool(gemini_key),
                 fresh_picks=fresh_picks,
             )
 
@@ -1504,11 +1516,7 @@ def main():
                 if not slate_ctx.empty:
                     print(f"   ℹ️  no weekly pick survived for {target_date}; "
                           f"running a dedicated next-slate pass on {len(slate_ctx)} priced rows")
-                    targeted_current = pk.generate_weekly_picks(
-                        gemini_key, GEMINI_MODEL, slate_ctx,
-                        build_week_games_str(schedule, week), week=week,
-                        season=schedule_season
-                    )
+                    targeted_current = pk.generate_weekly_picks(slate_ctx)
                     targeted_current = pk.apply_one_pick_per_player(targeted_current).head(3)
                     if not targeted_current.empty:
                         fresh_picks = pd.concat([fresh_picks, targeted_current], ignore_index=True)

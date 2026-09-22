@@ -358,6 +358,17 @@ def best_price_board(props: pd.DataFrame) -> pd.DataFrame:
             record[f"best_{side}_book"] = best["book"]
             record[f"best_{side}_last_update"] = best.get("last_update")
 
+        # Best bettor prices can come from different books, so normalizing that
+        # pair would create a synthetic market. Keep a separate per-book
+        # no-vig consensus for the probability model and retain best prices
+        # solely for execution/expected-return calculation.
+        fair = group.dropna(subset=["fair_over_prob", "fair_under_prob"])
+        record["market_over_probability"] = (
+            round(float(fair["fair_over_prob"].median()), 4) if not fair.empty else None
+        )
+        record["market_under_probability"] = (
+            round(float(fair["fair_under_prob"].median()), 4) if not fair.empty else None
+        )
         record["books_quoting"] = group["book"].nunique()
         out.append(record)
 
