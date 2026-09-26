@@ -12,6 +12,7 @@ from NFLGrader1 import (
     validate_pick_schedule_context,
 )
 from fantasypros_client import load_nfl_consensus
+from nfl_matchups import build_team_matchup_ratings, matchup_probability_adjustment
 from picks import (
     _expected_return,
     _market_anchored_probability,
@@ -25,6 +26,36 @@ from picks import (
 
 
 class PickAuditGuardTests(unittest.TestCase):
+    def test_matchup_ratings_reward_good_offense_against_weak_defense(self):
+        plays = []
+        for _ in range(30):
+            plays.extend([
+                {"posteam": "A", "defteam": "B", "rush_attempt": 1, "pass_attempt": 0,
+                 "epa": 0.35, "success": 1, "season_type": "REG"},
+                {"posteam": "C", "defteam": "D", "rush_attempt": 1, "pass_attempt": 0,
+                 "epa": -0.35, "success": 0, "season_type": "REG"},
+                {"posteam": "A", "defteam": "B", "rush_attempt": 0, "pass_attempt": 1,
+                 "epa": 0.25, "success": 1, "season_type": "REG"},
+                {"posteam": "C", "defteam": "D", "rush_attempt": 0, "pass_attempt": 1,
+                 "epa": -0.25, "success": 0, "season_type": "REG"},
+            ])
+        pbp = pd.DataFrame(plays)
+        ratings = build_team_matchup_ratings(pbp, pbp)
+        a = ratings.set_index("team_abbr").loc["A"]
+        c = ratings.set_index("team_abbr").loc["C"]
+        self.assertLess(a["off_rush_rank"], c["off_rush_rank"])
+        score, adjustment = matchup_probability_adjustment(
+            ratings, "A", "B", "RUSH_YDS"
+        )
+        self.assertGreater(score, 0)
+        self.assertGreater(adjustment, 0)
+        self.assertLessEqual(abs(adjustment), 0.025)
+        interception_score, interception_adjustment = matchup_probability_adjustment(
+            ratings, "A", "B", "INT"
+        )
+        self.assertLess(interception_score, 0)
+        self.assertLess(interception_adjustment, 0)
+
     def test_market_prior_shrinks_extreme_history_and_weights_current_role(self):
         historical = pd.Series([30, 30, 30])
         current = pd.Series([0, 0])
@@ -161,10 +192,23 @@ class PickAuditGuardTests(unittest.TestCase):
             "player_id": "p1", "team_now": "NEW", "position": "RB",
             "proj_ppr": 10, "vorp": 1, "confidence": "", "ecr": 1,
         }])
-        context = build_player_context(props, logs, projections, pd.DataFrame(), eligible_player_ids={"p1"})
+        base_context = build_player_context(
+            props, logs, projections, pd.DataFrame(), eligible_player_ids={"p1"}
+        )
+        matchup_ratings = pd.DataFrame([
+            {"team_abbr": "NEW", "off_rush_score": 1.0, "def_rush_ease_score": 0.0},
+            {"team_abbr": "OPP", "off_rush_score": 0.0, "def_rush_ease_score": 1.5},
+        ])
+        context = build_player_context(
+            props, logs, projections, pd.DataFrame(), eligible_player_ids={"p1"},
+            team_matchups=matchup_ratings,
+        )
         self.assertEqual(len(context), 1)
         self.assertEqual(context.iloc[0]["team"], "NEW")
         self.assertEqual(context.iloc[0]["opponent"], "OPP")
+        self.assertGreater(
+            context.iloc[0]["over_hit_rate"], base_context.iloc[0]["over_hit_rate"]
+        )
 
         projections.loc[0, "team_now"] = "NOPE"
         rejected = build_player_context(props, logs, projections, pd.DataFrame(), eligible_player_ids={"p1"})

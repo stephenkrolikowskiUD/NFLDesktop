@@ -3,21 +3,9 @@ name: NFL Engine
 on:
   workflow_dispatch:
   schedule:
-    # Week-shaped NFL cadence, in UTC:
-    # Wed/Thu/Fri 7:00 PM ET — practice / injury refresh
-    - cron: "0 23 * * 3"
-    - cron: "0 23 * * 4"
-    - cron: "0 23 * * 5"
-    # Sat 7:00 PM ET — pre-Sunday slate refresh
-    - cron: "0 23 * * 6"
-    # Sun 10:00 AM ET — Sunday game-day refresh
-    - cron: "0 14 * * 0"
-    # Sun 12:00 PM ET — rerun after the first inactive reports, before 1 PM kickoffs
+    # Temporary low-quota cadence: spend the shared Odds API budget once, after
+    # Sunday inactive reports and before the main 1 PM slate.
     - cron: "0 16 * * 0"
-    # Sun 7:00 PM ET — pre-Monday refresh
-    - cron: "0 23 * * 0"
-    # Mon 7:00 PM ET — Monday game-day refresh
-    - cron: "0 23 * * 1"
 
 jobs:
   run-nfl-engine:
@@ -29,6 +17,10 @@ jobs:
       FP_PRO_API_KEY: ${{ secrets.FP_PRO_API_KEY }}
       OPENWEATHER_API_KEY: ${{ secrets.OPENWEATHER_API_KEY }}
       GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+      # Preserve a final emergency reserve while allowing one Sunday pull from
+      # the current 479-credit balance. Limit props to the active Sun/Mon slate.
+      NFL_ODDS_CREDIT_FLOOR: "250"
+      NFL_PROPS_WINDOW_DAYS: "2"
     steps:
       - name: Check out repo
         uses: actions/checkout@v4

@@ -20,6 +20,7 @@ from gspread_dataframe import set_with_dataframe
 import nflverse_loader as nv
 import fantasypros_client as fp
 import nfl_phase as phase
+import nfl_matchups as nm
 import odds_client as oc
 import projections as pj
 import picks as pk
@@ -147,7 +148,7 @@ def has_live_game_market_odds(games: pd.DataFrame, *, game_type: str | None = No
 
 def resolve_model_identity(schedule_season: int, season_phase: str) -> tuple[str, str]:
     """Stamp the current phase and generation without static workflow pins."""
-    generation = "v2" if season_phase == phase.REGULAR_SEASON_PHASE else "v1"
+    generation = "v3" if season_phase == phase.REGULAR_SEASON_PHASE else "v1"
     model_version = MODEL_VERSION_OVERRIDE or f"nfl-{schedule_season}-{season_phase}-{generation}"
     model_era = MODEL_ERA_OVERRIDE or model_version
     return model_version, model_era
@@ -727,13 +728,17 @@ def build_schedule_tab(schedule: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
-def build_team_rankings_tab(team_stats: pd.DataFrame) -> pd.DataFrame:
+def build_team_rankings_tab(team_stats: pd.DataFrame,
+                            matchup_ratings: pd.DataFrame | None = None) -> pd.DataFrame:
     """Season team aggregates, used for matchup context and Leaders."""
-    if team_stats.empty:
-        return pd.DataFrame()
-    out = team_stats.copy()
-    if "team" in out.columns:
-        out["team_abbr"] = out["team"]
+    out = team_stats.copy() if team_stats is not None else pd.DataFrame()
+    if not out.empty and "team" in out.columns:
+        out["team_abbr"] = out["team"].map(pk.normalize_team_abbr)
+    if matchup_ratings is not None and not matchup_ratings.empty:
+        if out.empty:
+            out = matchup_ratings.copy()
+        else:
+            out = out.merge(matchup_ratings, on="team_abbr", how="outer")
     return out
 
 
@@ -1237,6 +1242,17 @@ def main():
     team_stats = nv.load_team_stats(seasons=[stats_season])
     print(f"   team stats: {len(team_stats)} rows")
 
+    # Public play-by-play supports our own opponent-aware efficiency layer.
+    # The previous season anchors the estimate; current games move it as the
+    # sample grows without letting Week 3 volatility dominate the market.
+    prior_pbp = nv.load_pbp(seasons=[schedule_season - 1])
+    current_pbp = nv.load_pbp(seasons=[schedule_season])
+    matchup_ratings = nm.build_team_matchup_ratings(prior_pbp, current_pbp)
+    if matchup_ratings.empty:
+        print("   ⚠️  matchup ratings unavailable — picks remain market-calibrated")
+    else:
+        print(f"   matchup ratings: {len(matchup_ratings)} teams · run/pass EPA + success")
+
     # Roster year runs ahead of the stats year — that's the point here, since
     # projections need who's on which team NOW, not last season.
     rosters_now = nv.load_rosters(seasons=[schedule_season])
@@ -1470,6 +1486,7 @@ def main():
             player_ctx = pk.build_player_context(
                 board, all_logs, projections, injuries, active_week=week,
                 eligible_player_ids=eligible_player_ids, current_game_logs=current_all_logs,
+                team_matchups=matchup_ratings,
             )
             excluded_unavailable = player_ctx.attrs.get("excluded_unavailable_props", 0)
             excluded_ineligible = player_ctx.attrs.get("excluded_ineligible_props", 0)
@@ -1571,7 +1588,7 @@ def main():
             stats, snaps, ["QB"], schedule=schedule, now=started, rosters=rosters_now),
         "Skill_Game_Logs": skill_logs,
         "QB_Game_Logs": qb_logs,
-        "Team_Rankings": build_team_rankings_tab(team_stats),
+        "Team_Rankings": build_team_rankings_tab(team_stats, matchup_ratings),
         "Teams": build_teams_tab(teams),
         "Player_Props": build_player_props_tab(board),
         "All_Books_Props": build_all_books_props_tab(props),

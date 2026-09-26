@@ -15,6 +15,7 @@ import numpy as np
 import pandas as pd
 import pytz
 
+import nfl_matchups as nm
 from sports_common import normalize_confidence, normalize_person_name
 
 eastern = pytz.timezone("US/Eastern")
@@ -367,6 +368,7 @@ def build_player_context(props_board: pd.DataFrame, game_logs: pd.DataFrame,
                          active_week: int | None = None,
                          eligible_player_ids: set[str] | None = None,
                          current_game_logs: pd.DataFrame | None = None,
+                         team_matchups: pd.DataFrame | None = None,
                          max_players: int = 80) -> pd.DataFrame:
     """One row per real prop line, with a calibrated model signal and context.
 
@@ -447,8 +449,6 @@ def build_player_context(props_board: pd.DataFrame, game_logs: pd.DataFrame,
         under_probability, under_evidence_games = _market_anchored_probability(
             actuals, current_actuals, line, "UNDER", market_under
         )
-        over_ev = _expected_return(over_probability, over_odds)
-        under_ev = _expected_return(under_probability, under_odds)
 
         latest = player_logs.sort_values("week").iloc[-1]
         player_id = str(latest.get("player_id", "") or "")
@@ -484,6 +484,17 @@ def build_player_context(props_board: pd.DataFrame, game_logs: pd.DataFrame,
         if missing_projection_identity or event_team_mismatch or player_id in unavailable_ids:
             continue
         current_opponent = event_home if current_team == event_away else event_away
+        matchup_score, matchup_probability_adjustment = nm.matchup_probability_adjustment(
+            team_matchups, current_team, current_opponent, prop["metric"]
+        )
+        over_probability = float(np.clip(
+            over_probability + matchup_probability_adjustment, 0.02, 0.98
+        ))
+        under_probability = float(np.clip(
+            under_probability - matchup_probability_adjustment, 0.02, 0.98
+        ))
+        over_ev = _expected_return(over_probability, over_odds)
+        under_ev = _expected_return(under_probability, under_odds)
         kickoff = pd.to_datetime(prop.get("commence_time"), utc=True, errors="coerce")
         kickoff_eastern = kickoff.tz_convert(eastern) if pd.notna(kickoff) else None
 
@@ -510,6 +521,8 @@ def build_player_context(props_board: pd.DataFrame, game_logs: pd.DataFrame,
             "under_hit_rate": under_probability,
             "over_evidence_games": over_evidence_games,
             "under_evidence_games": under_evidence_games,
+            "matchup_score": matchup_score,
+            "matchup_probability_adjustment": matchup_probability_adjustment,
             "over_ev_pct": round(float(over_ev) * 100, 1) if pd.notna(over_ev) else np.nan,
             "under_ev_pct": round(float(under_ev) * 100, 1) if pd.notna(under_ev) else np.nan,
             "proj_ppr": proj_row.get("proj_ppr") if proj_row is not None else np.nan,
@@ -811,7 +824,8 @@ def build_calibrated_model_picks(player_ctx: pd.DataFrame,
             "confidence": confidence,
             "rationale": (
                 f"Market-anchored model: {r['_probability']:.0%} win probability "
-                f"across {evidence:.0f} weighted games, {ev:+.1f}% expected return."
+                f"across {evidence:.0f} weighted games, {ev:+.1f}% expected return; "
+                f"matchup {float(r.get('matchup_probability_adjustment', 0.0)):+.1%}."
             ),
             "injury_context": str(r.get("injury_status", ""))[:120],
             "PICK_BOOK": r.get("_book"),
@@ -823,9 +837,11 @@ def build_calibrated_model_picks(player_ctx: pd.DataFrame,
             "MARKET_PROBABILITY": r.get("over_market_probability" if r["_lean"] == "OVER" else "under_market_probability"),
             "EVIDENCE_GAMES": evidence,
             "CURRENT_SEASON_GAMES": r.get("current_games", 0),
+            "MATCHUP_SCORE": r.get("matchup_score", 0),
+            "MATCHUP_PROB_ADJ": r.get("matchup_probability_adjustment", 0),
             "CONSENSUS_COUNT": 0,
             "CONSENSUS_RUNS": "",
-            "CONSENSUS_TAG": "CALIBRATED MODEL V2",
+            "CONSENSUS_TAG": "CALIBRATED MODEL V3",
             "SELECTION_METHOD": "VALIDATED_MODEL",
         })
         if len(rows) >= max_picks:
@@ -1146,7 +1162,8 @@ PICK_OUTPUT_COLUMNS = [
     "DISPLAY_SELECTION", "DISPLAY_LINE",
     "PICK_BOOK", "PICK_ODDS", "IMPLIED_PROBABILITY", "MODEL_HIT_RATE",
     "MODEL_EV_PCT", "MODEL_EDGE_SCORE", "MARKET_PROBABILITY", "EVIDENCE_GAMES",
-    "CURRENT_SEASON_GAMES", "CONSENSUS_COUNT", "CONSENSUS_RUNS",
+    "CURRENT_SEASON_GAMES", "MATCHUP_SCORE", "MATCHUP_PROB_ADJ",
+    "CONSENSUS_COUNT", "CONSENSUS_RUNS",
     "CONSENSUS_TAG", "CLV_OPEN_LINE", "CLV_LATEST_LINE", "CLV_DELTA",
     "CLV_LAST_UPDATE", "RESULT", "ACTUAL_STAT", "HIT", "REALIZED_PROFIT",
     "ACTUAL_ROI_PER_PICK", "LAST_UPDATED",
