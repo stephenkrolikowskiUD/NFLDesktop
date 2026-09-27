@@ -47,7 +47,8 @@ QUOTA_FLOOR_THIS_SPORT = int(os.getenv(f"{SPORT_LABEL}_ODDS_CREDIT_FLOOR", "500"
 # would mostly buy empty responses — and for the games that DO have props, one
 # request per event per market batch adds up fast.
 PROPS_WINDOW_DAYS = int(os.getenv("NFL_PROPS_WINDOW_DAYS", "8"))
-SKIP_PROPS = os.getenv("NFL_SKIP_PROPS", "").lower() in {"1", "true", "yes"}
+REUSE_SHEET_PROPS = os.getenv("NFL_REUSE_SHEET_PROPS", "").lower() in {"1", "true", "yes"}
+SKIP_PROPS = REUSE_SHEET_PROPS or os.getenv("NFL_SKIP_PROPS", "").lower() in {"1", "true", "yes"}
 
 # FantasyPros publishes separate ranking sets per format. The 'best-*' pages are
 # best ball (ecr_type bo/bp) — distinct from 'redraft-*' and 'dynasty-*'.
@@ -774,6 +775,46 @@ def build_player_props_tab(board: pd.DataFrame) -> pd.DataFrame:
     return out.reset_index(drop=True)
 
 
+def restore_player_prop_board(tab: pd.DataFrame, teams: pd.DataFrame) -> pd.DataFrame:
+    """Restore the picker contract from the dashboard's fresh Player_Props tab.
+
+    This supports no-credit recovery runs after live markets were written but a
+    downstream context join failed. The tab intentionally contains executable
+    best prices; team abbreviations are reconstructed from its GAME label.
+    """
+    required = {"PLAYER_NAME", "METRIC", "DK_LINE", "GAME"}
+    if tab is None or tab.empty or not required.issubset(tab.columns):
+        return pd.DataFrame()
+
+    name_map = build_team_name_map(teams)
+    normalized_name_map = {str(name).strip().upper(): abbr for name, abbr in name_map.items()}
+
+    def team_abbr(value) -> str:
+        raw = str(value or "").strip()
+        return pk.normalize_team_abbr(normalized_name_map.get(raw.upper(), raw))
+
+    games = tab["GAME"].fillna("").astype(str).str.split(" @ ", n=1, expand=True)
+    away = games[0].map(team_abbr)
+    home = games[1].map(team_abbr) if games.shape[1] > 1 else pd.Series("", index=tab.index)
+    restored = pd.DataFrame({
+        "player": tab["PLAYER_NAME"],
+        "metric": tab["METRIC"].astype(str).str.upper(),
+        "line": pd.to_numeric(tab["DK_LINE"], errors="coerce"),
+        "best_over_odds": pd.to_numeric(tab.get("BEST_OVER_ODDS", tab.get("OVER_ODDS")), errors="coerce"),
+        "best_under_odds": pd.to_numeric(tab.get("BEST_UNDER_ODDS", tab.get("UNDER_ODDS")), errors="coerce"),
+        "best_over_book": tab.get("BEST_OVER_BOOK", tab.get("BOOK", "")),
+        "best_under_book": tab.get("BEST_UNDER_BOOK", tab.get("BOOK", "")),
+        "event_away": games[0],
+        "event_home": games[1] if games.shape[1] > 1 else "",
+        "event_away_abbr": away,
+        "event_home_abbr": home,
+        "commence_time": pd.NaT,
+    })
+    return restored.dropna(subset=["player", "metric", "line"]).loc[
+        lambda frame: frame["event_away_abbr"].ne("") & frame["event_home_abbr"].ne("")
+    ].reset_index(drop=True)
+
+
 def build_all_books_props_tab(props: pd.DataFrame) -> pd.DataFrame:
     """Every per-book quote in the dashboard's All_Books_Props contract."""
     if props.empty:
@@ -1228,6 +1269,19 @@ def main():
     if stats_season != schedule_season:
         print(f"   current-season player stats: {len(current_stats)} rows")
 
+    # Dashboard baselines can roll to the live season once enough current data
+    # exists, but the pick model still needs a completed historical season.
+    # Otherwise Week 3 has only two settled games per player and every prop
+    # fails the three-game evidence floor before calibration can run.
+    pick_history_stats = stats
+    if stats_season == schedule_season:
+        prior_stats = nv.load_player_stats(seasons=[schedule_season - 1])
+        if not prior_stats.empty:
+            pick_history_stats = prior_stats
+            print(f"   pick history baseline: {schedule_season - 1} ({len(prior_stats)} rows)")
+        else:
+            print(f"   ⚠️  no {schedule_season - 1} pick history — using current-season history")
+
     snaps = nv.attach_gsis_id(nv.load_snap_counts(seasons=[stats_season]))
     print(f"   snap counts: {len(snaps)} rows")
 
@@ -1316,7 +1370,9 @@ def main():
     print(f"🧬 model version: {model_version} · era: {model_era}")
     log_launch_readiness(season_phase.phase, model_version, model_era)
 
-    if not odds_api_key:
+    if REUSE_SHEET_PROPS:
+        print("   ♻️  no-credit recovery: reusing the fresh Player_Props sheet")
+    elif not odds_api_key:
         print("   ⚠️  no Odds API key — skipping live odds and props")
     else:
         odds_api = oc.OddsClient(
@@ -1372,6 +1428,8 @@ def main():
     game_markets_tab = build_game_markets_tab(games_tab)
     skill_logs = build_game_logs_tab(stats, SKILL_POSITIONS)
     qb_logs = build_game_logs_tab(stats, ["QB"])
+    pick_history_skill_logs = build_game_logs_tab(pick_history_stats, SKILL_POSITIONS)
+    pick_history_qb_logs = build_game_logs_tab(pick_history_stats, ["QB"])
     current_skill_logs = build_game_logs_tab(current_stats, SKILL_POSITIONS)
     current_qb_logs = build_game_logs_tab(current_stats, ["QB"])
 
@@ -1402,6 +1460,11 @@ def main():
                 "Then confirm the Sheet is shared with that key's client_email as Editor."
             ) from e
         raise
+
+    if REUSE_SHEET_PROPS:
+        stored_props = fetch_pick_tab(sheets, SHEET_ID, "Player_Props")
+        board = restore_player_prop_board(stored_props, teams)
+        print(f"   ♻️  restored {len(board)} live line(s) from Player_Props (0 Odds API credits)")
 
     print("\n🎯 Weekly Picks")
     picks_weekly = pd.DataFrame()
@@ -1480,7 +1543,8 @@ def main():
                 fresh_picks=fresh_picks,
             )
         else:
-            all_logs = pd.concat([skill_logs, qb_logs], ignore_index=True) if not qb_logs.empty else skill_logs
+            all_logs = (pd.concat([pick_history_skill_logs, pick_history_qb_logs], ignore_index=True)
+                        if not pick_history_qb_logs.empty else pick_history_skill_logs)
             current_all_logs = (pd.concat([current_skill_logs, current_qb_logs], ignore_index=True)
                                 if not current_qb_logs.empty else current_skill_logs)
             player_ctx = pk.build_player_context(
@@ -1492,7 +1556,13 @@ def main():
             excluded_ineligible = player_ctx.attrs.get("excluded_ineligible_props", 0)
             excluded_event_mismatch = player_ctx.attrs.get("excluded_event_team_mismatch_props", 0)
             excluded_missing_projection_identity = player_ctx.attrs.get("excluded_missing_projection_identity_props", 0)
+            excluded_no_history = player_ctx.attrs.get("excluded_no_history_props", 0)
+            excluded_insufficient_history = player_ctx.attrs.get("excluded_insufficient_history_props", 0)
             print(f"   player context: {len(player_ctx)} priced prop rows")
+            if excluded_no_history:
+                print(f"   ⛔ excluded {excluded_no_history} prop row(s) without historical game logs")
+            if excluded_insufficient_history:
+                print(f"   ⛔ excluded {excluded_insufficient_history} prop row(s) below the three-game history floor")
             if excluded_unavailable:
                 print(f"   ⛔ excluded {excluded_unavailable} prop row(s) for confirmed unavailable players")
             if excluded_ineligible:
@@ -1504,7 +1574,7 @@ def main():
 
             fresh_picks = pk.generate_weekly_picks(player_ctx)
             # Stamp before the next-slate probe as well as the final ledger
-            # assembly, so v2 rows replace matching v2 board rows cleanly.
+            # assembly, so v3 rows replace matching v3 board rows cleanly.
             if not fresh_picks.empty:
                 fresh_picks["MODEL_VERSION"] = model_version
                 fresh_picks["MODEL_ERA"] = model_era
@@ -1590,9 +1660,11 @@ def main():
         "QB_Game_Logs": qb_logs,
         "Team_Rankings": build_team_rankings_tab(team_stats, matchup_ratings),
         "Teams": build_teams_tab(teams),
-        "Player_Props": build_player_props_tab(board),
-        "All_Books_Props": build_all_books_props_tab(props),
-        "Game_Markets": game_markets_tab,
+        # A recovery run consumes the existing fresh market snapshot and must
+        # not replace it with its reconstructed/minimal in-memory contract.
+        "Player_Props": pd.DataFrame() if REUSE_SHEET_PROPS else build_player_props_tab(board),
+        "All_Books_Props": pd.DataFrame() if REUSE_SHEET_PROPS else build_all_books_props_tab(props),
+        "Game_Markets": pd.DataFrame() if REUSE_SHEET_PROPS else game_markets_tab,
         "Projections": projections,
         "Picks_Weekly": picks_weekly,
         # Unlike reference tabs, a daily board must clear when there is no

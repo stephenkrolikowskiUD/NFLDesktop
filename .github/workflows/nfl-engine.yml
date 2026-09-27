@@ -2,6 +2,12 @@ name: NFL Engine
 
 on:
   workflow_dispatch:
+    inputs:
+      reuse_sheet_props:
+        description: "Reuse the latest Player_Props sheet without spending Odds API credits"
+        required: false
+        type: boolean
+        default: false
   schedule:
     # Temporary low-quota cadence: one Sunday morning market/injury refresh.
     # 13:00 UTC is 9:00 AM Eastern while daylight saving time is active.
@@ -21,6 +27,7 @@ jobs:
       # the current 479-credit balance. Limit props to the active Sun/Mon slate.
       NFL_ODDS_CREDIT_FLOOR: "250"
       NFL_PROPS_WINDOW_DAYS: "2"
+      NFL_REUSE_SHEET_PROPS: ${{ inputs.reuse_sheet_props && 'true' || 'false' }}
     steps:
       - name: Check out repo
         uses: actions/checkout@v4

@@ -404,11 +404,14 @@ def build_player_context(props_board: pd.DataFrame, game_logs: pd.DataFrame,
     excluded_ineligible_props = 0
     excluded_event_team_mismatch_props = 0
     excluded_missing_projection_identity_props = 0
+    excluded_no_history_props = 0
+    excluded_insufficient_history_props = 0
 
     rows = []
     for _, prop in board.iterrows():
         player_logs = logs[logs["_name_norm"] == prop["_name_norm"]]
         if player_logs.empty:
+            excluded_no_history_props += 1
             continue
 
         actuals = player_logs.apply(
@@ -417,6 +420,7 @@ def build_player_context(props_board: pd.DataFrame, game_logs: pd.DataFrame,
         if len(actuals) < 3:
             # The prior-season floor prevents a two-game current sample from
             # manufacturing a player-specific signal.
+            excluded_insufficient_history_props += 1
             continue
 
         player_current_logs = (
@@ -535,7 +539,14 @@ def build_player_context(props_board: pd.DataFrame, game_logs: pd.DataFrame,
         })
 
     if not rows:
-        return pd.DataFrame()
+        empty = pd.DataFrame()
+        empty.attrs["excluded_unavailable_props"] = excluded_unavailable_props
+        empty.attrs["excluded_ineligible_props"] = excluded_ineligible_props
+        empty.attrs["excluded_event_team_mismatch_props"] = excluded_event_team_mismatch_props
+        empty.attrs["excluded_missing_projection_identity_props"] = excluded_missing_projection_identity_props
+        empty.attrs["excluded_no_history_props"] = excluded_no_history_props
+        empty.attrs["excluded_insufficient_history_props"] = excluded_insufficient_history_props
+        return empty
 
     ctx = pd.DataFrame(rows)
     # Guarantee at least some star coverage the same way MLB does — top 20 by
@@ -558,6 +569,8 @@ def build_player_context(props_board: pd.DataFrame, game_logs: pd.DataFrame,
     pool.attrs["excluded_ineligible_props"] = excluded_ineligible_props
     pool.attrs["excluded_event_team_mismatch_props"] = excluded_event_team_mismatch_props
     pool.attrs["excluded_missing_projection_identity_props"] = excluded_missing_projection_identity_props
+    pool.attrs["excluded_no_history_props"] = excluded_no_history_props
+    pool.attrs["excluded_insufficient_history_props"] = excluded_insufficient_history_props
     return pool
 
 

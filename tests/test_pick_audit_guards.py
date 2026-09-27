@@ -12,6 +12,7 @@ from NFLGrader1 import (
     validate_pick_schedule_context,
 )
 from fantasypros_client import load_nfl_consensus
+from NFLEnginev1 import restore_player_prop_board
 from nfl_matchups import build_team_matchup_ratings, matchup_probability_adjustment
 from picks import (
     _expected_return,
@@ -26,6 +27,23 @@ from picks import (
 
 
 class PickAuditGuardTests(unittest.TestCase):
+    def test_player_prop_sheet_can_restore_no_credit_picker_board(self):
+        tab = pd.DataFrame([{
+            "PLAYER_NAME": "Test Back", "METRIC": "RUSH_YDS", "DK_LINE": 42.5,
+            "BEST_OVER_ODDS": -110, "BEST_UNDER_ODDS": -110,
+            "BEST_OVER_BOOK": "draftkings", "BEST_UNDER_BOOK": "fanduel",
+            "GAME": "New England Patriots @ Seattle Seahawks",
+        }])
+        teams = pd.DataFrame([
+            {"team_name": "New England Patriots", "team_abbr": "NE"},
+            {"team_name": "Seattle Seahawks", "team_abbr": "SEA"},
+        ])
+        board = restore_player_prop_board(tab, teams)
+        self.assertEqual(len(board), 1)
+        self.assertEqual(board.iloc[0]["event_away_abbr"], "NE")
+        self.assertEqual(board.iloc[0]["event_home_abbr"], "SEA")
+        self.assertEqual(board.iloc[0]["best_under_book"], "fanduel")
+
     def test_matchup_ratings_reward_good_offense_against_weak_defense(self):
         plays = []
         for _ in range(30):
@@ -201,11 +219,12 @@ class PickAuditGuardTests(unittest.TestCase):
         ])
         context = build_player_context(
             props, logs, projections, pd.DataFrame(), eligible_player_ids={"p1"},
-            team_matchups=matchup_ratings,
+            current_game_logs=logs.head(2), team_matchups=matchup_ratings,
         )
         self.assertEqual(len(context), 1)
         self.assertEqual(context.iloc[0]["team"], "NEW")
         self.assertEqual(context.iloc[0]["opponent"], "OPP")
+        self.assertEqual(context.iloc[0]["current_games"], 2)
         self.assertGreater(
             context.iloc[0]["over_hit_rate"], base_context.iloc[0]["over_hit_rate"]
         )
@@ -213,6 +232,23 @@ class PickAuditGuardTests(unittest.TestCase):
         projections.loc[0, "team_now"] = "NOPE"
         rejected = build_player_context(props, logs, projections, pd.DataFrame(), eligible_player_ids={"p1"})
         self.assertTrue(rejected.empty)
+
+    def test_context_reports_when_live_season_history_is_below_floor(self):
+        logs = pd.DataFrame([
+            {"player_display_name": "Two Game Player", "player_id": "p1", "week": 1,
+             "position": "RB", "rushing_yards": 20},
+            {"player_display_name": "Two Game Player", "player_id": "p1", "week": 2,
+             "position": "RB", "rushing_yards": 30},
+        ])
+        props = pd.DataFrame([{
+            "player": "Two Game Player", "metric": "RUSH_YDS", "line": 25,
+            "best_over_odds": -110, "best_under_odds": -110,
+        }])
+        context = build_player_context(
+            props, logs, pd.DataFrame(), pd.DataFrame(), eligible_player_ids={"p1"}
+        )
+        self.assertTrue(context.empty)
+        self.assertEqual(context.attrs["excluded_insufficient_history_props"], 1)
 
     def test_persistent_board_rejects_active_player_with_stale_team(self):
         board = pd.DataFrame([
