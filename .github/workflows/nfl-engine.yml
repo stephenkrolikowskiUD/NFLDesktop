@@ -3,9 +3,9 @@ name: NFL Engine
 on:
   workflow_dispatch:
   schedule:
-    # Temporary low-quota cadence: spend the shared Odds API budget once, after
-    # Sunday inactive reports and before the main 1 PM slate.
-    - cron: "0 16 * * 0"
+    # Temporary low-quota cadence: one Sunday morning market/injury refresh.
+    # 13:00 UTC is 9:00 AM Eastern while daylight saving time is active.
+    - cron: "0 13 * * 0"
 
 jobs:
   run-nfl-engine:
