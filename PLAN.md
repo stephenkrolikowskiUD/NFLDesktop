@@ -1,6 +1,11 @@
 # NFLDesktop Roadmap
 
-_Last updated: 2026-09-22_
+_Last updated: 2026-09-28_
+
+## September 28 MNF Quota Recovery
+- The live workflow temporarily uses a 100-credit stop threshold and a 24-hour player-prop window, allowing a fresh MNF run from the reported 245-credit balance. The client checks the threshold after each response, so it is not an exact reserve guarantee.
+- For fresh MNF prices, leave `reuse_sheet_props` unchecked. Checking it remains a zero-credit recovery option using saved prices.
+- Sunday scheduling is 9 AM Eastern during daylight saving time. Revisit the temporary quota settings after the October reset.
 
 ## Where We Are
 NFL is no longer a greenfield build. The core dashboard, engine, season-long projection layer, Lookup, and game-market board are live. The first real Week 1 player-prop run completed on September 3: 138 unique lines across 52 players produced 14 validated Gemini consensus picks, which wrote to `Picks_Current` and the append-only `Daily_Picks` ledger with regular-season phase and model identity stamped correctly.

@@ -23,10 +23,10 @@ jobs:
       FP_PRO_API_KEY: ${{ secrets.FP_PRO_API_KEY }}
       OPENWEATHER_API_KEY: ${{ secrets.OPENWEATHER_API_KEY }}
       GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
-      # Preserve a final emergency reserve while allowing one Sunday pull from
-      # the current 479-credit balance. Limit props to the active Sun/Mon slate.
-      NFL_ODDS_CREDIT_FLOOR: "250"
-      NFL_PROPS_WINDOW_DAYS: "2"
+      # Temporary September quota settings: allow the final MNF refresh from
+      # 245 credits, keeping a 100-credit stop threshold and a one-day prop window.
+      NFL_ODDS_CREDIT_FLOOR: "100"
+      NFL_PROPS_WINDOW_DAYS: "1"
       NFL_REUSE_SHEET_PROPS: ${{ inputs.reuse_sheet_props && 'true' || 'false' }}
     steps:
       - name: Check out repo
