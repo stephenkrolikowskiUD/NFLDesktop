@@ -9,9 +9,10 @@ on:
         type: boolean
         default: false
   schedule:
-    # Temporary low-quota cadence: one Sunday morning market/injury refresh.
-    # 13:00 UTC is 9:00 AM Eastern while daylight saving time is active.
+    # Sunday research refresh: 9 AM EDT / 8 AM EST, before early kickoffs.
     - cron: "0 13 * * 0"
+    # Monday/Thursday game-day refresh and Saturday research: 1 PM EDT / noon EST.
+    - cron: "0 17 * * 1,4,6"
 
 jobs:
   run-nfl-engine:
@@ -23,10 +24,9 @@ jobs:
       FP_PRO_API_KEY: ${{ secrets.FP_PRO_API_KEY }}
       OPENWEATHER_API_KEY: ${{ secrets.OPENWEATHER_API_KEY }}
       GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
-      # Temporary September quota settings: allow the final MNF refresh from
-      # 245 credits, keeping a 100-credit stop threshold and a one-day prop window.
-      NFL_ODDS_CREDIT_FLOOR: "100"
-      NFL_PROPS_WINDOW_DAYS: "1"
+      # Preserve a reserve and avoid paying for distant slates on every refresh.
+      NFL_ODDS_CREDIT_FLOOR: "500"
+      NFL_PROPS_WINDOW_DAYS: "2"
       NFL_REUSE_SHEET_PROPS: ${{ inputs.reuse_sheet_props && 'true' || 'false' }}
     steps:
       - name: Check out repo
