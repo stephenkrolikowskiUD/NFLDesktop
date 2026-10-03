@@ -423,6 +423,13 @@ function getLockInfo(name,isP){
   const startMs=getScheduleStartMs(rowField(row,"team_abbr"),rowField(row,"opp_abbr_tonight","tonight_opp","opp_abbr"));
   return{started:!!(startMs&&Date.now()>=startMs),startMs,row};
 }
+function isPickStarted(pick,isP){
+  const startMs=scheduleRowStartMs(pick);
+  if(Number.isFinite(startMs))return Date.now()>=startMs;
+  const gameDate=String(rowField(pick,"GAME_DATE")||"").trim();
+  if(/^\d{4}-\d{2}-\d{2}$/.test(gameDate)&&gameDate<entryTodayISO())return true;
+  return getLockInfo(rowField(pick,"player"),isP).started;
+}
 function lockBadge(name,isP){
   return getLockInfo(name,isP).started?`<span class="locked-badge">${icon('lock')}LOCKED</span>`:"";
 }
@@ -544,7 +551,7 @@ function normalizeConfidence(conf){
 function selectionMethodLabel(method){
   const key=String(method||"").trim().toUpperCase();
   return {
-    VALIDATED_MODEL:"Validated model",
+    VALIDATED_MODEL:"Model estimate",
     GEMINI:"AI reviewed",
     MARKET_MODEL:"Market model",
   }[key]||key.replace(/_/g," ").toLowerCase().replace(/\b\w/g,ch=>ch.toUpperCase());
@@ -1305,6 +1312,9 @@ function getMarketEdges(){
 }
 
 // ═══ SMART SLIP GENERATOR ═══
+function compareModelCandidates(a,b){
+  return b.edge-a.edge||b.total-a.total||a.name.localeCompare(b.name);
+}
 function getConvictionLegs(){
   // The public shortlist and slips are downstream of the production pick
   // board. Do not reconstruct candidates from raw historical line-clear
@@ -1323,6 +1333,7 @@ function getConvictionLegs(){
 
   const legs=[];
   for(const pick of activePickRows){
+    if(String(rowField(pick,"SELECTION_METHOD")).toUpperCase()!=="VALIDATED_MODEL")continue;
     if(isGameMarketMetric(rowField(pick,"prop_type")))continue;
     const name=String(rowField(pick,"player")||"").trim();
     const metric=normalizePropMetric(rowField(pick,"prop_type"));
@@ -1337,7 +1348,7 @@ function getConvictionLegs(){
     const recommendationStatus=String(rowField(pick,"RECOMMENDATION_STATUS")||"").toUpperCase();
     if(!name||!metric||!lean||!Number.isFinite(odds)||!Number.isFinite(edge)||edge<=0||!Number.isFinite(hitRate)||hitRate<=0||hitRate>=1||!Number.isFinite(impliedProb)||impliedProb<=0||impliedProb>=1||!Number.isFinite(total)||total<=0)continue;
     const isP=isQuarterbackProp(metric,name);
-    if(getLockInfo(name,isP).started)continue;
+    if(isPickStarted(pick,isP))continue;
     const flags=getSampleFlags(name,isP);
     const nl=normalizePlayerName(name);
     let streakScore=0;
@@ -1352,18 +1363,15 @@ function getConvictionLegs(){
     const evScore=Math.min(edge*40,10);
     const reliabilityScore=Math.min(total/12,2);
     const probabilityScore=hitRate>=0.58?2:hitRate>=0.54?1:0;
-    const conviction=evScore+streakScore+reliabilityScore+probabilityScore;
-    const signals=["CALIBRATED MODEL"];
-    if(streak)signals.push(`🔥 ${streak.streak}G streak`);
-    if(edge>=0.09)signals.push("💎 Elite EV");
-    else if(edge>=0.04)signals.push("📈 Strong EV");
+    const conviction=edge;
+    const signals=["Model estimate"];
 
     const scheduleRow=getScheduleRow(team,opp)||{};
     const gameTotal=toNum(scheduleRow.over_under||scheduleRow.game_total);
     const gameKey=[team,opp].sort().join("|");
     legs.push({name,metric,lean,odds,edge,hitRate,impliedProb,total,team,opp,dkLine:String(rowField(pick,"line")||""),prop:pick,isP,returning:flags.returning,limitedSample:flags.limited,conviction,evScore,selectionMethod:"VALIDATED_MODEL",recommendationStatus,streakScore,reliabilityScore,probabilityScore,signals,hasAI:false,aiConfidence:"VALIDATED",hasAIConflict:false,lineupRisk:false,hasStreak:!!streak,streakLength:streak?.streak||0,teamSlot:`${team}${isP?":P":":B"}`,gameTotal,gameKey});
   }
-  legs.sort((a,b)=>b.conviction-a.conviction);
+  legs.sort(compareModelCandidates);
   return legs;
 }
 
@@ -1409,19 +1417,17 @@ function getTonightShortlist(){
       !leg.returning&&
       !leg.limitedSample&&
       !leg.hasAIConflict&&
-      !leg.lineupRisk&&
-      !getLockInfo(leg.name,leg.isP).started
+      !leg.lineupRisk
     );
     const bestByPlayer=new Map();
     for(const leg of qualified){
       const key=normalizePlayerName(leg.name);
       const current=bestByPlayer.get(key);
-      if(!current||leg.conviction>current.conviction||(leg.conviction===current.conviction&&leg.edge>current.edge))bestByPlayer.set(key,leg);
+      if(!current||compareModelCandidates(leg,current)<0)bestByPlayer.set(key,leg);
     }
     return [...bestByPlayer.values()]
       .map(leg=>({...leg,opponentEffect:getShortlistOpponentEffect(leg)}))
-      .sort((a,b)=>b.conviction-a.conviction||b.edge-a.edge||b.hitRate-a.hitRate)
-      .slice(0,12);
+      .sort(compareModelCandidates);
   });
 }
 
@@ -1444,8 +1450,8 @@ function toggleShortlistTray(name,metric,line,lean){
   if(existing>=0){items.splice(existing,1);st.shortlistTray=items;st.shortlistTrayNotice="";persistShortlistTray();render();return}
   if(items.some(item=>normalizePlayerName(item.name)===normalizePlayerName(row.name))){st.shortlistTrayNotice=`${row.name} already has a leg in the tray.`;render();return}
   if(items.length>=8){st.shortlistTrayNotice="The tray is capped at eight legs.";render();return}
-  const bestBook=getBestBookForLean(row.prop,row.lean);
-  items.push({slateKey:currentShortlistSlateKey(),name:row.name,metric:row.metric,dkLine:row.dkLine,lean:row.lean,odds:Number(bestBook?.odds||row.odds),book:bestBook?formatBookName(bestBook.book):"DK",edge:row.edge,hitRate:row.hitRate,team:row.team,opp:row.opp,isP:row.isP});
+  const book=String(rowField(row.prop,"PICK_BOOK")||"");
+  items.push({slateKey:currentShortlistSlateKey(),name:row.name,metric:row.metric,dkLine:row.dkLine,lean:row.lean,odds:row.odds,book:book?formatBookName(book):"Book unavailable",edge:row.edge,hitRate:row.hitRate,team:row.team,opp:row.opp,isP:row.isP});
   st.shortlistTray=items;st.shortlistTrayNotice="";persistShortlistTray();render();
 }
 function removeShortlistTrayLeg(key){st.shortlistTray=getActiveShortlistTray().filter(item=>shortlistLegKey(item)!==key);st.shortlistTrayNotice="";persistShortlistTray();render()}
@@ -1464,7 +1470,7 @@ function copyShortlistTray(){
 }
 function renderShortlistTray(){
   const items=getActiveShortlistTray();
-  if(!items.length)return`<aside class="shortlist-tray"><div class="shortlist-tray-head"><div><div class="shortlist-tray-title">My Shortlist Tray <span>0</span></div><div class="shortlist-tray-empty">Add qualified legs below to assemble your final entry. One leg per player.</div></div></div>${st.shortlistTrayNotice?`<div class="shortlist-tray-body"><div class="shortlist-tray-notice">${esc(st.shortlistTrayNotice)}</div></div>`:""}</aside>`;
+  if(!items.length)return`<aside class="shortlist-tray"><div class="shortlist-tray-head"><div><div class="shortlist-tray-title">My Shortlist Tray <span>0</span></div><div class="shortlist-tray-empty">Use Add to tray to save a selection. One selection per player.</div></div></div>${st.shortlistTrayNotice?`<div class="shortlist-tray-body"><div class="shortlist-tray-notice">${esc(st.shortlistTrayNotice)}</div></div>`:""}</aside>`;
   const math=calculateParlayMath(items);
   const combined=math.american>0?`+${math.american}`:`${math.american}`;
   const avgEdge=items.reduce((sum,item)=>sum+item.edge,0)/items.length;
@@ -1517,6 +1523,38 @@ function renderPreseasonShortlist(rows){
   return `<section class="shortlist-shell"><div class="shortlist-head"><div><div class="analysis-eyebrow">This week's decision board</div><div class="shortlist-title">Preseason Shortlist</div><div class="shortlist-sub">Player props are still thin, so the board is leading with the cleanest team-side markets until books open a real player board.</div></div><div class="shortlist-rule">Preseason mode · team markets ranked</div></div><div class="shortlist-summary-row"><span><strong>${rows.length}</strong> qualified</span><span><strong>${markets}</strong> market types</span><span><strong>${rows.filter(r=>normalizeConfidence(rowField(r,"confidence"))==="STRONG").length}</strong> strong</span><span><strong>${rows.filter(r=>rowField(r,"PICK_ODDS")!==""&&rowField(r,"PICK_ODDS")!=null).length}</strong> priced</span></div><div class="shortlist-grid">${rows.map((row,index)=>{const tier=tierClassForConfidence(rowField(row,"confidence"));const selection=pickDisplaySelection(row)||rowField(row,"game")||"Game market";const odds=rowField(row,"PICK_ODDS");const book=rowField(row,"PICK_BOOK")||"opening board";const teams=teamPairForRow(row);return`<article class="shortlist-card ${tier}${index===0?" top":""}"><div class="shortlist-topline"><div class="shortlist-rank">${index===0?"Top play":`#${String(index+1).padStart(2,"0")}`}</div><div class="shortlist-tier ${tier}">${esc(normalizeConfidence(rowField(row,"confidence"))||"LEAN")}</div></div><div><div class="shortlist-name-row">${renderTeamLogoStack(teams.away,teams.home)}<div class="shortlist-name">${esc(selection)}</div></div><div class="shortlist-meta">${esc(rowField(row,"game")||"")} · ${esc(propTypeLabel(rowField(row,"prop_type")))}</div></div><div class="shortlist-call"><strong class="shortlist-call-line">${esc(oddsMetaText(odds))}</strong><span>${esc(teamMarketEdgeLabel(row))}</span></div><div class="shortlist-evidence"><span>${esc(rowField(row,"rationale")||"Opening preseason market signal.")}</span><span>${esc(teamMarketSummary(row))}</span></div><div class="shortlist-footer"><div class="shortlist-footer-meta">${esc(book)} · ${esc(propTypeLabel(rowField(row,"prop_type")))} · ${esc(selectionMethodLabel(rowField(row,"SELECTION_METHOD")||"VALIDATED_MODEL"))}</div></div></article>`}).join("")}</div></section>`;
 }
 
+function renderShortlistEstimateRow(row,index){
+  const book=String(rowField(row.prop,"PICK_BOOK")||"");
+  const captured=String(rowField(row.prop,"RUN_TIME")||rowField(row.prop,"DATE")||"");
+  const currentGames=optionalRowNumber(row.prop,"CURRENT_SEASON_GAMES");
+  const marketProbability=optionalRowNumber(row.prop,"MARKET_PROBABILITY");
+  const comparisonLabel=marketProbability===null?"Price break-even":"Market estimate";
+  const comparison=marketProbability===null?row.impliedProb:marketProbability;
+  const gameTime=[rowField(row.prop,"GAME_DATE"),rowField(row.prop,"GAME_TIME")].filter(Boolean).join(" · ")||"Kickoff unavailable";
+  const inTray=isInShortlistTray(row);
+  const effect=row.opponentEffect;
+  const args=[row.name,row.metric,row.dkLine,row.lean].map(v=>esc(JSON.stringify(String(v)))).join(",");
+  return `<article class="shortlist-estimate-row">
+    <div class="shortlist-estimate-main">
+      <span class="shortlist-rank">${String(index+1).padStart(2,"0")}</span>
+      <div class="shortlist-name-row">${renderPlayerHeadshot(row.name)}<div><div class="shortlist-name">${playerLink(row.name,row.metric,row.dkLine)}</div><div class="shortlist-meta">${esc(row.team)} vs ${esc(row.opp)} · ${esc(gameTime)}</div></div></div>
+      <div class="shortlist-call"><strong class="shortlist-call-line">${esc(row.lean)} ${esc(row.dkLine)}</strong><span>${esc(propTypeLabel(row.metric))}</span></div>
+      <div class="shortlist-estimate-price"><strong>${fmtOdds(row.odds)}</strong><span>${esc(book?formatBookName(book):"Book unavailable")} · captured price</span></div>
+      <button class="shortlist-action${inTray?" added":""}" onclick="toggleShortlistTray(${args})">${inTray?"Remove":"Add to tray"}</button>
+    </div>
+    <details class="shortlist-estimate-detail"><summary>Evidence and model assumptions</summary>
+      <div class="shortlist-evidence">
+        <span><strong>Estimated probability:</strong> ${(row.hitRate*100).toFixed(1)}%</span>
+        <span><strong>${comparisonLabel}:</strong> ${(comparison*100).toFixed(1)}%</span>
+        <span><strong>Estimated return:</strong> ${(row.edge*100).toFixed(1)}% per unit staked at the captured price</span>
+        <span><strong>Sample:</strong> ${currentGames===null?"Current-season count unavailable":`${currentGames} current-season games`} · ${row.total.toFixed(1)} weighted observations, not independent games</span>
+        <span><strong>Matchup:</strong> ${esc(getShortlistMatchupEvidence(row))}</span>
+        ${effect?`<span><strong>Matchup adjustment:</strong> ${effect.effect>=0?"+":""}${effect.effect.toFixed(1)} percentage points, already included</span>`:""}
+        <span><strong>Pick generated:</strong> ${esc(captured||"Time unavailable")}. Price may have changed.</span>
+      </div>
+    </details>
+  </article>`;
+}
 function renderTonightShortlist(){
   const rows=getTonightShortlist();
   if(!rows.length){
@@ -1525,24 +1563,9 @@ function renderTonightShortlist(){
     const preseasonPickRows=latestPreseasonGamePicks();
     if(preseasonPickRows.length&&!hasLivePlayerProps&&!livePlayerPickRows.length)return renderPreseasonShortlist(preseasonPickRows);
     const preseasonMarketsLive=!hasLivePlayerProps&&hasLiveSportsbookGameMarkets(st.gameMarkets);
-    return`<section class="shortlist-shell"><div class="shortlist-head"><div><div class="analysis-eyebrow">This week's decision board</div><div class="shortlist-title">This Week's Shortlist</div><div class="shortlist-sub">${preseasonMarketsLive?"Player props are not posted yet, so the board is surfacing preseason team markets first. Once books open player lines, this board will tighten back to qualified props only.":"The calibrated model could not clear its live expected-return, price, injury, and market-variance gates. Research rows remain available, but are not promoted as recommendations."}</div></div><div class="shortlist-rule">${preseasonMarketsLive?"Preseason mode · team markets live":"Calibrated model gates"}</div></div>${renderShortlistTray()}${preseasonMarketsLive?`<div class="props-pass" style="margin:0 0 18px"><div class="props-pass-title">Player props are still closed, but the board is live</div><div class="props-pass-copy">Books have posted spreads, moneylines, and totals for the preseason slate. Use these team-side markets while we wait for player props to unlock.</div></div>${renderGameMarketsBoard(st.propsTeam,st.gameMarkets)}`:`<div class="props-pass" style="margin:0"><div class="props-pass-title">No play clears every gate this week</div><div class="props-pass-copy">The data loaded correctly; the board is declining to promote a weak or conflicted option. Market Explorer still contains the wider research set.</div></div>`}</section>`;
+    return `<section class="shortlist-shell"><div class="shortlist-head"><div class="shortlist-title">This Week's Shortlist</div></div>${preseasonMarketsLive?`<p class="shortlist-estimate-note">No player props loaded. Team markets are available below.</p>${renderGameMarketsBoard(st.propsTeam,st.gameMarkets)}`:`<p class="shortlist-estimate-note">No upcoming selections pass the shortlist filters in this snapshot. Games may have started, inputs may be missing, or selections may be research-only. Check the weekly board and its data timestamps.</p>`}${renderShortlistTray()}</section>`;
   }
-  const avgEdge=rows.reduce((sum,row)=>sum+row.edge,0)/rows.length;
-  const currentSeasonWeighted=rows.filter(row=>toNum(row.prop?.CURRENT_SEASON_GAMES)>0).length;
-  const markets=new Set(rows.map(row=>row.metric)).size;
-  return`<section class="shortlist-shell"><div class="shortlist-head"><div><div class="analysis-eyebrow">This week's decision board</div><div class="shortlist-title">This Week's Shortlist</div><div class="shortlist-sub">Calibrated model picks only: market-anchored probabilities, current-season weighting, non-plus-money prices, and research-only injury or high-variance markets.</div></div><div class="shortlist-rule">Ranked by expected return</div></div><div class="shortlist-summary-row"><span><strong>${rows.length}</strong> qualified</span><span><strong>+${(avgEdge*100).toFixed(1)}%</strong> average expected return</span><span><strong>${currentSeasonWeighted}</strong> current-season weighted</span><span><strong>${markets}</strong> markets</span></div>${renderShortlistTray()}<div class="shortlist-grid">${rows.map((row,index)=>{
-    const edgePct=(row.edge*100).toFixed(1);
-    const hitPct=(row.hitRate*100).toFixed(0);
-    const impliedPct=(row.impliedProb*100).toFixed(0);
-    const callClass=row.lean==="OVER"?"prop-over":"prop-under";
-    const matchup=getShortlistMatchupEvidence(row);
-    const opponentEffect=row.opponentEffect;
-    const tier=row.hasAI?tierClassForConfidence(row.aiConfidence):"strong";
-    const inTray=isInShortlistTray(row);
-    const gameTime=gameStartTimeForTeams(row.team,row.opp);
-    const opponentEffectText=opponentEffect?`<span><strong>Matchup effect:</strong> ${opponentEffect.effect>=0?"+":""}${opponentEffect.effect.toFixed(1)} probability points for this ${row.lean.toLowerCase()}</span>`:"";
-    return`<article class="shortlist-card ${tier}${index===0?" top":""}" onclick="streakToDash('${esc(row.name)}','${propToLogCol(row.metric)}','${row.dkLine}')"><div class="shortlist-topline"><div class="shortlist-rank">${index===0?"Top play":`#${String(index+1).padStart(2,"0")}`}</div><div class="shortlist-tier ${tier}">${esc(row.hasAI?(row.aiConfidence||"AI"):"VALIDATED")}</div></div><div><div class="shortlist-name-row">${renderPlayerHeadshot(row.name)}<div><div class="shortlist-name">${playerLink(row.name,row.metric,row.dkLine)}</div><div class="shortlist-meta shortlist-meta-with-logos">${renderTeamLogoStack(row.team,row.opp)}<span>${esc(row.team)} vs ${esc(row.opp||"TBD")}${gameTime?` · ${esc(gameTime)}`:""} · ${esc(propTypeLabel(row.metric))} · ${row.total.toFixed(1)} weighted games</span></div></div></div></div><div class="shortlist-call"><strong class="${callClass} shortlist-call-line">${row.lean} ${esc(row.dkLine)}</strong><span>${fmtOdds(row.odds)} · +${edgePct}% expected return</span></div><div class="shortlist-evidence"><span><strong>${hitPct}% calibrated model probability</strong> (${hitPct}% model vs ${impliedPct}% no-vig market)</span><span><strong>Opponent profile:</strong> ${esc(matchup)}</span>${opponentEffectText}<span>${row.hasAI?`${esc(row.aiConfidence||"AI")} agrees with the market model`:"Validated model — raw historical rates are not used as forecasts"}</span></div><div class="shortlist-footer"><div class="shortlist-footer-meta">${row.hasAI?"AI reviewed":"Validated model"} · ${fmtOdds(row.odds)} · ${row.edge>=0.09?"elite expected return":row.edge>=0.04?"strong expected return":"qualified expected return"}${row.hasStreak?` · ${row.streakLength}G streak`:" · market-anchored"}</div><button class="shortlist-action${inTray?" added":""}" onclick="event.stopPropagation();toggleShortlistTray('${esc(row.name)}','${esc(row.metric)}','${esc(row.dkLine)}','${row.lean}')">${inTray?"Remove":"Add to tray"}</button></div></article>`;
-  }).join("")}</div></section>`;
+  return `<section class="shortlist-shell shortlist-estimates"><div class="shortlist-head"><div><div class="shortlist-title">This Week's Shortlist</div><div class="shortlist-sub">${rows.length} selections passing the model's filters. Ordered by estimated return at the captured price.</div></div></div><p class="shortlist-estimate-note">Probabilities and returns are model estimates. Passing the filters does not establish a profitable betting edge.</p><div class="shortlist-estimate-list">${rows.map(renderShortlistEstimateRow).join("")}</div>${renderShortlistTray()}</section>`;
 }
 
 function generateSlips(legs,legCount){
@@ -2922,12 +2945,11 @@ function calibratedConfidenceForPick(pick){
 }
 function renderCalibrationPolicy(){
   return `<section class="model-note-shell">
-    <div class="model-note-title">Tier Floors</div>
+    <div class="model-note-title">How to read this board</div>
     <div class="model-note-copy">
-      Displayed AI tiers now respect historical floors instead of raw labels alone:
-      <strong>SMASH</strong> requires at least ${statPct(CALIBRATED_TIER_FLOORS.SMASH.wlb)} conservative hit rate and ${statRoiPct(CALIBRATED_TIER_FLOORS.SMASH.roi)} ROI,
-      while <strong>STRONG</strong> requires at least ${statPct(CALIBRATED_TIER_FLOORS.STRONG.wlb)} and non-negative ROI.
-      Anything below those floors is shown as a lower tier.
+      Model probabilities and expected returns are estimates, not measured win rates.
+      Recent results describe past games at this line. Passing selection rules does not
+      establish predictive accuracy; settled results are tracked in Model Performance.
     </div>
   </section>`;
 }
@@ -3026,7 +3048,7 @@ function pickEvidenceHTML(model){
     return bits.join("");
   }
   const bits=[];
-  if(model.form.decisive)bits.push(`<span><strong>L10 ${model.form.hits}/${model.form.decisive}</strong> hit</span>`);
+  if(model.form.decisive)bits.push(`<span><strong>${model.form.hits}/${model.form.decisive}</strong> recent historical games cleared this line</span>`);
   if(model.form.avg!==null)bits.push(`<span>avg <strong>${model.form.avg.toFixed(1)}</strong></span>`);
   const book=getBestBookForLean(model.pickProp,model.leanText);
   if(book&&book.delta!==null&&!book.isDK&&Math.abs(book.delta)>0.05)bits.push(`<span><strong>${book.delta>0?"+":""}${book.delta.toFixed(1)}pp</strong> book edge</span>`);
@@ -3040,7 +3062,7 @@ function getPickProvenance(pk){
   const consensusCount=Math.max(0,toNum(rowField(pk,"CONSENSUS_COUNT")));
   const validated=method.includes("VALIDATED");
   return{
-    label:status==="RESEARCH"?"Research only":validated?"Validated model":"AI reviewed",
+    label:status==="RESEARCH"?"Research only":validated?"Model estimate":"AI selection",
     className:status==="RESEARCH"?"research":validated?"validated":"ai",
     consensusCount,
     description:status==="RESEARCH"
@@ -3068,18 +3090,19 @@ function pickFooterLine(model){
 }
 function getPickDisplayModel(pk){
   const calibration=calibratedConfidenceForPick(pk);
-  const confidence=calibration.confidence,rawConfidence=calibration.raw,tierClass=confidence==="SMASH"?"smash":confidence==="STRONG"?"strong":"lean";
+  const rawConfidence=calibration.raw;
   const leanText=normalizeLeanText(pk.lean),leanClass=leanText==="UNDER"?"under":"over";
   const isGameMarket=isGameMarketMetric(pk.prop_type);
   const isPitch=isGameMarket?false:isQuarterbackProp(pk.prop_type,pk.player);
   const flags=isGameMarket?{returning:false,limited:false}:getSampleFlags(pk.player,isPitch);
-  const locked=isGameMarket?false:getLockInfo(pk.player,isPitch).started;
+  const locked=isPickStarted(pk,isPitch);
   const hit=String(rowField(pk,"HIT")).toUpperCase(),actual=rowField(pk,"ACTUAL_STAT");
   const hasActual=actual!=null&&actual!==""&&!isNaN(actual),pending=!!hit&&!["YES","TRUE","NO","FALSE"].includes(hit)&&!hasActual;
   const result=hit==="YES"||hit==="TRUE"?"HIT":hit==="NO"||hit==="FALSE"?"MISS":hasActual?"PUSH":"";
   const injury=isGameMarket?"":String(pk.injury_context||""),lineupRisk=!isGameMarket&&injury.toUpperCase().startsWith("LINEUP RISK");
   const pickProp=isGameMarket?null:findPropForPick(pk.player,pk.prop_type,pk.line);
-  const model={pk,confidence,rawConfidence,tierClass,leanText,leanClass,isPitch,isGameMarket,flags,locked,actual,hasActual,pending,result,injury,lineupRisk,pickProp,provenance:getPickProvenance(pk),calibration};
+  const displayConfidence=String(rowField(pk,"SELECTION_METHOD")).toUpperCase()==="VALIDATED_MODEL"?"Model estimate":"Legacy AI selection";
+  const model={pk,confidence:displayConfidence,rawConfidence,tierClass:"model",leanText,leanClass,isPitch,isGameMarket,flags,locked,actual,hasActual,pending,result,injury,lineupRisk,pickProp,provenance:getPickProvenance(pk),calibration};
   model.form=getPickRecentForm(pk);
   return model;
 }

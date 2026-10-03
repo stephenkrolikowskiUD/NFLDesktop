@@ -750,6 +750,29 @@ td.push{color:var(--push);font-weight:700}
 .bs-val{font-size:var(--t-lg);font-weight:800;color:var(--over)}
 .bs-lbl{font-size:var(--t-xs);color:var(--accent-soft);margin-top:2px}
 .shortlist-shell{padding:14px 16px 22px}
+.shortlist-estimate-note{max-width:850px;color:var(--ink-muted);font-size:var(--t-xs);line-height:1.5;margin:0 0 18px}
+.shortlist-estimate-list{margin-bottom:22px;border-top:1px solid var(--border-1)}
+.shortlist-estimate-row{border-bottom:1px solid var(--border-1);padding:18px 0}
+.shortlist-estimate-main{display:grid;grid-template-columns:28px minmax(180px,1.5fr) minmax(110px,.8fr) minmax(140px,1fr) auto;gap:16px;align-items:center}
+.shortlist-estimate-main .shortlist-name{font-weight:500}
+.shortlist-estimate-main .shortlist-call{text-align:left;align-self:center}
+.shortlist-estimates .shortlist-title{font-size:24px}
+.shortlist-estimate-main .shortlist-call-line{font-size:24px}
+.shortlist-estimate-main .shortlist-call span{margin-top:5px;color:var(--ink-muted);font-weight:400}
+.shortlist-estimate-price strong{display:block;font-size:var(--t-md);font-variant-numeric:tabular-nums;color:var(--ink-0)}
+.shortlist-estimate-price span{display:block;margin-top:4px;color:var(--ink-muted);font-size:var(--t-xs)}
+.shortlist-estimate-detail{margin:10px 0 0 44px}
+.shortlist-estimate-detail summary{cursor:pointer;font-size:var(--t-xs);color:var(--ink-muted);padding:5px 0;width:fit-content}
+.shortlist-estimate-detail summary:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+.shortlist-estimate-detail .shortlist-evidence{margin-top:8px;padding-bottom:4px}
+@media(max-width:760px){
+  .shortlist-estimate-main{grid-template-columns:22px minmax(0,1fr) auto;gap:12px}
+  .shortlist-estimate-main .shortlist-call{grid-column:2;grid-row:2}
+  .shortlist-estimate-price{grid-column:3;grid-row:2;text-align:right}
+  .shortlist-estimate-main .shortlist-action{grid-column:2 / -1;justify-self:start}
+  .shortlist-estimate-detail{margin-left:34px}
+  .shortlist-estimate-main .shortlist-name-row{grid-column:2 / -1;min-width:0}
+}
 .shortlist-head{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;margin-bottom:12px;padding-bottom:12px;border-bottom:1px solid var(--border-1)}
 .shortlist-title{font-family:"Barlow Condensed",system-ui,sans-serif;font-size:var(--t-xl);font-weight:800;color:var(--ink-0)}
 .shortlist-sub{max-width:720px;margin-top:3px;color:var(--ink-muted);font-size:var(--t-xs);line-height:1.45}

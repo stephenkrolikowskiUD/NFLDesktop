@@ -2,6 +2,13 @@
 
 _Last updated: 2026-09-28_
 
+## September 28 Trust And Presentation Reset
+The first pass is recorded in `AUDIT_2026-09-28.md`. The shortlist now uses compact
+rows with captured book/price and expandable model evidence. Public model labels
+describe estimates rather than claiming validation. Ranking follows estimated EV,
+and the tray retains the actual captured sportsbook. Probability weights and
+historical grades are unchanged; held-out predictive validation remains required.
+
 ## September 28 MNF Quota Recovery
 - The live workflow temporarily uses a 100-credit stop threshold and a 24-hour player-prop window, allowing a fresh MNF run from the reported 245-credit balance. The client checks the threshold after each response, so it is not an exact reserve guarantee.
 - For fresh MNF prices, leave `reuse_sheet_props` unchecked. Checking it remains a zero-credit recovery option using saved prices.
