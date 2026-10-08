@@ -23,6 +23,7 @@ from picks import (
     assemble_pick_tabs,
     filter_picks_to_active_players,
     recommendation_status,
+    pregame_publication_status,
 )
 
 
@@ -80,10 +81,9 @@ class PickAuditGuardTests(unittest.TestCase):
         probability, evidence = _market_anchored_probability(
             historical, current, 20, "OVER", 0.5
         )
-        # Raw history is 100% over, but two current unders pull a 33-game
-        # weighted posterior below the market instead of publishing 100%.
-        self.assertAlmostEqual(probability, 15 / 33, places=4)
-        self.assertEqual(evidence, 9.0)
+        # Five actual observations, not nine pseudo-observations.
+        self.assertAlmostEqual(probability, 15 / 29, places=4)
+        self.assertEqual(evidence, 5.0)
         self.assertAlmostEqual(_expected_return(0.55, -110), 0.05, places=4)
 
     def test_calibrated_model_uses_real_ev_without_padding_or_high_variance_markets(self):
@@ -188,6 +188,7 @@ class PickAuditGuardTests(unittest.TestCase):
         _, appended = assemble_pick_tabs(
             pick, legacy, week=3, season=2026,
             model_version="nfl-2026-regular-season-v2",
+            now=pd.Timestamp("2026-09-26 12:00", tz="US/Eastern"),
         )
         self.assertEqual(len(appended), 1)
 
@@ -225,9 +226,8 @@ class PickAuditGuardTests(unittest.TestCase):
         self.assertEqual(context.iloc[0]["team"], "NEW")
         self.assertEqual(context.iloc[0]["opponent"], "OPP")
         self.assertEqual(context.iloc[0]["current_games"], 2)
-        self.assertGreater(
-            context.iloc[0]["over_hit_rate"], base_context.iloc[0]["over_hit_rate"]
-        )
+        self.assertGreater(context.iloc[0]["matchup_score"], 0)
+        self.assertEqual(context.iloc[0]["matchup_probability_adjustment"], 0)
 
         projections.loc[0, "team_now"] = "NOPE"
         rejected = build_player_context(props, logs, projections, pd.DataFrame(), eligible_player_ids={"p1"})
@@ -286,7 +286,43 @@ class PickAuditGuardTests(unittest.TestCase):
              "player_id": "p1", "prop_type": "REC", "lean": "OVER", "line": 5.5,
              "SELECTION_METHOD": "VALIDATED_MODEL", "DATE": "2026-09-08", "RUN_TIME": "2026-09-08 11:00:00", "RUN_NUMBER": 3},
         ])
-        self.assertEqual(len(pick_perf_prepare_df(rows)), 3)
+        rows["GAME_TIME"] = "20:20"
+        result = pick_perf_prepare_df(rows)
+        self.assertEqual(len(result), 3)
+        self.assertEqual(int(result["first_decision"].sum()), 2)
+
+    def test_publication_fails_closed_at_kickoff_and_unknown_time(self):
+        base = {"player": "Test", "player_id": "p1", "rank": 1,
+                "prop_type": "REC", "line": 4.5, "lean": "UNDER",
+                "PICK_ODDS": -110, "confidence": "VALIDATED",
+                "GAME_DATE": "2026-10-08", "GAME_TIME": "20:15"}
+        for moment, expected in [("20:14:59", 1), ("20:15:00", 0), ("20:16:00", 0)]:
+            snapshot, ledger = assemble_pick_tabs(
+                pd.DataFrame([base]), pd.DataFrame(), 5, 2026,
+                now=pd.Timestamp(f"2026-10-08 {moment}", tz="US/Eastern"))
+            self.assertEqual(len(snapshot), expected)
+            self.assertEqual(len(ledger), expected)
+        snapshot, ledger = assemble_pick_tabs(
+            pd.DataFrame([{**base, "GAME_TIME": ""}]), pd.DataFrame(), 5, 2026,
+            now=pd.Timestamp("2026-10-08 12:00", tz="US/Eastern"))
+        self.assertTrue(snapshot.empty and ledger.empty)
+
+    def test_performance_excludes_late_and_unknown_without_mutation(self):
+        base = {"HIT": "YES", "SEASON": 2026, "WEEK": 4,
+                "GAME_DATE": "2026-10-04", "GAME_TIME": "1:00 PM",
+                "DATE": "2026-10-04", "player_id": "p1", "prop_type": "REC",
+                "line": 4.5, "lean": "UNDER", "RUN_NUMBER": 1}
+        rows = pd.DataFrame([
+            {**base, "RUN_TIME": "2026-10-04 12:59:59 EDT"},
+            {**base, "RUN_TIME": "2026-10-04 13:00:00 EDT", "line": 5.5},
+            {**base, "RUN_TIME": "2026-10-04 12:00:00 EDT", "GAME_TIME": ""},
+            {**base, "RUN_TIME": ""},
+        ])
+        original = rows.copy(deep=True)
+        self.assertEqual(pregame_publication_status(rows).tolist(),
+                         ["PREGAME", "POST_KICKOFF", "UNKNOWN_KICKOFF", "UNKNOWN_PUBLICATION"])
+        self.assertEqual(len(pick_perf_prepare_df(rows)), 1)
+        pd.testing.assert_frame_equal(rows, original)
 
     def test_fantasypros_fetches_each_supported_position_from_public_endpoint(self):
         def response_for(position):

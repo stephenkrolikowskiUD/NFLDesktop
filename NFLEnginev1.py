@@ -149,7 +149,7 @@ def has_live_game_market_odds(games: pd.DataFrame, *, game_type: str | None = No
 
 def resolve_model_identity(schedule_season: int, season_phase: str) -> tuple[str, str]:
     """Stamp the current phase and generation without static workflow pins."""
-    generation = "v3" if season_phase == phase.REGULAR_SEASON_PHASE else "v1"
+    generation = "v4" if season_phase == phase.REGULAR_SEASON_PHASE else "v1"
     model_version = MODEL_VERSION_OVERRIDE or f"nfl-{schedule_season}-{season_phase}-{generation}"
     model_era = MODEL_ERA_OVERRIDE or model_version
     return model_version, model_era

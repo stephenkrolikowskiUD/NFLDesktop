@@ -78,10 +78,9 @@ RESEARCH_ONLY_PLAYER_MARKETS = {"ANY_TD"}
 # Player-prop probabilities begin at the current market and only move when the
 # player's evidence earns it. The old implementation treated a raw prior-year
 # line-clear rate as a forecast; this makes the market a 24-game beta prior and
-# upweights the small amount of current-season evidence without letting two
-# games overpower a full prior season.
+# counts each current-season observation once, not as three independent games.
 MARKET_PRIOR_GAMES = 24.0
-CURRENT_SEASON_GAME_WEIGHT = 3.0
+CURRENT_SEASON_GAME_WEIGHT = 1.0
 MIN_MODEL_EV_PCT = 2.5
 LIVE_MODEL_EXCLUDED_MARKETS = {"ANY_TD"}
 INJURY_RESEARCH_MARKERS = {"QUESTIONABLE", "DOUBTFUL", "OUT", "IR", "LIMITED", "DNP"}
@@ -253,8 +252,7 @@ def _market_anchored_probability(historical_actuals: pd.Series,
                                  market_probability: float) -> tuple[float, float]:
     """Return a shrunk forecast and its effective evidence-game count.
 
-    Historical outcomes are useful player evidence; recent outcomes are more
-    relevant to the live role. Both are regularized toward the no-vig market
+    Historical and current outcomes each count once. Both are regularized toward the no-vig market
     probability, preventing an extreme 2025 record from masquerading as an
     80%+ Week 3 forecast.
     """
@@ -491,6 +489,9 @@ def build_player_context(props_board: pd.DataFrame, game_logs: pd.DataFrame,
         matchup_score, matchup_probability_adjustment = nm.matchup_probability_adjustment(
             team_matchups, current_team, current_opponent, prop["metric"]
         )
+        # Rankings remain context; their conversion into win probability has
+        # not been validated out of sample. Do not manufacture an EV boost.
+        matchup_probability_adjustment = 0.0
         over_probability = float(np.clip(
             over_probability + matchup_probability_adjustment, 0.02, 0.98
         ))
@@ -1391,10 +1392,30 @@ def _column_or_default(frame: pd.DataFrame, column: str, default) -> pd.Series:
     return pd.Series([default] * len(frame), index=frame.index)
 
 
+def pregame_publication_status(frame: pd.DataFrame) -> pd.Series:
+    """Classify stored timestamps without altering the historical ledger."""
+    kickoff = _parse_pick_kickoffs(
+        _column_or_default(frame, "GAME_DATE", ""),
+        _column_or_default(frame, "GAME_TIME", ""),
+    )
+    raw = _column_or_default(frame, "RUN_TIME", "").fillna("").astype(str)
+    # Engine stamps Eastern wall time with EDT/EST. Reject unsupported formats
+    # rather than silently guessing their timezone.
+    local = raw.str.replace(r"\s+(EDT|EST)$", "", regex=True)
+    published = pd.to_datetime(local, format="%Y-%m-%d %H:%M:%S", errors="coerce")
+    published = published.dt.tz_localize(eastern, ambiguous="NaT", nonexistent="NaT")
+    status = pd.Series("UNKNOWN_KICKOFF", index=frame.index)
+    status.loc[kickoff.notna()] = "UNKNOWN_PUBLICATION"
+    known = kickoff.notna() & published.notna()
+    status.loc[known & (published < kickoff)] = "PREGAME"
+    status.loc[known & (published >= kickoff)] = "POST_KICKOFF"
+    return status
+
+
 def assemble_pick_tabs(fresh_picks: pd.DataFrame, prior_daily: pd.DataFrame,
                        week: int, season: int, *, model_version: str = "",
                        model_era: str = "", season_phase: str = "",
-                       odds_sport: str = "", game_type: str = "") -> tuple[pd.DataFrame, pd.DataFrame]:
+                       odds_sport: str = "", game_type: str = "", now=None) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Stamp DATE/RUN_NUMBER, dedup against existing Daily_Picks decisions,
     and return (fresh-pick-snapshot, Daily_Picks-rows-to-append).
 
@@ -1404,7 +1425,8 @@ def assemble_pick_tabs(fresh_picks: pd.DataFrame, prior_daily: pd.DataFrame,
     — the only thing that changes vs. MLB is how many days per week this
     fires, not the per-day numbering itself.
     """
-    now = datetime.now(eastern)
+    now = pd.Timestamp(now if now is not None else datetime.now(eastern))
+    now = now.tz_localize(eastern) if now.tzinfo is None else now.tz_convert(eastern)
     date_str = now.strftime("%Y-%m-%d")
     run_time = now.strftime("%Y-%m-%d %H:%M:%S %Z")
 
@@ -1416,6 +1438,12 @@ def assemble_pick_tabs(fresh_picks: pd.DataFrame, prior_daily: pd.DataFrame,
     out["SEASON"] = pd.to_numeric(_column_or_default(out, "SEASON", season), errors="coerce").fillna(season).astype(int)
     out["WEEK"] = pd.to_numeric(_column_or_default(out, "WEEK", week), errors="coerce").fillna(week).astype(int)
     out["RUN_TIME"] = run_time
+    eligible = pregame_publication_status(out).eq("PREGAME")
+    if not eligible.all():
+        print(f"   blocked {int((~eligible).sum())} pick(s): kickoff passed or unknown")
+    out = out.loc[eligible].copy()
+    if out.empty:
+        return pd.DataFrame(), pd.DataFrame()
     out["RESULT"] = ""
     out["ACTUAL_STAT"] = ""
     out["HIT"] = ""

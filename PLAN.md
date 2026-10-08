@@ -1,6 +1,32 @@
 # NFLDesktop Roadmap
 
-_Last updated: 2026-09-28_
+_Last updated: 2026-10-08_
+
+## October 8 Week 4 Audit Fixes
+- Publication now rejects picks at/after their authoritative stamped kickoff,
+  and rejects missing/unparseable kickoffs. Tests inject the publication clock
+  to cover delayed jobs and exact kickoff boundaries.
+- Performance preparation classifies stored Eastern publication timestamps and
+  excludes late/unknown records without changing Daily_Picks or settled grades.
+  Historical unknown timestamps are excluded, not guessed from DATE.
+- Overall remains a pregame line-level measure. A separate first-pregame-decision
+  table groups game/player/market/side/method/model, preserving all changed lines
+  in the ledger. Model versions no longer collapse together in evaluation keys.
+- Regular-season generation is now v4. Current games count once, not three
+  pseudo-observations. Defense rankings remain context but their unvalidated
+  additive probability adjustment is zero. The market prior and EV threshold
+  are unchanged; this is a conservative policy change, NOT fitted calibration
+  or proof of better predictive performance. Individual probabilities may move
+  either way when the current-season weighting is removed.
+- Offline Week 4 replay: 47 rows -> 42 pregame (20 wins, 19 losses, 3 DNP),
+  with five post-kickoff rows excluded; 34 first decisions (16/15/3).
+- Verification: 16 Python regression tests, 4 JavaScript tests, diff whitespace
+  check. No paid API calls, engine runs, grading writes, commits or pushes.
+- Deploy: push code, run grader to rebuild performance, run engine for new v4
+  picks, then refresh the dashboard. Existing historical snapshots remain intact.
+- Remaining: participation-backed DNP confirmation, role-sensitive historical
+  evidence, chronological out-of-sample calibration, and correlated-risk checks.
+  Do not present these unresolved items as fixed by v4.
 
 ## September 28 Trust And Presentation Reset
 The first pass is recorded in `AUDIT_2026-09-28.md`. The shortlist now uses compact

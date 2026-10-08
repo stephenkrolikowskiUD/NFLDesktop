@@ -40,7 +40,7 @@ import json
 
 from nfl_phase import PRESEASON_PHASE, REGULAR_SEASON_PHASE, infer_pick_phase
 from picks import (actual_value_for_metric, BINARY_METRICS, TEAM_MARKET_METRICS,
-                   normalize_team_abbr)  # single source of truth
+                   normalize_team_abbr, pregame_publication_status)  # single source of truth
 from sports_common import (
     col_letter,
     get_gspread_client,
@@ -605,6 +605,11 @@ def pick_perf_prepare_df(df_all: pd.DataFrame) -> pd.DataFrame:
     df = df_all[df_all["HIT"].isin(["YES", "NO", "PUSH", "DNP"])].copy()
     if df.empty:
         return df
+    publication = pregame_publication_status(df)
+    print(f"   performance publication audit: {publication.value_counts().to_dict()}")
+    df = df.loc[publication.eq("PREGAME")].copy()
+    if df.empty:
+        return df
     idx = df.index
     df["prop_type_norm"] = df.get("prop_type", pd.Series("", index=idx)).fillna("").astype(str).str.upper()
     df["lean_norm"] = df.get("lean", pd.Series("", index=idx)).fillna("").astype(str).str.upper()
@@ -649,15 +654,24 @@ def pick_perf_prepare_df(df_all: pd.DataFrame) -> pd.DataFrame:
     df["_evaluation_key"] = (
         df.get("SEASON", pd.Series("", index=idx)).astype(str) + "|" + df["week"] + "|" +
         game_identity + "|" + player_identity + "|" + df["prop_type_norm"] + "|" + df["lean_norm"] + "|" +
-        line_identity + "|" + df["selection_method_norm"]
+        line_identity + "|" + df["selection_method_norm"] + "|" +
+        df.get("MODEL_VERSION", pd.Series("", index=idx)).fillna("").astype(str)
     )
     published = pd.to_datetime(
         df.get("RUN_TIME", pd.Series("", index=idx)), format="mixed", errors="coerce"
     )
     df["_published_at"] = published.fillna(df["date_parsed"])
+    df["_decision_key"] = (
+        df.get("SEASON", pd.Series("", index=idx)).astype(str) + "|" + df["week"] + "|" +
+        game_identity + "|" + player_identity + "|" + df["prop_type_norm"] + "|" +
+        df["lean_norm"] + "|" + df["selection_method_norm"] + "|" +
+        df.get("MODEL_VERSION", pd.Series("", index=idx)).fillna("").astype(str)
+    )
     df = (df.sort_values(["_published_at", "RUN_NUMBER"], kind="stable")
             .drop_duplicates(subset="_evaluation_key", keep="first")
             .drop(columns=["_evaluation_key", "_published_at"]))
+    df["first_decision"] = ~df.duplicated("_decision_key", keep="first")
+    df = df.drop(columns="_decision_key")
     df["has_lineup_risk"] = df.get("injury_context", pd.Series("", index=idx)).fillna("").astype(str).str.upper().str.startswith("LINEUP RISK")
     df["model_era"] = df.apply(pick_model_era, axis=1)
     df["RUN_NUMBER"] = pd.to_numeric(df.get("RUN_NUMBER", pd.Series(np.nan, index=idx)), errors="coerce").fillna(0).astype(int).astype(str)
@@ -748,6 +762,9 @@ def build_pick_performance(df_all: pd.DataFrame) -> pd.DataFrame:
         if win_df.empty:
             continue
         rows.append(pick_perf_metrics_row(win_df, "overall", "", window_name, timestamp_est))
+        first = win_df.loc[win_df["first_decision"]]
+        if not first.empty:
+            rows.append(pick_perf_metrics_row(first, "evaluation_basis", "FIRST_PREGAME_DECISION", window_name, timestamp_est))
         for dim in PICK_PERF_DIMENSIONS:
             if dim not in win_df.columns:
                 continue

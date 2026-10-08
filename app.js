@@ -2896,11 +2896,12 @@ function renderAuditTable(rows,dimension,title,w){
   }).join('')}</tbody></table></div>`;
 }
 function renderEraCohortAudit(rows,w){
+  const basis=renderAuditTable(rows,'evaluation_basis','First Pregame Selection Per Player / Market / Side / Model',w);
   const era=renderAuditTable(rows,'model_era','Model Era',w);
   const cohort=renderAuditTable(rows,'cohort_norm','Recommendation Cohort',w);
   const odds=renderAuditTable(rows,'odds_bucket','Captured Price Bucket',w);
-  if(!era&&!cohort&&!odds)return '';
-  return `<section style="padding:0 16px 10px"><div style="margin-bottom:7px"><div style="color:var(--accent);font-size:var(--t-sm);font-weight:800">Era & Cohort Audit</div><div style="color:var(--push);font-size:var(--t-xs);margin-top:2px">Historical systems are separated instead of treating every pick as one model. Lower 95% is the conservative hit-rate bound.</div></div><div style="display:grid;gap:10px">${era}${cohort}${odds}</div></section>`;
+  if(!era&&!cohort&&!odds&&!basis)return '';
+  return `<section style="padding:0 16px 10px"><div style="margin-bottom:7px"><div style="color:var(--accent);font-size:var(--t-sm);font-weight:800">Era & Cohort Audit</div><div style="color:var(--push);font-size:var(--t-xs);margin-top:2px">Pregame publications only. Overall counts changed lines separately; the first-selection table counts each game/player/market/side/model once. Same-game results remain correlated. Lower 95% is a nominal row-level bound.</div></div><div style="display:grid;gap:10px">${basis}${era}${cohort}${odds}</div></section>`;
 }
 function hitBar(rate){const r=Math.max(0,Math.min(1,Number(rate)||0));const w=Math.round(r*100);const good=r>=STATS_BREAK_EVEN;return `<div style="height:7px;background:#26313a;border-radius:999px;overflow:hidden;margin-top:5px"><div style="height:100%;width:${w}%;background:${good?'var(--over)':'var(--under)'}"></div></div><div style="font-size:var(--t-xs);color:var(--push);margin-top:2px">break-even 52.4%</div>`}
 function confidenceCalibrationRows(pick){
