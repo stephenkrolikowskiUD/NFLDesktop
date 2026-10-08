@@ -1549,6 +1549,8 @@ function renderShortlistEstimateRow(row,index){
         <span><strong>Estimated return:</strong> ${(row.edge*100).toFixed(1)}% per unit staked at the captured price</span>
         <span><strong>Sample:</strong> ${currentGames===null?"Current-season count unavailable":`${currentGames} current-season games`} · ${row.total.toFixed(1)} weighted observations, not independent games</span>
         <span><strong>Matchup:</strong> ${esc(getShortlistMatchupEvidence(row))}</span>
+        <span><strong>Role:</strong> ${esc(rowField(row.prop,'ROLE_REASON')||'Usage assessment unavailable')} ${esc(rowField(row.prop,'USAGE_METRIC'))} ${esc(rowField(row.prop,'RECENT_USAGE'))}</span>
+        <span><strong>Quote updated:</strong> ${esc(rowField(row.prop,'QUOTE_UPDATED_AT')||'Unknown')} · ${esc(rowField(row.prop,'QUOTE_BOOK_COUNT')||'Unknown')} supporting books at this line. Freshness was checked at publication, not continuously.</span>
         ${effect?`<span><strong>Matchup adjustment:</strong> ${effect.effect>=0?"+":""}${effect.effect.toFixed(1)} percentage points, already included</span>`:""}
         <span><strong>Pick generated:</strong> ${esc(captured||"Time unavailable")}. Price may have changed.</span>
       </div>

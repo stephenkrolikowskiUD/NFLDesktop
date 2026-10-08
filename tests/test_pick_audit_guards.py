@@ -122,10 +122,18 @@ class PickAuditGuardTests(unittest.TestCase):
                 "current_games": 2,
             },
         ])
+        for column in ("best_over_last_update", "best_under_last_update", "support_last_update"):
+            context[column] = pd.Timestamp.now(tz="UTC").isoformat()
+        context["books_quoting"] = 2
         picks = build_calibrated_model_picks(context, max_picks=10)
         self.assertEqual(picks["player"].tolist(), ["Model Under"])
         self.assertEqual(picks.iloc[0]["confidence"], "STRONG")
         self.assertEqual(picks.iloc[0]["SELECTION_METHOD"], "VALIDATED_MODEL")
+        context["best_under_last_update"] = "2000-01-01T00:00:00Z"
+        self.assertTrue(build_calibrated_model_picks(context).empty)
+        context["best_under_last_update"] = pd.Timestamp.now(tz="UTC").isoformat()
+        context["books_quoting"] = 1
+        self.assertTrue(build_calibrated_model_picks(context).empty)
 
     def test_week3_publication_guardrails(self):
         base = {

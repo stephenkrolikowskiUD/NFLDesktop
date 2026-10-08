@@ -149,7 +149,7 @@ def has_live_game_market_odds(games: pd.DataFrame, *, game_type: str | None = No
 
 def resolve_model_identity(schedule_season: int, season_phase: str) -> tuple[str, str]:
     """Stamp the current phase and generation without static workflow pins."""
-    generation = "v4" if season_phase == phase.REGULAR_SEASON_PHASE else "v1"
+    generation = "v5" if season_phase == phase.REGULAR_SEASON_PHASE else "v1"
     model_version = MODEL_VERSION_OVERRIDE or f"nfl-{schedule_season}-{season_phase}-{generation}"
     model_era = MODEL_ERA_OVERRIDE or model_version
     return model_version, model_era
@@ -767,6 +767,9 @@ def build_player_props_tab(board: pd.DataFrame) -> pd.DataFrame:
         "BEST_UNDER_ODDS": board.get("best_under_odds"),
         "BEST_UNDER_LAST_UPDATED": board.get("best_under_last_update"),
         "BOOKS_QUOTING": board.get("books_quoting"),
+        "SUPPORT_LAST_UPDATED": board.get("support_last_update"),
+        "MARKET_OVER_PROBABILITY": board.get("market_over_probability"),
+        "MARKET_UNDER_PROBABILITY": board.get("market_under_probability"),
         "GAME": board.get("event_away", "") + " @ " + board.get("event_home", ""),
         "LAST_UPDATED": board.get("best_over_last_update").fillna(
             board.get("best_under_last_update")
@@ -804,6 +807,12 @@ def restore_player_prop_board(tab: pd.DataFrame, teams: pd.DataFrame) -> pd.Data
         "best_under_odds": pd.to_numeric(tab.get("BEST_UNDER_ODDS", tab.get("UNDER_ODDS")), errors="coerce"),
         "best_over_book": tab.get("BEST_OVER_BOOK", tab.get("BOOK", "")),
         "best_under_book": tab.get("BEST_UNDER_BOOK", tab.get("BOOK", "")),
+        "best_over_last_update": tab.get("BEST_OVER_LAST_UPDATED", ""),
+        "best_under_last_update": tab.get("BEST_UNDER_LAST_UPDATED", ""),
+        "books_quoting": pd.to_numeric(tab.get("BOOKS_QUOTING", pd.Series(0, index=tab.index)), errors="coerce"),
+        "support_last_update": tab.get("SUPPORT_LAST_UPDATED", ""),
+        "market_over_probability": pd.to_numeric(tab.get("MARKET_OVER_PROBABILITY", pd.Series(float("nan"), index=tab.index)), errors="coerce"),
+        "market_under_probability": pd.to_numeric(tab.get("MARKET_UNDER_PROBABILITY", pd.Series(float("nan"), index=tab.index)), errors="coerce"),
         "event_away": games[0],
         "event_home": games[1] if games.shape[1] > 1 else "",
         "event_away_abbr": away,
@@ -928,7 +937,7 @@ def write_to_sheets(
     for tab_name, df in tabs.items():
         if df is None:
             continue
-        if df.empty and tab_name != "Picks_Current":
+        if df.empty and tab_name not in {"Picks_Current", "Picks_Weekly"}:
             # Writing an empty frame would wipe a tab that still holds usable
             # data from a previous run, so skip instead.
             print(f"   ⏭️  {tab_name}: empty, leaving existing tab untouched")
@@ -1666,7 +1675,7 @@ def main():
         "All_Books_Props": pd.DataFrame() if REUSE_SHEET_PROPS else build_all_books_props_tab(props),
         "Game_Markets": pd.DataFrame() if REUSE_SHEET_PROPS else game_markets_tab,
         "Projections": projections,
-        "Picks_Weekly": picks_weekly,
+        "Picks_Weekly": picks_weekly if not picks_weekly.empty else pd.DataFrame(columns=pk.PICK_OUTPUT_COLUMNS),
         # Unlike reference tabs, a daily board must clear when there is no
         # remaining unstarted slate. Keeping yesterday's board is worse.
         "Picks_Current": picks_current if not picks_current.empty else pd.DataFrame(columns=pk.PICK_OUTPUT_COLUMNS),

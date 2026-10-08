@@ -328,12 +328,20 @@ def add_fair_prices(props: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
-def best_price_board(props: pd.DataFrame) -> pd.DataFrame:
+def best_price_board(props: pd.DataFrame, now=None) -> pd.DataFrame:
     """Collapse to the best available price per player-metric-line.
 
     Books post different lines for the same player, so (player, metric, line)
     is the join key — never (player, metric) alone.
     """
+    if props.empty:
+        return pd.DataFrame()
+
+    from pick_quality import quote_is_fresh
+    fresh = props.get("last_update", pd.Series("", index=props.index)).map(
+        lambda value: quote_is_fresh(value, now)
+    )
+    props = props.loc[fresh].copy()
     if props.empty:
         return pd.DataFrame()
 
@@ -369,7 +377,8 @@ def best_price_board(props: pd.DataFrame) -> pd.DataFrame:
         record["market_under_probability"] = (
             round(float(fair["fair_under_prob"].median()), 4) if not fair.empty else None
         )
-        record["books_quoting"] = group["book"].nunique()
+        record["books_quoting"] = fair["book"].nunique()
+        record["support_last_update"] = pd.to_datetime(fair["last_update"], utc=True).min().isoformat() if not fair.empty else ""
         out.append(record)
 
     board = pd.DataFrame(out)

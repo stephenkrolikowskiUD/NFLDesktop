@@ -2,6 +2,36 @@
 
 _Last updated: 2026-10-08_
 
+## October 8 Role And Quote Quality Layer (v5)
+- Targets, carries, or pass attempts provide market-specific opportunity context.
+  Compare the last three current-season games against the historical median.
+  A change of at least max(2 opportunities, 50% of baseline), changed/unknown
+  recent team, or confirmed teammate absence makes the role uncertain. Missing
+  data is UNKNOWN, not stable. These are conservative policy gates, not fitted
+  thresholds or validated opportunity forecasts.
+- Uncertain/unknown roles discard historical outcomes from their probability
+  estimate and remain research-only. No automatic replacement volume boost.
+  Current-week logs are excluded; overlapping historical/current game identities
+  are removed to avoid counting the same game twice after a loader fallback.
+- Fresh means an explicit timezone-bearing quote timestamp aged 0-120 minutes.
+  Filter before selecting the best sportsbook and calculating market consensus.
+  At least two fresh, two-sided books must support the same event/market/line.
+  The oldest supporting timestamp is retained, checked again at publication,
+  and preserved during saved-sheet recovery. Missing timestamps fail closed.
+- Player_Props now retains market probabilities and support timestamps, and
+  Daily_Picks retains role/usage/quote evidence. Shortlist evidence exposes the
+  role reason and quote time. Freshness is checked at publication, not live in
+  the browser; a displayed captured price is not guaranteed still executable.
+- v5 does not carry prior recommendations forward without regenerating them.
+  Empty weekly/current pick tabs clear rather than leave an old board visible.
+  Daily_Picks remains append-only. Existing snapshots and old grades are intact.
+- Model identity moves to v5 so results are not pooled with v4. No new API or
+  paid request added. Route/snap projections, verified depth-chart promotions,
+  participation-based DNP settlement, and fitted distributions remain future work.
+- Operational tradeoff: sparse lines, old recovery snapshots, and early-season
+  unknown roles may produce fewer or no playable recommendations. Do not weaken
+  these checks merely to fill a board. Push code and run a fresh engine to deploy.
+
 ## October 8 Week 4 Audit Fixes
 - Publication now rejects picks at/after their authoritative stamped kickoff,
   and rejects missing/unparseable kickoffs. Tests inject the publication clock

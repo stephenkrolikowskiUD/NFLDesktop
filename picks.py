@@ -16,6 +16,7 @@ import pandas as pd
 import pytz
 
 import nfl_matchups as nm
+from pick_quality import assess_role, quote_is_fresh
 from sports_common import normalize_confidence, normalize_person_name
 
 eastern = pytz.timezone("US/Eastern")
@@ -144,6 +145,9 @@ def recommendation_status(pick) -> str:
     research cohort and append-only grading ledger.
     """
     method = pick_selection_method(pick)
+    if str(pick.get("MODEL_VERSION", "")).endswith("-v5"):
+        if str(pick.get("ROLE_STATUS", "")) != "STABLE":
+            return "RESEARCH"
     confidence = normalize_confidence(
         pick.get("confidence"),
         allowed=("SMASH", "STRONG", "LEAN", "VALIDATED"),
@@ -388,8 +392,15 @@ def build_player_context(props_board: pd.DataFrame, game_logs: pd.DataFrame,
     current_logs = current_game_logs.copy() if current_game_logs is not None else pd.DataFrame()
     if not current_logs.empty and "player_display_name" in current_logs.columns:
         current_logs["_name_norm"] = current_logs["player_display_name"].map(_norm_name)
+        if active_week is not None and "week" in current_logs:
+            current_logs = current_logs.loc[pd.to_numeric(current_logs["week"], errors="coerce") < active_week].copy()
     else:
         current_logs = pd.DataFrame()
+    identity = ["player_id", "season", "week"]
+    if not current_logs.empty and all(c in logs and c in current_logs for c in identity):
+        # A prior-season load can fall back to current logs. Count a game once.
+        current_keys = pd.MultiIndex.from_frame(current_logs[identity])
+        logs = logs.loc[~pd.MultiIndex.from_frame(logs[identity]).isin(current_keys)].copy()
     board["_name_norm"] = board["player"].map(_norm_name)
     injury_reports = _active_injury_reports(injuries, active_week)
     unavailable_ids = set(
@@ -410,6 +421,10 @@ def build_player_context(props_board: pd.DataFrame, game_logs: pd.DataFrame,
         player_logs = logs[logs["_name_norm"] == prop["_name_norm"]]
         if player_logs.empty:
             excluded_no_history_props += 1
+            continue
+
+        if "player_id" in player_logs and player_logs["player_id"].dropna().nunique() != 1:
+            excluded_ineligible_props += 1
             continue
 
         actuals = player_logs.apply(
@@ -486,6 +501,14 @@ def build_player_context(props_board: pd.DataFrame, game_logs: pd.DataFrame,
         if missing_projection_identity or event_team_mismatch or player_id in unavailable_ids:
             continue
         current_opponent = event_home if current_team == event_away else event_away
+        role = assess_role(player_logs, player_current_logs, prop["metric"],
+                           current_team, absence_context.get(current_team, ""))
+        if role["role_status"] != "STABLE":
+            # Old-role production cannot justify an edge for an uncertain role.
+            over_probability, over_evidence_games = _market_anchored_probability(
+                pd.Series(dtype=float), current_actuals, line, "OVER", market_over)
+            under_probability, under_evidence_games = _market_anchored_probability(
+                pd.Series(dtype=float), current_actuals, line, "UNDER", market_under)
         matchup_score, matchup_probability_adjustment = nm.matchup_probability_adjustment(
             team_matchups, current_team, current_opponent, prop["metric"]
         )
@@ -504,6 +527,11 @@ def build_player_context(props_board: pd.DataFrame, game_logs: pd.DataFrame,
         kickoff_eastern = kickoff.tz_convert(eastern) if pd.notna(kickoff) else None
 
         rows.append({
+            **role,
+            "best_over_last_update": prop.get("best_over_last_update"),
+            "best_under_last_update": prop.get("best_under_last_update"),
+            "books_quoting": prop.get("books_quoting", 0),
+            "support_last_update": prop.get("support_last_update", ""),
             "player": prop["player"],
             "player_id": latest.get("player_id"),
             "team": current_team,
@@ -794,6 +822,13 @@ def build_calibrated_model_picks(player_ctx: pd.DataFrame,
             & ~ctx["metric"].astype(str).str.upper().isin(LIVE_MODEL_EXCLUDED_MARKETS)
         ].copy()
         rows = rows[pd.to_numeric(rows[odds_col], errors="coerce") < 0]
+        if rows.empty:
+            continue
+        side = lean.lower()
+        fresh = rows.get(f"best_{side}_last_update", pd.Series("", index=rows.index)).map(quote_is_fresh)
+        supported = pd.to_numeric(rows.get("books_quoting", pd.Series(0, index=rows.index)), errors="coerce").ge(2)
+        support_fresh = rows.get("support_last_update", pd.Series("", index=rows.index)).map(quote_is_fresh)
+        rows = rows.loc[fresh & supported & support_fresh].copy()
         rows["_lean"] = lean
         rows["_ev"] = rows[ev_col]
         rows["_probability"] = rows[probability_col]
@@ -842,6 +877,14 @@ def build_calibrated_model_picks(player_ctx: pd.DataFrame,
                 f"matchup {float(r.get('matchup_probability_adjustment', 0.0)):+.1%}."
             ),
             "injury_context": str(r.get("injury_status", ""))[:120],
+            "ROLE_STATUS": r.get("role_status", "UNKNOWN"),
+            "ROLE_REASON": r.get("role_reason", "Missing usage evidence"),
+            "USAGE_METRIC": r.get("usage_metric", ""),
+            "RECENT_USAGE": r.get("recent_usage"),
+            "HISTORICAL_USAGE": r.get("historical_usage"),
+            "QUOTE_UPDATED_AT": r.get(f"best_{str(r['_lean']).lower()}_last_update"),
+            "QUOTE_BOOK_COUNT": r.get("books_quoting", 0),
+            "QUOTE_SUPPORT_UPDATED_AT": r.get("support_last_update", ""),
             "PICK_BOOK": r.get("_book"),
             "PICK_ODDS": r.get("_odds"),
             "IMPLIED_PROBABILITY": round(_implied_prob(r.get("_odds")), 4) if pd.notna(r.get("_odds")) else np.nan,
@@ -855,7 +898,7 @@ def build_calibrated_model_picks(player_ctx: pd.DataFrame,
             "MATCHUP_PROB_ADJ": r.get("matchup_probability_adjustment", 0),
             "CONSENSUS_COUNT": 0,
             "CONSENSUS_RUNS": "",
-            "CONSENSUS_TAG": "CALIBRATED MODEL V3",
+            "CONSENSUS_TAG": "MARKET-ANCHORED MODEL V5",
             "SELECTION_METHOD": "VALIDATED_MODEL",
         })
         if len(rows) >= max_picks:
@@ -1177,6 +1220,8 @@ PICK_OUTPUT_COLUMNS = [
     "PICK_BOOK", "PICK_ODDS", "IMPLIED_PROBABILITY", "MODEL_HIT_RATE",
     "MODEL_EV_PCT", "MODEL_EDGE_SCORE", "MARKET_PROBABILITY", "EVIDENCE_GAMES",
     "CURRENT_SEASON_GAMES", "MATCHUP_SCORE", "MATCHUP_PROB_ADJ",
+    "ROLE_STATUS", "ROLE_REASON", "USAGE_METRIC", "RECENT_USAGE", "HISTORICAL_USAGE",
+    "QUOTE_UPDATED_AT", "QUOTE_BOOK_COUNT", "QUOTE_SUPPORT_UPDATED_AT",
     "CONSENSUS_COUNT", "CONSENSUS_RUNS",
     "CONSENSUS_TAG", "CLV_OPEN_LINE", "CLV_LATEST_LINE", "CLV_DELTA",
     "CLV_LAST_UPDATE", "RESULT", "ACTUAL_STAT", "HIT", "REALIZED_PROFIT",
@@ -1261,6 +1306,9 @@ def build_weekly_pick_board(fresh_picks: pd.DataFrame, prior_weekly: pd.DataFram
                             *, week: int, season: int) -> pd.DataFrame:
     """Merge newly priced props into the active week's persistent board."""
     prior = prior_weekly.copy()
+    if "MODEL_VERSION" in prior:
+        # v5 recommendations must be regenerated against this run's live board.
+        prior = prior.loc[~prior["MODEL_VERSION"].astype(str).str.endswith("-v5")].copy()
     if not prior.empty:
         prior_season = pd.to_numeric(_column_or_default(prior, "SEASON", season), errors="coerce")
         prior_week = pd.to_numeric(_column_or_default(prior, "WEEK", week), errors="coerce")
@@ -1439,8 +1487,12 @@ def assemble_pick_tabs(fresh_picks: pd.DataFrame, prior_daily: pd.DataFrame,
     out["WEEK"] = pd.to_numeric(_column_or_default(out, "WEEK", week), errors="coerce").fillna(week).astype(int)
     out["RUN_TIME"] = run_time
     eligible = pregame_publication_status(out).eq("PREGAME")
+    guarded = out["MODEL_VERSION"].astype(str).str.endswith("-v5") if "MODEL_VERSION" in out else pd.Series(str(model_version).endswith("-v5"), index=out.index)
+    for field in ("QUOTE_UPDATED_AT", "QUOTE_SUPPORT_UPDATED_AT"):
+        fresh = _column_or_default(out, field, "").map(lambda value: quote_is_fresh(value, now))
+        eligible &= ~guarded | fresh
     if not eligible.all():
-        print(f"   blocked {int((~eligible).sum())} pick(s): kickoff passed or unknown")
+        print(f"   blocked {int((~eligible).sum())} pick(s): kickoff passed/unknown or quote stale/unknown")
     out = out.loc[eligible].copy()
     if out.empty:
         return pd.DataFrame(), pd.DataFrame()
