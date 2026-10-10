@@ -761,6 +761,8 @@ td.push{color:var(--push);font-weight:700}
 .shortlist-estimate-main .shortlist-call span{margin-top:5px;color:var(--ink-muted);font-weight:400}
 .shortlist-estimate-price strong{display:block;font-size:var(--t-md);font-variant-numeric:tabular-nums;color:var(--ink-0)}
 .shortlist-estimate-price span{display:block;margin-top:4px;color:var(--ink-muted);font-size:var(--t-xs)}
+.shortlist-estimate-price .quote-recheck{color:var(--warn)}
+.shortlist-tray-body .shortlist-estimate-note{margin:12px 0}
 .shortlist-estimate-detail{margin:10px 0 0 44px}
 .shortlist-estimate-detail summary{cursor:pointer;font-size:var(--t-xs);color:var(--ink-muted);padding:5px 0;width:fit-content}
 .shortlist-estimate-detail summary:focus-visible{outline:2px solid var(--accent);outline-offset:3px}

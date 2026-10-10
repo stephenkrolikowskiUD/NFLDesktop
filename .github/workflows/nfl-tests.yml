@@ -1,0 +1,31 @@
+name: NFL Regression Tests
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Test pick and grading safeguards
+        run: python -m unittest discover -s tests -p 'test_*.py'
+      - name: Check dashboard syntax and behavior
+        run: |
+          node --check app.js
+          node --test tests/*.cjs

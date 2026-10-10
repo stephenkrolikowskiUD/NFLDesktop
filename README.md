@@ -6,7 +6,9 @@ This repo is the GitHub Pages frontend for the NFL system. The engine writes dat
 
 ## Status: In Development
 
-Week 1 kickoff is **2026-09-09** (NE @ SEA).
+October 10 status: live research beta. The v5 picker uses role and quote-quality
+guards; predictive profitability is not established. See the dated entries in
+`PLAN.md` for current behavior rather than the historical launch checklist.
 
 - ✅ nflverse data layer with direct-parquet fallback
 - ✅ Schedule, spreads, totals, moneylines, snap counts, injuries, usage shares
@@ -28,7 +30,19 @@ Week 1 kickoff is **2026-09-09** (NE @ SEA).
 - 🟡 Projection explainer layer so disagreements are easier to trust at a glance
 - 🟡 Game Builder presentation and entry ergonomics
 
-See [PLAN.md](./PLAN.md) for the active sprint priorities and Week 1 launch bar.
+See [PLAN.md](./PLAN.md) for current priorities and historical launch notes.
+
+## Regression Checks
+
+Run `python -m unittest discover -s tests -p 'test_*.py'`,
+`node --check app.js`, and `node --test tests/*.cjs` before publishing changes.
+The NFL Regression Tests workflow runs these on pushes and pull requests without
+API keys, sportsbook calls, or Google Sheets writes. Passing tests does not
+validate forecasts or confirm that the live dashboard has fresh data.
+
+Before game day, confirm a fresh engine run, quote timestamps, the correct week
+and matchups, and a clearly explained empty board if nothing qualifies. Saved
+shortlist selections are a research list, not a sportsbook ticket or payout quote.
 
 ## How It Works
 

@@ -45,6 +45,19 @@ class QualityTests(unittest.TestCase):
         self.assertEqual(recommendation_status(row), "RESEARCH")
         self.assertEqual(recommendation_status({**row, "ROLE_STATUS": "STABLE"}), "PLAYABLE")
 
+    def test_role_requires_distinct_games_and_known_team(self):
+        history = pd.DataFrame({"targets": [2]*10})
+        current = pd.DataFrame({"week": [1, 2, 3], "targets": [2]*3, "team": ["A"]*3})
+        for bad in [current.drop(columns="team"), current.assign(week=[1, 1, 2]),
+                    current.assign(targets=[2, -1, 2]), current.assign(targets=[2, float("inf"), 2])]:
+            self.assertEqual(assess_role(history, bad, "REC", "A")["role_status"], "UNKNOWN")
+        self.assertEqual(assess_role(history, current, "REC", "")["role_status"], "UNKNOWN")
+
+    def test_role_sorts_week_numbers_numerically(self):
+        history = pd.DataFrame({"targets": [2]*10})
+        current = pd.DataFrame({"week": ["2", "3", "9", "10"], "targets": [20, 2, 2, 2], "team": ["A"]*4})
+        self.assertEqual(assess_role(history, current, "REC", "A")["role_status"], "STABLE")
+
     def test_v5_prior_board_is_not_an_unverified_fallback(self):
         prior = pd.DataFrame([{"MODEL_VERSION": "nfl-2026-regular-season-v5"}])
         self.assertTrue(build_weekly_pick_board(pd.DataFrame(), prior, week=5, season=2026).empty)

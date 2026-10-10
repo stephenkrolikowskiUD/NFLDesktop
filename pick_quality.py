@@ -25,11 +25,21 @@ def assess_role(history, current, metric, team, teammate_absences=""):
               "usage_metric": opportunity or "", "recent_usage": None, "historical_usage": None}
     if opportunity is None or opportunity not in current or opportunity not in history:
         return result
-    if "week" not in current:
+    if "week" not in current or "team" not in current or not str(team or "").strip():
         return result
-    recent = current.sort_values([c for c in ("season", "week") if c in current]).tail(3)
+    current = current.copy()
+    current["week"] = pd.to_numeric(current["week"], errors="coerce")
+    if current["week"].isna().any():
+        return result
+    game_key = [c for c in ("season", "week") if c in current]
+    if current.duplicated(game_key).any():
+        result["role_reason"] = "Duplicate game usage requires review"
+        return result
+    recent = current.sort_values(game_key).tail(3)
     values = pd.to_numeric(recent[opportunity], errors="coerce").dropna()
     baseline = pd.to_numeric(history[opportunity], errors="coerce").dropna()
+    if not values.between(0, float("inf"), inclusive="left").all() or not baseline.between(0, float("inf"), inclusive="left").all():
+        return result
     if len(values) < 3 or len(baseline) < 3:
         return result
     old, new = float(baseline.median()), float(values.mean())

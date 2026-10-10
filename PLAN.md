@@ -1,6 +1,43 @@
 # NFLDesktop Roadmap
 
-_Last updated: 2026-10-08_
+_Last updated: 2026-10-10_
+
+## October 10 Pre-Sunday Hardening And Polish
+
+Current priorities supersede the historical sprint/launch notes below.
+
+- Role checks now reject missing team columns, unknown current team identity,
+  duplicate game weeks, and negative/infinite opportunity data. Week strings
+  sort numerically so Week 10 does not precede Week 9.
+- Shortlist prices expose quote age at render time and an amber recheck warning
+  after two hours or when the timestamp is invalid/missing. This is a snapshot
+  warning, not continuous odds monitoring or automatic price refresh.
+- Saved shortlist selections no longer multiply cross-book prices into an
+  apparent sportsbook payout. Copy/export retains individual book/price evidence
+  and warns that the list is not a ticket. Same-game risk remains disclosed.
+- The beta banner is no longer Week 1-specific. Its weekly link uses the board
+  label. Picks navigation uses native keyboard-accessible buttons.
+- Added a no-secret regression workflow for pushes and pull requests. It checks
+  Python safeguards, JavaScript syntax and shortlist behavior; it does not run
+  the engine, spend Odds API credits or write to Sheets.
+- Local preview loaded October 8 picks on October 10 and showed an empty
+  shortlist. A fresh production engine run and populated-board browser QA are
+  still required before declaring Sunday readiness.
+- Verification: 23 Python tests, 8 JavaScript tests, JavaScript syntax and diff
+  whitespace checks passed locally. The preview shell rendered, but navigation
+  clicks in the in-app browser did not produce a verified view change; full
+  interaction QA remains open. No engine run, grading write or paid API call.
+
+Remaining work, in priority order:
+1. Fresh-run verification: inspect per-gate exclusions and distinguish missing
+   inputs from legitimate research-only candidates without lowering thresholds.
+2. Participation-backed DNP handling and chronological held-out probability
+   evaluation; do not tune to the same games used to judge performance.
+3. Extend the research-list treatment to Slips/Game Builder and test populated
+   desktop/mobile views. This pass changes the shortlist tray only.
+4. Consolidate historical roadmap text and optional missing-tab noise. Preserve
+   the record of prior model behavior instead of rewriting audit history.
+
 
 ## October 8 Role And Quote Quality Layer (v5)
 - Targets, carries, or pass attempts provide market-specific opportunity context.

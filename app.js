@@ -1457,9 +1457,7 @@ function toggleShortlistTray(name,metric,line,lean){
 function removeShortlistTrayLeg(key){st.shortlistTray=getActiveShortlistTray().filter(item=>shortlistLegKey(item)!==key);st.shortlistTrayNotice="";persistShortlistTray();render()}
 function clearShortlistTray(){st.shortlistTray=[];st.shortlistTrayNotice="";persistShortlistTray();render()}
 function shortlistTrayCopyText(items){
-  const math=calculateParlayMath(items);
-  const combined=math.american>0?`+${math.american}`:`${math.american}`;
-  return`NFL Shortlist Entry — ${items.length} legs\n${items.map((item,index)=>`${index+1}. ${item.name} — ${propTypeLabel(item.metric)} ${item.lean} ${item.dkLine} (${fmtOdds(item.odds)}, ${item.book})`).join("\n")}\nCombined ${combined} | $10 → $${math.return10.toFixed(2)}\nBuilt ${new Date().toLocaleString()}`;
+  return`NFL Research List — ${items.length} selections\n${items.map((item,index)=>`${index+1}. ${item.name} — ${propTypeLabel(item.metric)} ${item.lean} ${item.dkLine} (${fmtOdds(item.odds)}, ${item.book}; captured price)`).join("\n")}\nSaved selections, not a sportsbook ticket. Recheck availability, injuries and prices. No combined payout is quoted.\nBuilt ${new Date().toLocaleString()}`;
 }
 function copyShortlistTray(){
   const items=getActiveShortlistTray();if(!items.length)return;
@@ -1471,19 +1469,14 @@ function copyShortlistTray(){
 function renderShortlistTray(){
   const items=getActiveShortlistTray();
   if(!items.length)return`<aside class="shortlist-tray"><div class="shortlist-tray-head"><div><div class="shortlist-tray-title">My Shortlist Tray <span>0</span></div><div class="shortlist-tray-empty">Use Add to tray to save a selection. One selection per player.</div></div></div>${st.shortlistTrayNotice?`<div class="shortlist-tray-body"><div class="shortlist-tray-notice">${esc(st.shortlistTrayNotice)}</div></div>`:""}</aside>`;
-  const math=calculateParlayMath(items);
-  const combined=math.american>0?`+${math.american}`:`${math.american}`;
-  const avgEdge=items.reduce((sum,item)=>sum+item.edge,0)/items.length;
-  const weakest=items.reduce((min,item)=>item.edge<min.edge?item:min,items[0]);
   const books=[...new Set(items.map(item=>item.book).filter(Boolean))];
   const gameCounts=new Map();
   items.forEach(item=>{const key=[item.team,item.opp].sort().join("|");gameCounts.set(key,(gameCounts.get(key)||0)+1)});
   const correlated=[...gameCounts.values()].some(count=>count>1);
   const warnings=[];
-  if(correlated)warnings.push("Same-game legs detected; the combined probability is not independent.");
-  if(books.length>1)warnings.push(`Cross-book entry: best prices are split across ${books.join(", ")}.`);
-  if(weakest.edge<0.08)warnings.push(`Weakest leg is ${weakest.name} at +${(weakest.edge*100).toFixed(1)}% edge.`);
-  return`<aside class="shortlist-tray"><div class="shortlist-tray-head"><div class="shortlist-tray-title">My Shortlist Tray <span>${items.length}</span></div><div class="shortlist-tray-actions"><button class="shortlist-tray-btn" onclick="clearShortlistTray()">Clear</button><button class="shortlist-tray-btn primary" onclick="copyShortlistTray()">${window.__shortlistTrayCopied?"Copied":"Copy entry"}</button></div></div><div class="shortlist-tray-body"><div class="shortlist-tray-legs">${items.map(item=>`<div class="shortlist-tray-leg"><strong>${esc(item.name)}</strong><span>${esc(propTypeLabel(item.metric))} ${item.lean} ${esc(item.dkLine)} · ${fmtOdds(item.odds)}</span><button class="shortlist-tray-remove" title="Remove ${esc(item.name)}" onclick="removeShortlistTrayLeg('${esc(shortlistLegKey(item))}')">×</button></div>`).join("")}</div><div class="shortlist-tray-metrics"><div class="shortlist-tray-metric"><strong>${combined}</strong><span>Combined odds</span></div><div class="shortlist-tray-metric"><strong>$${math.return10.toFixed(2)}</strong><span>$10 return</span></div><div class="shortlist-tray-metric"><strong>+${(avgEdge*100).toFixed(1)}%</strong><span>Average edge</span></div><div class="shortlist-tray-metric"><strong>+${(weakest.edge*100).toFixed(1)}%</strong><span>Weakest leg</span></div></div>${warnings.map(warning=>`<div class="shortlist-tray-warning">${icon("warn")}${esc(warning)}</div>`).join("")}${st.shortlistTrayNotice?`<div class="shortlist-tray-notice">${esc(st.shortlistTrayNotice)}</div>`:""}</div></aside>`;
+  if(correlated)warnings.push("Same-game selections share risk; do not treat them as independent.");
+  if(books.length>1)warnings.push(`Prices come from different books: ${books.join(", ")}. This is not one executable ticket.`);
+  return`<aside class="shortlist-tray"><div class="shortlist-tray-head"><div class="shortlist-tray-title">Saved selections <span>${items.length}</span></div><div class="shortlist-tray-actions"><button class="shortlist-tray-btn" onclick="clearShortlistTray()">Clear</button><button class="shortlist-tray-btn primary" onclick="copyShortlistTray()">${window.__shortlistTrayCopied?"Copied":"Copy list"}</button></div></div><div class="shortlist-tray-body"><div class="shortlist-tray-legs">${items.map(item=>`<div class="shortlist-tray-leg"><strong>${esc(item.name)}</strong><span>${esc(propTypeLabel(item.metric))} ${esc(item.lean)} ${esc(item.dkLine)} · ${fmtOdds(item.odds)} · ${esc(item.book||"Book unavailable")}</span><button class="shortlist-tray-remove" title="Remove ${esc(item.name)}" onclick="removeShortlistTrayLeg('${esc(shortlistLegKey(item))}')">×</button></div>`).join("")}</div><p class="shortlist-estimate-note">Saved for research, not placed bets. Recheck prices and player availability at your book. Combined payouts are not estimated.</p>${warnings.map(warning=>`<div class="shortlist-tray-warning">${icon("warn")}${esc(warning)}</div>`).join("")}${st.shortlistTrayNotice?`<div class="shortlist-tray-notice">${esc(st.shortlistTrayNotice)}</div>`:""}</div></aside>`;
 }
 
 function latestPreseasonGamePicks(){
@@ -1523,6 +1516,15 @@ function renderPreseasonShortlist(rows){
   return `<section class="shortlist-shell"><div class="shortlist-head"><div><div class="analysis-eyebrow">This week's decision board</div><div class="shortlist-title">Preseason Shortlist</div><div class="shortlist-sub">Player props are still thin, so the board is leading with the cleanest team-side markets until books open a real player board.</div></div><div class="shortlist-rule">Preseason mode · team markets ranked</div></div><div class="shortlist-summary-row"><span><strong>${rows.length}</strong> qualified</span><span><strong>${markets}</strong> market types</span><span><strong>${rows.filter(r=>normalizeConfidence(rowField(r,"confidence"))==="STRONG").length}</strong> strong</span><span><strong>${rows.filter(r=>rowField(r,"PICK_ODDS")!==""&&rowField(r,"PICK_ODDS")!=null).length}</strong> priced</span></div><div class="shortlist-grid">${rows.map((row,index)=>{const tier=tierClassForConfidence(rowField(row,"confidence"));const selection=pickDisplaySelection(row)||rowField(row,"game")||"Game market";const odds=rowField(row,"PICK_ODDS");const book=rowField(row,"PICK_BOOK")||"opening board";const teams=teamPairForRow(row);return`<article class="shortlist-card ${tier}${index===0?" top":""}"><div class="shortlist-topline"><div class="shortlist-rank">${index===0?"Top play":`#${String(index+1).padStart(2,"0")}`}</div><div class="shortlist-tier ${tier}">${esc(normalizeConfidence(rowField(row,"confidence"))||"LEAN")}</div></div><div><div class="shortlist-name-row">${renderTeamLogoStack(teams.away,teams.home)}<div class="shortlist-name">${esc(selection)}</div></div><div class="shortlist-meta">${esc(rowField(row,"game")||"")} · ${esc(propTypeLabel(rowField(row,"prop_type")))}</div></div><div class="shortlist-call"><strong class="shortlist-call-line">${esc(oddsMetaText(odds))}</strong><span>${esc(teamMarketEdgeLabel(row))}</span></div><div class="shortlist-evidence"><span>${esc(rowField(row,"rationale")||"Opening preseason market signal.")}</span><span>${esc(teamMarketSummary(row))}</span></div><div class="shortlist-footer"><div class="shortlist-footer-meta">${esc(book)} · ${esc(propTypeLabel(rowField(row,"prop_type")))} · ${esc(selectionMethodLabel(rowField(row,"SELECTION_METHOD")||"VALIDATED_MODEL"))}</div></div></article>`}).join("")}</div></section>`;
 }
 
+function quoteAgeLabel(value,now=Date.now()){
+  const text=String(value||"").trim();
+  if(!/(Z|[+-]\d{2}:?\d{2})$/i.test(text))return{label:"Quote time unknown",stale:true};
+  const age=(now-Date.parse(text))/60000;
+  if(!Number.isFinite(age)||age<0)return{label:"Quote time unknown",stale:true};
+  const minutes=Math.floor(age);
+  const elapsed=minutes<60?`${minutes}m`:`${Math.floor(minutes/60)}h ${minutes%60}m`;
+  return{label:age>120?`Recheck price · ${elapsed} old`:`Captured ${elapsed} ago`,stale:age>120};
+}
 function renderShortlistEstimateRow(row,index){
   const book=String(rowField(row.prop,"PICK_BOOK")||"");
   const captured=String(rowField(row.prop,"RUN_TIME")||rowField(row.prop,"DATE")||"");
@@ -1534,12 +1536,13 @@ function renderShortlistEstimateRow(row,index){
   const inTray=isInShortlistTray(row);
   const effect=row.opponentEffect;
   const args=[row.name,row.metric,row.dkLine,row.lean].map(v=>esc(JSON.stringify(String(v)))).join(",");
+  const quoteAge=quoteAgeLabel(rowField(row.prop,"QUOTE_UPDATED_AT"));
   return `<article class="shortlist-estimate-row">
     <div class="shortlist-estimate-main">
       <span class="shortlist-rank">${String(index+1).padStart(2,"0")}</span>
       <div class="shortlist-name-row">${renderPlayerHeadshot(row.name)}<div><div class="shortlist-name">${playerLink(row.name,row.metric,row.dkLine)}</div><div class="shortlist-meta">${esc(row.team)} vs ${esc(row.opp)} · ${esc(gameTime)}</div></div></div>
       <div class="shortlist-call"><strong class="shortlist-call-line">${esc(row.lean)} ${esc(row.dkLine)}</strong><span>${esc(propTypeLabel(row.metric))}</span></div>
-      <div class="shortlist-estimate-price"><strong>${fmtOdds(row.odds)}</strong><span>${esc(book?formatBookName(book):"Book unavailable")} · captured price</span></div>
+      <div class="shortlist-estimate-price"><strong>${fmtOdds(row.odds)}</strong><span>${esc(book?formatBookName(book):"Book unavailable")} · captured price</span><span class="${quoteAge.stale?"quote-recheck":""}">${esc(quoteAge.label)}</span></div>
       <button class="shortlist-action${inTray?" added":""}" onclick="toggleShortlistTray(${args})">${inTray?"Remove":"Add to tray"}</button>
     </div>
     <details class="shortlist-estimate-detail"><summary>Evidence and model assumptions</summary>
@@ -4614,9 +4617,9 @@ function renderAppHeader({activeTab,showCtrl,player,metricOpts,curTonight}){
 
 function renderWeekOneLaunchNote(activeTab){
   if(activeTab!=="dashboard"&&activeTab!=="picks")return "";
-  return `<section class="week-one-launch" aria-label="Week 1 beta notice">
-    <div class="week-one-launch-copy"><span class="week-one-launch-kicker">Week 1 beta</span><span>Live lines, live data, first-week chaos. Research desk, not a magic 8-ball.</span></div>
-    <div class="week-one-launch-actions"><button type="button" onclick="switchTab('method')">Quick tour <span aria-hidden="true">&rarr;</span></button><button type="button" onclick="st.picksView='picks';switchTab('picks')">Week 1 picks</button></div>
+  return `<section class="week-one-launch" aria-label="Research beta notice">
+    <div class="week-one-launch-copy"><span class="week-one-launch-kicker">Research beta</span><span>Model estimates, captured prices. Research desk, not a magic 8-ball.</span></div>
+    <div class="week-one-launch-actions"><button type="button" onclick="switchTab('method')">Quick tour <span aria-hidden="true">&rarr;</span></button><button type="button" onclick="st.picksView='picks';switchTab('picks')">${esc(weeklyPickLabel())}</button></div>
   </section>`;
 }
 
@@ -4659,7 +4662,7 @@ function renderPicksPage(activeTab,picksHTML){
     ["ks","Passing"],
     ["props","Market Explorer"],
   ];
-  const tabs=views.map(([view,label])=>`<div class="sub-tab ${st.picksView===view?"active":""}" onclick="switchPicksView('${view}')">${label}</div>`).join("");
+  const tabs=views.map(([view,label])=>`<button type="button" class="sub-tab ${st.picksView===view?"active":""}" aria-pressed="${st.picksView===view}" onclick="switchPicksView('${view}')">${esc(label)}</button>`).join("");
   return`
     <div id="pg-picks" class="page ${activeTab==="picks"?"active":""}">
       <div class="sub-tabs" style="padding-top:12px">${tabs}</div>
