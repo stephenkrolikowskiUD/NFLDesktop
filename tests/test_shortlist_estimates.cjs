@@ -114,3 +114,15 @@ test('research banner follows the current weekly label', () => {
   assert.doesNotMatch(banner('picks'), /Week 1/);
   assert.equal(banner('lookup'), '');
 });
+
+test('research candidates remain visible with their exclusion evidence', () => {
+  const render = loadFunction('renderResearchCandidates', {
+    rowField:(r,k)=>r[k], esc:x=>String(x||'').replaceAll('<','&lt;'), propTypeLabel:x=>x,
+  });
+  const html=render([{player:'Candidate',prop_type:'REC',lean:'OVER',line:3.5,
+    RECOMMENDATION_STATUS:'RESEARCH',ROLE_REASON:'Recent role changed'},
+    {player:'Playable',RECOMMENDATION_STATUS:'PLAYABLE'}]);
+  assert.match(html,/1 research-only/);
+  assert.match(html,/Recent role changed/);
+  assert.doesNotMatch(html,/Playable/);
+});

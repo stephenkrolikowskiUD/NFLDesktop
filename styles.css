@@ -750,6 +750,11 @@ td.push{color:var(--push);font-weight:700}
 .bs-val{font-size:var(--t-lg);font-weight:800;color:var(--over)}
 .bs-lbl{font-size:var(--t-xs);color:var(--accent-soft);margin-top:2px}
 .shortlist-shell{padding:14px 16px 22px}
+.research-candidates{margin:16px 0;padding:14px 0;border-block:1px solid var(--border-1);color:var(--ink-1)}
+.research-candidates summary{cursor:pointer;color:var(--warn);font-weight:600}
+.research-candidates article{padding:12px 0;border-top:1px solid var(--border-1)}
+.research-candidates article span{display:block;margin-top:4px}
+.research-candidates p{font-size:var(--t-xs);color:var(--ink-muted);line-height:1.5}
 .shortlist-estimate-note{max-width:850px;color:var(--ink-muted);font-size:var(--t-xs);line-height:1.5;margin:0 0 18px}
 .shortlist-estimate-list{margin-bottom:22px;border-top:1px solid var(--border-1)}
 .shortlist-estimate-row{border-bottom:1px solid var(--border-1);padding:18px 0}

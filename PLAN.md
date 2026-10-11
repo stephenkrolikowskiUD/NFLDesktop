@@ -1,6 +1,23 @@
 # NFLDesktop Roadmap
 
-_Last updated: 2026-10-10_
+_Last updated: 2026-10-11_
+
+## October 11 Overbroad Absence Guard (v6)
+- Inspected the live nine-row weekly sheet: eight research rows all cited
+  teammate absences; five had no other role-change reason. This does not prove
+  all five should be promoted, only that the blanket rule affected them.
+- v5 passed every team absence into the usage guard, including defenders and
+  special teams. v6 restricts that guard to offensive positions, and rushing
+  markets to QB/backfield/line (QB rushing excludes backfield absences).
+  Missing positions remain conservatively relevant. All-team context remains
+  available separately. No automatic injury replacement volume boosts.
+- Genuine usage changes, direct player injuries, timestamp/two-book checks and
+  EV floors are unchanged. New model identity separates this policy change.
+- Weekly/day views now expose research-only candidates and role reasons rather
+  than hiding them. Model health no longer shows a failed Gemini quota for a
+  quantitative run. No historical grades changed.
+- Deploy with a fresh engine run; old rows are not relabelled in the browser.
+  A higher playable count is not guaranteed or itself a measure of quality.
 
 ## October 10 Pre-Sunday Hardening And Polish
 

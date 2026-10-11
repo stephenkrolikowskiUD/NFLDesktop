@@ -2,10 +2,33 @@ import unittest
 import pandas as pd
 from pick_quality import assess_role, quote_is_fresh
 from odds_client import best_price_board
-from picks import recommendation_status, build_weekly_pick_board
+from picks import recommendation_status, build_weekly_pick_board, _team_absence_context
 
 
 class QualityTests(unittest.TestCase):
+    def test_market_relevant_absences_not_blanket_team_veto(self):
+        reports = pd.DataFrame([
+            dict(team="LAR", full_name="Defender", position="CB", _injury_status="OUT"),
+            dict(team="LAR", full_name="Receiver", position="WR", _injury_status="OUT"),
+            dict(team="LAR", full_name="Lineman", position="OT", _injury_status="OUT"),
+        ])
+        rushing = _team_absence_context(reports, "RUSH_YDS", "QB")["LA"]
+        self.assertNotIn("Defender", rushing)
+        self.assertNotIn("Receiver", rushing)
+        self.assertIn("Lineman", rushing)
+        passing = _team_absence_context(reports, "COMP", "QB")["LA"]
+        self.assertIn("Receiver", passing)
+        self.assertNotIn("Defender", passing)
+        self.assertEqual(_team_absence_context(reports.head(1), "REC", "WR"), {})
+        unknown = reports.head(1).assign(position="")
+        self.assertIn("Defender", _team_absence_context(unknown,"REC","WR")["LA"])
+
+    def test_v6_preserves_role_guard_and_no_carry_forward(self):
+        row = dict(MODEL_VERSION="nfl-2026-regular-season-v6", ROLE_STATUS="UNCERTAIN",
+                   SELECTION_METHOD="VALIDATED_MODEL", confidence="VALIDATED",
+                   PICK_ODDS=-110, prop_type="REC", lean="UNDER")
+        self.assertEqual(recommendation_status(row), "RESEARCH")
+        self.assertTrue(build_weekly_pick_board(pd.DataFrame(), pd.DataFrame([row]),week=5,season=2026).empty)
     def test_freshness_boundaries(self):
         now = pd.Timestamp("2026-10-08T17:00:00Z")
         for value, expected in [("2026-10-08T15:00:00Z", True),

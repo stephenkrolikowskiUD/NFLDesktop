@@ -145,7 +145,7 @@ def recommendation_status(pick) -> str:
     research cohort and append-only grading ledger.
     """
     method = pick_selection_method(pick)
-    if str(pick.get("MODEL_VERSION", "")).endswith("-v5"):
+    if str(pick.get("MODEL_VERSION", "")).endswith(("-v5", "-v6")):
         if str(pick.get("ROLE_STATUS", "")) != "STABLE":
             return "RESEARCH"
     confidence = normalize_confidence(
@@ -333,7 +333,7 @@ def _active_injury_reports(injuries: pd.DataFrame, week: int | None) -> pd.DataF
     return reports
 
 
-def _team_absence_context(reports: pd.DataFrame) -> dict[str, str]:
+def _team_absence_context(reports: pd.DataFrame, metric=None, player_position=None) -> dict[str, str]:
     """Summarize confirmed inactive teammates for the AI review context."""
     if reports.empty or "team" not in reports.columns:
         return {}
@@ -344,8 +344,20 @@ def _team_absence_context(reports: pd.DataFrame) -> dict[str, str]:
         team = str(report.get("team", "")).strip().upper()
         name = str(report.get("full_name", report.get("player_name", ""))).strip()
         position = str(report.get("position", "")).strip().upper()
+        if metric is not None:
+            # Defensive/special-teams absences are matchup context, not evidence
+            # that an offensive player's own opportunity has changed.
+            relevant = {"QB", "RB", "FB", "HB", "WR", "TE", "OL", "OT", "OG", "C", "T", "G", "LT", "RT", "LG", "RG"}
+            if metric in {"RUSH_YDS", "RUSH_TDS", "CARRIES"}:
+                relevant -= {"WR", "TE"}
+                if str(player_position).upper() == "QB":
+                    relevant -= {"RB", "FB", "HB"}
+            # Missing positions cannot safely establish irrelevance.
+            if position and position != "NAN" and position not in relevant:
+                continue
         if not team or not name:
             continue
+        team = normalize_team_abbr(team)
         context.setdefault(team, []).append(" ".join(part for part in [name, position, "OUT"] if part))
     return {team: "; ".join(names[:4]) for team, names in context.items()}
 
@@ -501,8 +513,10 @@ def build_player_context(props_board: pd.DataFrame, game_logs: pd.DataFrame,
         if missing_projection_identity or event_team_mismatch or player_id in unavailable_ids:
             continue
         current_opponent = event_home if current_team == event_away else event_away
+        role_absences = _team_absence_context(
+            injury_reports, prop["metric"], proj_row.get("position", ""))
         role = assess_role(player_logs, player_current_logs, prop["metric"],
-                           current_team, absence_context.get(current_team, ""))
+                           current_team, role_absences.get(current_team, ""))
         if role["role_status"] != "STABLE":
             # Old-role production cannot justify an edge for an uncertain role.
             over_probability, over_evidence_games = _market_anchored_probability(
@@ -898,7 +912,7 @@ def build_calibrated_model_picks(player_ctx: pd.DataFrame,
             "MATCHUP_PROB_ADJ": r.get("matchup_probability_adjustment", 0),
             "CONSENSUS_COUNT": 0,
             "CONSENSUS_RUNS": "",
-            "CONSENSUS_TAG": "MARKET-ANCHORED MODEL V5",
+            "CONSENSUS_TAG": "MARKET-ANCHORED MODEL",
             "SELECTION_METHOD": "VALIDATED_MODEL",
         })
         if len(rows) >= max_picks:
@@ -1308,7 +1322,7 @@ def build_weekly_pick_board(fresh_picks: pd.DataFrame, prior_weekly: pd.DataFram
     prior = prior_weekly.copy()
     if "MODEL_VERSION" in prior:
         # v5 recommendations must be regenerated against this run's live board.
-        prior = prior.loc[~prior["MODEL_VERSION"].astype(str).str.endswith("-v5")].copy()
+        prior = prior.loc[~prior["MODEL_VERSION"].astype(str).str.endswith(("-v5", "-v6"))].copy()
     if not prior.empty:
         prior_season = pd.to_numeric(_column_or_default(prior, "SEASON", season), errors="coerce")
         prior_week = pd.to_numeric(_column_or_default(prior, "WEEK", week), errors="coerce")
@@ -1487,7 +1501,7 @@ def assemble_pick_tabs(fresh_picks: pd.DataFrame, prior_daily: pd.DataFrame,
     out["WEEK"] = pd.to_numeric(_column_or_default(out, "WEEK", week), errors="coerce").fillna(week).astype(int)
     out["RUN_TIME"] = run_time
     eligible = pregame_publication_status(out).eq("PREGAME")
-    guarded = out["MODEL_VERSION"].astype(str).str.endswith("-v5") if "MODEL_VERSION" in out else pd.Series(str(model_version).endswith("-v5"), index=out.index)
+    guarded = out["MODEL_VERSION"].astype(str).str.endswith(("-v5", "-v6")) if "MODEL_VERSION" in out else pd.Series(str(model_version).endswith(("-v5", "-v6")), index=out.index)
     for field in ("QUOTE_UPDATED_AT", "QUOTE_SUPPORT_UPDATED_AT"):
         fresh = _column_or_default(out, field, "").map(lambda value: quote_is_fresh(value, now))
         eligible &= ~guarded | fresh

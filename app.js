@@ -728,8 +728,8 @@ function getModelRunHealth(rows,target=14){
     {label:"Engine run",value:runNumber?`#${runNumber}`:"Current",meta:compactRunTime(runTime),level:"good"},
     {label:"Snapshot",value:`${picks.length} picks`,meta:"Complete current cohort",level:picks.length?"good":"missing"},
     {label:"Playable",value:String(playable),meta:`${picks.length?Math.round(playable/picks.length*100):0}% of snapshot`,level:playable?"good":"warn"},
-    {label:"Validated / research",value:`${validated} / ${research}`,meta:"Model / learning cohort",level:""},
-    {label:"Gemini delivery",value:deliveryValue,meta:deliveryMeta,level:deliveryLevel},
+    {label:"Research only",value:String(research),meta:"Excluded from shortlist; review reasons below",level:""},
+    {label:"Selection source",value:validated===picks.length?"Quantitative model":`${validated} model / ${geminiReviewed} other`,meta:"No minimum pick quota",level:""},
   ];
 }
 function renderModelRunHealth(rows,target=14){
@@ -3215,7 +3215,12 @@ function renderShortlistPicksView(){
   return renderTonightShortlist();
 }
 
-function renderModelPicksView(convergenceHTML,{title=weeklyPickLabel(),subtitle="Ranked best bets across every game this week with a live market.",rows=st.weeklyPicks,sourceNote="",emptyMessage="",healthTarget=14}={}){
+function renderResearchCandidates(rows){
+  const research=rows.filter(p=>String(rowField(p,"RECOMMENDATION_STATUS")||"").toUpperCase()==="RESEARCH");
+  if(!research.length)return "";
+  return `<details class="research-candidates"><summary>${research.length} research-only candidates · why they are not shortlisted</summary><p>These are not promoted recommendations. Review the restriction before considering the estimate.</p>${research.map(p=>`<article><strong>${esc(rowField(p,"player"))}</strong><span>${esc(rowField(p,"lean"))} ${esc(rowField(p,"line"))} ${esc(propTypeLabel(rowField(p,"prop_type")))}</span><p>${esc(rowField(p,"ROLE_REASON")||"Price, injury, market or confidence restriction; inspect the stored pick before use.")}</p></article>`).join("")}</details>`;
+}
+function renderModelPicksView(convergenceHTML,{title=weeklyPickLabel(),subtitle="Model selections across this week's live markets.",rows=st.weeklyPicks,sourceNote="",emptyMessage="",healthTarget=14}={}){
   const allBoardPicks=rows||[];
   // A daily slice may be empty even though the active weekly model run succeeded.
   const healthRows=allBoardPicks.length?allBoardPicks:(st.weeklyPicks||[]);
@@ -3225,7 +3230,7 @@ function renderModelPicksView(convergenceHTML,{title=weeklyPickLabel(),subtitle=
     :allBoardPicks;
   const researchCount=hasCalibrationStatus?allBoardPicks.length-todayPicks.length:0;
   const modelIntro=`<section class="model-picks-intro"><div class="model-picks-title">${esc(title)}</div><div class="model-picks-sub">${esc(subtitle)}</div>${sourceNote?`<div class="model-picks-sub">${esc(sourceNote)}</div>`:""}${renderModelRunHealth(healthRows,healthTarget)}${renderModelFreshness()}</section>`;
-  let html=convergenceHTML+modelIntro+renderPickGuard(st.pickGuard)+renderCalibrationPolicy();
+  let html=convergenceHTML+modelIntro+renderPickGuard(st.pickGuard)+renderCalibrationPolicy()+renderResearchCandidates(allBoardPicks);
 
   if(!todayPicks.length){
     const defaultEmptyMessage=hasCalibrationStatus
@@ -5128,7 +5133,7 @@ function render(){
   }else if(st.picksView==="picks"){
     picksHTML=renderModelPicksView(convergenceHTML,{
       sourceNote:st.weeklyPicksAvailable
-        ?"The active Week 1 board accumulates qualified picks as each game’s markets open."
+        ?"The weekly board separates shortlisted selections from research-only candidates."
         :"Picks_Weekly is unavailable, so this is temporarily showing the next game-day board."
     });
   }else if(st.picksView==="daily"){
