@@ -6,8 +6,9 @@ This repo is the GitHub Pages frontend for the NFL system. The engine writes dat
 
 ## Status: In Development
 
-October 10 status: live research beta. The v5 picker uses role and quote-quality
-guards; predictive profitability is not established. See the dated entries in
+October 12 status: live research beta. The v7 picker adds strict injury-report
+scoping and candidate-ledger preservation to role and quote-quality guards.
+Predictive profitability is not established. See the dated entries in
 `PLAN.md` for current behavior rather than the historical launch checklist.
 
 - ✅ nflverse data layer with direct-parquet fallback

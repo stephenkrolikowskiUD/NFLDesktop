@@ -145,7 +145,10 @@ def recommendation_status(pick) -> str:
     research cohort and append-only grading ledger.
     """
     method = pick_selection_method(pick)
-    if str(pick.get("MODEL_VERSION", "")).endswith(("-v5", "-v6")):
+    if str(pick.get("MODEL_VERSION", "")).endswith("-v7"):
+        if str(pick.get("INJURY_DATA_STATUS", "")) != "CURRENT_WEEK":
+            return "RESEARCH"
+    if str(pick.get("MODEL_VERSION", "")).endswith(("-v5", "-v6", "-v7")):
         if str(pick.get("ROLE_STATUS", "")) != "STABLE":
             return "RESEARCH"
     confidence = normalize_confidence(
@@ -316,21 +319,39 @@ def _injury_status(value) -> str:
     return "" if pd.isna(value) else str(value).strip().upper()
 
 
-def _active_injury_reports(injuries: pd.DataFrame, week: int | None) -> pd.DataFrame:
+def _active_injury_reports(injuries: pd.DataFrame, week: int | None,
+                           season: int | None = None) -> pd.DataFrame:
     """Keep only the current week's reports so old injuries cannot leak forward."""
     if injuries is None or injuries.empty:
         return pd.DataFrame()
     reports = injuries.copy()
-    if week is not None and "week" in reports.columns:
-        report_week = pd.to_numeric(reports["week"], errors="coerce")
-        current = reports[report_week == int(week)]
-        if not current.empty:
-            reports = current
+    for field, requested in (("week", week), ("season", season)):
+        if requested is not None:
+            if field not in reports:
+                empty = reports.iloc[0:0].copy()
+                empty["_injury_status"] = pd.Series(dtype=str)
+                return empty
+            reports = reports.loc[pd.to_numeric(reports[field], errors="coerce").eq(int(requested))].copy()
     if "report_status" in reports.columns:
         reports["_injury_status"] = reports["report_status"].map(_injury_status)
     else:
         reports["_injury_status"] = ""
-    return reports
+    if reports.empty or "gsis_id" not in reports:
+        return reports
+    time_col = next((c for c in ("date_modified", "report_date", "date") if c in reports), None)
+    reports["_report_time"] = pd.to_datetime(reports[time_col], errors="coerce", utc=True) if time_col else pd.NaT
+    resolved = []
+    for identity, group in reports.groupby("gsis_id", dropna=False, sort=False):
+        if pd.isna(identity) or not str(identity).strip():
+            resolved.extend(row for _, row in group.iterrows())
+            continue
+        # An undated conflicting report cannot safely be declared superseded.
+        latest = group.loc[group["_report_time"].eq(group["_report_time"].max())] if group["_report_time"].notna().all() else group
+        row = latest.iloc[-1].copy()
+        if latest["_injury_status"].nunique(dropna=False) > 1:
+            row["_injury_status"] = "UNKNOWN"
+        resolved.append(row)
+    return pd.DataFrame(resolved).reset_index(drop=True)
 
 
 def _team_absence_context(reports: pd.DataFrame, metric=None, player_position=None) -> dict[str, str]:
@@ -383,7 +404,7 @@ def build_player_context(props_board: pd.DataFrame, game_logs: pd.DataFrame,
                          eligible_player_ids: set[str] | None = None,
                          current_game_logs: pd.DataFrame | None = None,
                          team_matchups: pd.DataFrame | None = None,
-                         max_players: int = 80) -> pd.DataFrame:
+                         active_season: int | None = None) -> pd.DataFrame:
     """One row per real prop line, with a calibrated model signal and context.
 
     Mirrors MLB's approach of only presenting players who have a REAL prop
@@ -414,7 +435,7 @@ def build_player_context(props_board: pd.DataFrame, game_logs: pd.DataFrame,
         current_keys = pd.MultiIndex.from_frame(current_logs[identity])
         logs = logs.loc[~pd.MultiIndex.from_frame(logs[identity]).isin(current_keys)].copy()
     board["_name_norm"] = board["player"].map(_norm_name)
-    injury_reports = _active_injury_reports(injuries, active_week)
+    injury_reports = _active_injury_reports(injuries, active_week, active_season)
     unavailable_ids = set(
         injury_reports.loc[
             injury_reports["_injury_status"].isin(UNAVAILABLE_INJURY_STATUSES), "gsis_id"
@@ -494,6 +515,14 @@ def build_player_context(props_board: pd.DataFrame, game_logs: pd.DataFrame,
         inj_row = pd.DataFrame()
         if not injury_reports.empty and "gsis_id" in injury_reports.columns:
             inj_row = injury_reports[injury_reports["gsis_id"].astype(str) == player_id]
+
+        injury_data_status = (
+            "CURRENT_WEEK" if active_week is not None and not injury_reports.empty
+            and {"report_status", "gsis_id"}.issubset(injury_reports.columns)
+            else "UNKNOWN"
+        )
+        if not inj_row.empty and inj_row.iloc[0].get("_injury_status") == "UNKNOWN":
+            injury_data_status = "AMBIGUOUS"
 
         event_away = normalize_team_abbr(prop.get("event_away_abbr", prop.get("event_away", "")))
         event_home = normalize_team_abbr(prop.get("event_home_abbr", prop.get("event_home", "")))
@@ -578,6 +607,7 @@ def build_player_context(props_board: pd.DataFrame, game_logs: pd.DataFrame,
             "ecr": proj_row.get("ecr") if proj_row is not None else np.nan,
             "injury_status": (inj_row.iloc[0].get("_injury_status", "")
                               if not inj_row.empty else ""),
+            "injury_data_status": injury_data_status,
             "team_absences": absence_context.get(current_team, ""),
         })
 
@@ -592,21 +622,18 @@ def build_player_context(props_board: pd.DataFrame, game_logs: pd.DataFrame,
         return empty
 
     ctx = pd.DataFrame(rows)
-    # Guarantee at least some star coverage the same way MLB does — top 20 by
-    # projected points are flagged so the prompt can request a minimum STAR mix
-    # instead of only surfacing the biggest raw EV numbers on thin markets.
+    # Star metadata is descriptive; it must not consume a selection quota.
     star_ids = set(
         ctx.dropna(subset=["proj_ppr"]).sort_values("proj_ppr", ascending=False)
            ["player_id"].head(20)
     )
     ctx["is_star"] = ctx["player_id"].isin(star_ids)
 
-    best_ev = ctx[["over_ev_pct", "under_ev_pct"]].abs().max(axis=1).fillna(0)
+    best_ev = ctx[["over_ev_pct", "under_ev_pct"]].max(axis=1).fillna(float("-inf"))
     ctx = ctx.assign(_best_ev=best_ev).sort_values("_best_ev", ascending=False)
 
-    guaranteed = ctx[ctx["is_star"]].head(15)
-    rest = ctx[~ctx.index.isin(guaranteed.index)]
-    pool = pd.concat([guaranteed, rest]).head(max_players)
+    # Deterministic selection needs the full context, not an LLM prompt budget.
+    pool = ctx
     pool = pool.drop(columns=["_best_ev"], errors="ignore").reset_index(drop=True)
     pool.attrs["excluded_unavailable_props"] = excluded_unavailable_props
     pool.attrs["excluded_ineligible_props"] = excluded_ineligible_props
@@ -813,15 +840,15 @@ def apply_smash_cap(df: pd.DataFrame) -> pd.DataFrame:
 # ============================================================================
 
 def build_calibrated_model_picks(player_ctx: pd.DataFrame,
-                                 max_picks: int = GEMINI_TARGET_PICKS) -> pd.DataFrame:
+                                 max_picks: int | None = None) -> pd.DataFrame:
     """Select live picks from calibrated probabilities, not LLM preference.
 
     Each side must clear a true expected-return floor at its captured price.
-    The selector emits at most one thesis per player and never pads the board
-    to a target count. Legacy Gemini records remain auditable, but do not set
+    The selector retains candidates for the ledger; public one-player curation
+    occurs after eligibility classification. Legacy Gemini records do not set
     a production pick probability.
     """
-    if player_ctx.empty or max_picks <= 0:
+    if player_ctx.empty or (max_picks is not None and max_picks <= 0):
         return pd.DataFrame()
 
     ctx = player_ctx.copy()
@@ -858,12 +885,7 @@ def build_calibrated_model_picks(player_ctx: pd.DataFrame,
     )
 
     rows = []
-    selected_players = set()
     for _, r in pool.iterrows():
-        player_key = _norm_name(r["player"])
-        if player_key in selected_players:
-            continue
-        selected_players.add(player_key)
         evidence = float(r["_evidence_games"])
         ev = float(r["_ev"])
         # The confidence is a reproducible score threshold, not a language
@@ -891,6 +913,7 @@ def build_calibrated_model_picks(player_ctx: pd.DataFrame,
                 f"matchup {float(r.get('matchup_probability_adjustment', 0.0)):+.1%}."
             ),
             "injury_context": str(r.get("injury_status", ""))[:120],
+            "INJURY_DATA_STATUS": r.get("injury_data_status", "UNKNOWN"),
             "ROLE_STATUS": r.get("role_status", "UNKNOWN"),
             "ROLE_REASON": r.get("role_reason", "Missing usage evidence"),
             "USAGE_METRIC": r.get("usage_metric", ""),
@@ -915,7 +938,7 @@ def build_calibrated_model_picks(player_ctx: pd.DataFrame,
             "CONSENSUS_TAG": "MARKET-ANCHORED MODEL",
             "SELECTION_METHOD": "VALIDATED_MODEL",
         })
-        if len(rows) >= max_picks:
+        if max_picks is not None and len(rows) >= max_picks:
             break
 
     return pd.DataFrame(rows)
@@ -1210,7 +1233,7 @@ def generate_weekly_picks(player_ctx: pd.DataFrame) -> pd.DataFrame:
         return pd.DataFrame()
 
     picks = build_calibrated_model_picks(player_ctx)
-    print(f"🧮 Calibrated model: {len(picks)} pick(s) cleared the live EV threshold")
+    print(f"   Model candidates: {len(player_ctx)} context rows -> {len(picks)} priced sides cleared quote/market/EV rules")
     if picks.empty:
         return picks
     picks["rank"] = range(1, len(picks) + 1)
@@ -1226,9 +1249,9 @@ PICK_OUTPUT_COLUMNS = [
     "DATE", "SEASON", "WEEK", "RUN_NUMBER", "RUN_TIME", "rank", "game",
     "GAME_DATE", "GAME_TIME",
     "player", "player_id", "team", "opponent", "prop_type", "line", "lean",
-    "confidence", "rationale", "injury_context", "SELECTION_METHOD",
+    "confidence", "rationale", "injury_context", "INJURY_DATA_STATUS", "SELECTION_METHOD",
     "MODEL_VERSION", "MODEL_ERA", "SEASON_PHASE", "ODDS_SPORT", "GAME_TYPE",
-    "RECOMMENDATION_STATUS", "CALIBRATION_SCORE",
+    "RECOMMENDATION_STATUS", "CALIBRATION_SCORE", "BOARD_SELECTED",
     "CONTEXT_STATUS",
     "DISPLAY_SELECTION", "DISPLAY_LINE",
     "PICK_BOOK", "PICK_ODDS", "IMPLIED_PROBABILITY", "MODEL_HIT_RATE",
@@ -1322,7 +1345,7 @@ def build_weekly_pick_board(fresh_picks: pd.DataFrame, prior_weekly: pd.DataFram
     prior = prior_weekly.copy()
     if "MODEL_VERSION" in prior:
         # v5 recommendations must be regenerated against this run's live board.
-        prior = prior.loc[~prior["MODEL_VERSION"].astype(str).str.endswith(("-v5", "-v6"))].copy()
+        prior = prior.loc[~prior["MODEL_VERSION"].astype(str).str.endswith(("-v5", "-v6", "-v7"))].copy()
     if not prior.empty:
         prior_season = pd.to_numeric(_column_or_default(prior, "SEASON", season), errors="coerce")
         prior_week = pd.to_numeric(_column_or_default(prior, "WEEK", week), errors="coerce")
@@ -1501,7 +1524,7 @@ def assemble_pick_tabs(fresh_picks: pd.DataFrame, prior_daily: pd.DataFrame,
     out["WEEK"] = pd.to_numeric(_column_or_default(out, "WEEK", week), errors="coerce").fillna(week).astype(int)
     out["RUN_TIME"] = run_time
     eligible = pregame_publication_status(out).eq("PREGAME")
-    guarded = out["MODEL_VERSION"].astype(str).str.endswith(("-v5", "-v6")) if "MODEL_VERSION" in out else pd.Series(str(model_version).endswith(("-v5", "-v6")), index=out.index)
+    guarded = out["MODEL_VERSION"].astype(str).str.endswith(("-v5", "-v6", "-v7")) if "MODEL_VERSION" in out else pd.Series(str(model_version).endswith(("-v5", "-v6", "-v7")), index=out.index)
     for field in ("QUOTE_UPDATED_AT", "QUOTE_SUPPORT_UPDATED_AT"):
         fresh = _column_or_default(out, field, "").map(lambda value: quote_is_fresh(value, now))
         eligible &= ~guarded | fresh
@@ -1539,6 +1562,11 @@ def assemble_pick_tabs(fresh_picks: pd.DataFrame, prior_daily: pd.DataFrame,
         kind="stable",
     ).reset_index(drop=True)
     out["rank"] = range(1, len(out) + 1)
+
+    board_keys = {_pick_key(row) for _, row in apply_one_pick_per_player(out).iterrows()}
+    out["BOARD_SELECTED"] = out.apply(_pick_key, axis=1).isin(board_keys)
+    print(f"   Candidate classification: {out['RECOMMENDATION_STATUS'].value_counts().to_dict()}; "
+          f"{int(out['BOARD_SELECTED'].sum())} selected for weekly board")
 
     run_number = 1
     today_prior = pd.DataFrame()

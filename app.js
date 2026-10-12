@@ -3218,7 +3218,11 @@ function renderShortlistPicksView(){
 function renderResearchCandidates(rows){
   const research=rows.filter(p=>String(rowField(p,"RECOMMENDATION_STATUS")||"").toUpperCase()==="RESEARCH");
   if(!research.length)return "";
-  return `<details class="research-candidates"><summary>${research.length} research-only candidates · why they are not shortlisted</summary><p>These are not promoted recommendations. Review the restriction before considering the estimate.</p>${research.map(p=>`<article><strong>${esc(rowField(p,"player"))}</strong><span>${esc(rowField(p,"lean"))} ${esc(rowField(p,"line"))} ${esc(propTypeLabel(rowField(p,"prop_type")))}</span><p>${esc(rowField(p,"ROLE_REASON")||"Price, injury, market or confidence restriction; inspect the stored pick before use.")}</p></article>`).join("")}</details>`;
+  return `<details class="research-candidates"><summary>${research.length} research-only candidates · why they are not shortlisted</summary><p>These are not promoted recommendations. Review the restriction before considering the estimate.</p>${research.map(p=>{
+    const injury=rowField(p,'INJURY_DATA_STATUS');
+    const reason=injury==='UNKNOWN'?'Current-week injury data unavailable.':injury==='AMBIGUOUS'?'Conflicting current-week injury reports.':rowField(p,'ROLE_STATUS')==='STABLE'?'Price, injury, market or confidence restriction; stable usage alone does not qualify a pick.':rowField(p,'ROLE_REASON')||'Price, injury, market or confidence restriction; inspect the stored pick before use.';
+    return `<article><strong>${esc(rowField(p,"player"))}</strong><span>${esc(rowField(p,"lean"))} ${esc(rowField(p,"line"))} ${esc(propTypeLabel(rowField(p,"prop_type")))}</span><p>${esc(reason)}</p></article>`;
+  }).join("")}</details>`;
 }
 function renderModelPicksView(convergenceHTML,{title=weeklyPickLabel(),subtitle="Model selections across this week's live markets.",rows=st.weeklyPicks,sourceNote="",emptyMessage="",healthTarget=14}={}){
   const allBoardPicks=rows||[];

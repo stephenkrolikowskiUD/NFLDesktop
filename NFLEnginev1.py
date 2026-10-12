@@ -149,7 +149,7 @@ def has_live_game_market_odds(games: pd.DataFrame, *, game_type: str | None = No
 
 def resolve_model_identity(schedule_season: int, season_phase: str) -> tuple[str, str]:
     """Stamp the current phase and generation without static workflow pins."""
-    generation = "v6" if season_phase == phase.REGULAR_SEASON_PHASE else "v1"
+    generation = "v7" if season_phase == phase.REGULAR_SEASON_PHASE else "v1"
     model_version = MODEL_VERSION_OVERRIDE or f"nfl-{schedule_season}-{season_phase}-{generation}"
     model_era = MODEL_ERA_OVERRIDE or model_version
     return model_version, model_era
@@ -1560,6 +1560,7 @@ def main():
                 board, all_logs, projections, injuries, active_week=week,
                 eligible_player_ids=eligible_player_ids, current_game_logs=current_all_logs,
                 team_matchups=matchup_ratings,
+                active_season=schedule_season,
             )
             excluded_unavailable = player_ctx.attrs.get("excluded_unavailable_props", 0)
             excluded_ineligible = player_ctx.attrs.get("excluded_ineligible_props", 0)
@@ -1613,7 +1614,6 @@ def main():
                     print(f"   ℹ️  no weekly pick survived for {target_date}; "
                           f"running a dedicated next-slate pass on {len(slate_ctx)} priced rows")
                     targeted_current = pk.generate_weekly_picks(slate_ctx)
-                    targeted_current = pk.apply_one_pick_per_player(targeted_current).head(3)
                     if not targeted_current.empty:
                         fresh_picks = pd.concat([fresh_picks, targeted_current], ignore_index=True)
                         fresh_picks = fresh_picks.drop_duplicates(

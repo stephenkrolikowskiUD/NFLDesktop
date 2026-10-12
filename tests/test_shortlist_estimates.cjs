@@ -125,4 +125,8 @@ test('research candidates remain visible with their exclusion evidence', () => {
   assert.match(html,/1 research-only/);
   assert.match(html,/Recent role changed/);
   assert.doesNotMatch(html,/Playable/);
+  const unknown=render([{player:'Unknown',RECOMMENDATION_STATUS:'RESEARCH',
+    ROLE_STATUS:'STABLE',ROLE_REASON:'Stable role',INJURY_DATA_STATUS:'UNKNOWN'}]);
+  assert.match(unknown,/Current-week injury data unavailable/);
+  assert.doesNotMatch(unknown,/Stable role/);
 });

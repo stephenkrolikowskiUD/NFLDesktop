@@ -1,6 +1,29 @@
 # NFLDesktop Roadmap
 
-_Last updated: 2026-10-11_
+_Last updated: 2026-10-12_
+
+## October 12 Candidate And Injury Correctness (v7)
+- Injury reports must match the requested season and week. No fallback to an
+  old OUT report; missing feeds remain UNKNOWN and research-only. Latest dated
+  reports resolve duplicates; tied or undated conflicts remain AMBIGUOUS.
+  CURRENT_WEEK indicates feed scope, not proof of complete team coverage.
+- Removed the 80-row prompt budget, star quota and default 14-pick cap from
+  deterministic selection. Context ranks by positive-side EV, not absolute EV.
+  Quote, evidence, role and EV safety rules were not relaxed.
+- All qualifying candidate sides reach eligibility classification and the ledger
+  before one-player board curation. A research-only alternative cannot consume
+  the player's slot ahead of a playable alternative. Next-slate recovery also
+  no longer truncates candidates before the ledger.
+- BOARD_SELECTED records intended run-level board curation, not user exposure.
+  A larger candidate ledger is not more public recommendations; performance
+  comparisons must distinguish candidates from selected board rows.
+- Research explanations expose unknown/conflicting injury inputs rather than
+  citing stable usage as an exclusion reason. No historical grades rewritten.
+- Deploy frontend plus engine, then inspect a fresh run. No live engine, paid API
+  call or Sheets write was performed during this repair.
+- Still open: push-aware expected returns, participation-backed DNP grading,
+  held-out market calibration, legacy side gates and rookie evidence handling.
+  These correctness fixes do not establish predictive accuracy or profitability.
 
 ## October 11 Overbroad Absence Guard (v6)
 - Inspected the live nine-row weekly sheet: eight research rows all cited
