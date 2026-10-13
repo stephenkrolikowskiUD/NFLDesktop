@@ -1,6 +1,41 @@
 # NFLDesktop Roadmap
 
-_Last updated: 2026-10-12_
+_Last updated: 2026-10-13_
+
+## October 13 Grading Evidence Safeguard
+Publication follow-up:
+- Forecasting stays v7. After successful board writes, append every weekly and
+  current-board appearance to Daily_Picks with publication ID, surface, time,
+  policy, original book/line/price and model identity. Candidate rows explicitly
+  say CANDIDATE_ONLY. Research remains research even if visible in a disclosure.
+- Headline performance includes only confirmed PUBLISHED + PLAYABLE rows and
+  counts first pregame thesis per player/market/direction/model, at first price.
+  Select first publication before settlement filtering; unresolved first records
+  cannot be replaced with later winners. Legacy exposure remains unknown.
+- Publication is successful Sheets delivery, not a browser impression or wager.
+  Writes are not transactional: a board-success/ledger-failure is an audit gap
+  and failed run, never reconstructed exposure. Empty boards produce no rows.
+- Dashboard hides old mixed candidate totals until the updated grader runs.
+  Existing performance snapshot history is retained, but mixed-basis drift
+  alerts are no longer rendered. Raw research remains in Pick History.
+- Deploy engine/frontend/grader together. New confirmed results accumulate
+  prospectively; no historical public-board results are invented.
+
+- Missing individual box scores no longer become DNP merely because teammates
+  have logs. Record RESULT=UNRESOLVED_DATA with a specific audit reason and
+  leave HIT, actual and profit blank so the normal pending path retries.
+- Missing team data, ambiguous identity and missing player stat/line also carry
+  explicit reasons. A later successful retry marks the issue resolved.
+- Unresolved rows are excluded from settled performance, not counted as losses,
+  zero-stat unders or voids. Settled historical rows remain immutable.
+- No verified participation/inactive feed has been integrated yet. Automatic
+  DNP settlement is therefore disabled for missing-log cases; manual review or
+  future evidence-backed resolution is required. The two Week 5 DNPs are not
+  retroactively corrected by this patch.
+- Regression covers the actual grader orchestration using a mocked worksheet:
+  missing log -> unresolved -> later available log -> settled result.
+- No live grader, engine or Sheets write during development. Board-specific
+  performance cohorts, push-aware EV and chronological replay remain open.
 
 ## October 12 Candidate And Injury Correctness (v7)
 - Injury reports must match the requested season and week. No fallback to an

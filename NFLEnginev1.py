@@ -1224,7 +1224,9 @@ def append_daily_picks(client, sheet_id: str, df: pd.DataFrame, *,
         if missing_in_sheet:
             sheet_header = sheet_header + missing_in_sheet
             end_col = col_letter(len(sheet_header) - 1)
-            ws.update(f"A1:{end_col}1", [sheet_header], value_input_option="RAW")
+            if ws.col_count < len(sheet_header):
+                ws.resize(cols=len(sheet_header))
+            ws.update(values=[sheet_header], range_name=f"A1:{end_col}1", value_input_option="RAW")
         for col in sheet_header:
             if col not in clean.columns:
                 clean[col] = ""
@@ -1701,6 +1703,15 @@ def main():
         model_version=model_version,
         model_era=model_era,
     )
+    from board_publication import publication_rows
+    # Only reached after successful board writes. An append failure remains a
+    # failed run, never fabricated exposure. Sheets does not provide atomicity.
+    publication_time = datetime.now(eastern).strftime("%Y-%m-%d %H:%M:%S %Z")
+    exposure = publication_rows({"Picks_Weekly": picks_weekly,
+                                 "Picks_Current": picks_current}, publication_time)
+    daily_picks_new = daily_picks_new.copy()
+    daily_picks_new["PUBLICATION_STATUS"] = "CANDIDATE_ONLY"
+    daily_picks_new = pd.concat([daily_picks_new, exposure], ignore_index=True)
     append_daily_picks(sheets, SHEET_ID, daily_picks_new,
                        generated_at=generated_at,
                        model_version=model_version, model_era=model_era)

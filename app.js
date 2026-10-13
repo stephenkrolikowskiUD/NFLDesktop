@@ -3209,7 +3209,24 @@ function renderLeadersView(){
     :`Finalized NFL game-log snapshot · Dashboard refreshed ${refreshed}`;
   return `${renderDailyLeaders()}<div class="timestamp">${esc(status)} · Click any player to open analysis</div>`;
 }
-function renderStatsView(){const w=st.statsTimeWindow||'last_30d';const rows=typeof getMemo==='function'?getMemo('statsRows:'+w,()=>st.pickPerformance||[]):(st.pickPerformance||[]);let html=renderTimeWindowSelector(w);if(!rows.length)return html+`<div class="empty" style="padding:40px 20px;text-align:center">Pick Performance unavailable — grading analytics will appear after the next grader run.</div>`;if(!statsRowsForWindow(rows,w).length)return html+`<div class="empty" style="padding:40px 20px;text-align:center">No Pick Performance rows for ${statsWindowLabel(w)}.</div>`;const updated=rows.map(r=>statField(r,'LAST_UPDATED')).filter(Boolean).sort().pop()||'';html+=renderDriftAlerts(rows);html+=renderOverallCard(rows,w);html+=renderEraCohortAudit(rows,w);html+=renderPriceDiscipline(rows);html+=renderTierBreakdown(rows,w);html+=renderLeanBreakdown(rows,w);html+=renderCLVSummary(rows,w);html+=renderPropTypeList(rows,w,'best');html+=renderPropTypeList(rows,w,'worst');html+=`<div class="timestamp">Data through ${esc(updated||'latest grader run')} · Updated daily after grader run</div>`;return html}
+function renderStatsView(){
+  const w=st.statsTimeWindow||'last_30d';
+  const rows=st.pickPerformance||[];
+  let html=renderTimeWindowSelector(w);
+  const publicRows=rows.filter(r=>statField(r,'PERFORMANCE_BASIS')==='PUBLIC_BOARD_FIRST_THESIS');
+  html+='<p class="model-picks-sub">Public-board recommendations only. First published player/market/direction per model version, at its captured price. Research and unknown historical exposure are excluded; publication is not proof of a wager.</p>';
+  if(!publicRows.length)return html+'<div class="empty">Public-board reporting awaits the updated grader. Older candidate totals are not shown as public results.</div>';
+  const overall=getMetricsForSlice(publicRows,'overall','',w);
+  if(!overall||!statNum(overall,'N_PICKS'))return html+'<div class="empty">No settled, confirmed public recommendations in this window yet.</div>';
+  html+=renderOverallCard(publicRows,w);
+  html+=renderEraCohortAudit(publicRows,w);
+  html+=renderTierBreakdown(publicRows,w);
+  html+=renderLeanBreakdown(publicRows,w);
+  html+=renderCLVSummary(publicRows,w);
+  html+=renderPropTypeList(publicRows,w,'best');
+  html+=renderPropTypeList(publicRows,w,'worst');
+  return html;
+}
 
 function renderShortlistPicksView(){
   return renderTonightShortlist();

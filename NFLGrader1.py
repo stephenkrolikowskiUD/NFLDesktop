@@ -81,7 +81,7 @@ PICK_PERFORMANCE_COLUMNS = [
     "ROI_FLAT", "ROI_PER_PICK",
     "N_PRICED", "ACTUAL_PROFIT_UNITS", "ACTUAL_ROI_PER_PICK",
     "WILSON_LOWER_95", "MIN_SAMPLE_FLAG",
-    "LAST_UPDATED",
+    "LAST_UPDATED", "PERFORMANCE_BASIS",
 ]
 PICK_PERFORMANCE_SNAPSHOT_COLUMNS = ["SNAPSHOT_DATE", "METRIC_KEY", "METRIC_VALUE", "N_PICKS", "TIME_WINDOW"]
 GRADE_AUDIT_COLUMNS = ["PRIOR_HIT", "PRIOR_RESULT", "GRADE_AUDIT_STATUS", "GRADE_AUDIT_AT"]
@@ -419,6 +419,17 @@ def actual_value_for_team_market(pick: pd.Series, game_row: pd.Series):
 # GRADING PASS
 # ============================================================================
 
+def unresolved_stat_updates(sheet_row, reason, timestamp):
+    """Record missing evidence without settling the pick or preventing retries."""
+    return [(sheet_row, "HIT", ""),
+            (sheet_row, "RESULT", "UNRESOLVED_DATA"),
+            (sheet_row, "ACTUAL_STAT", ""),
+            (sheet_row, "REALIZED_PROFIT", ""),
+            (sheet_row, "ACTUAL_ROI_PER_PICK", ""),
+            (sheet_row, "GRADE_AUDIT_STATUS", reason),
+            (sheet_row, "GRADE_AUDIT_AT", timestamp)]
+
+
 def grade_daily_picks(client) -> None:
     sheet = open_sheet_with_retry(client, SHEET_ID, "open Daily_Picks sheet")
     try:
@@ -512,7 +523,7 @@ def grade_daily_picks(client) -> None:
     print(f"   game logs: {len(game_logs)} rows across {len(seasons_needed)} season(s)")
 
     now = datetime.now(eastern)
-    graded = hits = misses = pushes = dnp = not_ready = ambiguous_skipped = 0
+    graded = hits = misses = pushes = dnp = not_ready = ambiguous_skipped = unresolved = 0
 
     for idx, pick in ungraded.iterrows():
         sheet_row = idx + 2  # +1 for 0-index, +1 for header row
@@ -542,26 +553,23 @@ def grade_daily_picks(client) -> None:
 
             if status == "ambiguous":
                 ambiguous_skipped += 1
+                updates.extend(unresolved_stat_updates(sheet_row, "AMBIGUOUS_PLAYER_IDENTITY", now.isoformat()))
                 print(f"   ⚠️  {pick.get('player')} (wk {pick.get('WEEK')}) — name maps to >1 player_id; "
                       f"leaving ungraded rather than risk grading the wrong person")
                 continue
 
             if log_row is None:
-                if team_week_key not in team_week_has_data:
-                    # This team's data for that week isn't published yet at all —
-                    # a lag issue, not a DNP. Retry next run.
-                    continue
-                updates.append((sheet_row, "ACTUAL_STAT", "DNP"))
-                updates.append((sheet_row, "HIT", "DNP"))
-                updates.append((sheet_row, "RESULT", "DNP"))
-                updates.append((sheet_row, "REALIZED_PROFIT", "0"))
-                updates.append((sheet_row, "ACTUAL_ROI_PER_PICK", "0"))
-                dnp += 1
+                reason = ("MISSING_PLAYER_LOG_PARTICIPATION_UNVERIFIED"
+                          if team_week_key in team_week_has_data else "TEAM_STATS_NOT_AVAILABLE")
+                updates.extend(unresolved_stat_updates(sheet_row, reason, now.isoformat()))
+                unresolved += 1
                 continue
 
             actual = actual_value_for_metric(log_row, metric)
             actual = safe_float(actual)
             if actual is None or line_val is None:
+                updates.extend(unresolved_stat_updates(sheet_row, "MISSING_STAT_OR_LINE", now.isoformat()))
+                unresolved += 1
                 continue
 
         hit_str, result_str = grade_pick(actual, line_val, str(pick.get("lean", "")).upper())
@@ -572,6 +580,10 @@ def grade_daily_picks(client) -> None:
         elif hit_str == "NO":
             misses += 1
         graded += 1
+
+        if str(pick.get("RESULT", "")) == "UNRESOLVED_DATA":
+            updates.extend([(sheet_row, "GRADE_AUDIT_STATUS", "RESOLVED_FROM_GAME_LOG"),
+                            (sheet_row, "GRADE_AUDIT_AT", now.isoformat())])
 
         profit = realized_profit_units(hit_str, pick.get("PICK_ODDS"))
         updates.append((sheet_row, "ACTUAL_STAT", str(actual)))
@@ -592,7 +604,7 @@ def grade_daily_picks(client) -> None:
 
     print(f"\n✅ Graded {graded} ({hits}-{misses}-{pushes} hit-miss-push), "
           f"{dnp} DNP, {not_ready} not ready yet, {ambiguous_skipped} skipped (ambiguous), "
-          f"{invalid_context} invalid-context")
+          f"{invalid_context} invalid-context, {unresolved} unresolved-data (retryable)")
 
 
 # ============================================================================
@@ -749,9 +761,28 @@ def pick_perf_metrics_row(df_slice: pd.DataFrame, dim_type: str, dim_value, wind
 
 
 def build_pick_performance(df_all: pd.DataFrame) -> pd.DataFrame:
-    df = pick_perf_prepare_df(df_all)
+    from board_publication import public_recommendations
+    public = public_recommendations(df_all)
+    if not public.empty:
+        public["RUN_TIME"] = public["PUBLICATION_AT"]
+        public = public.loc[pregame_publication_status(public).eq("PREGAME")].copy()
+        public = public.sort_values("PUBLICATION_AT", kind="stable")
+        # Select the first publication BEFORE dropping unresolved outcomes.
+        # Otherwise a later settled refresh could replace an unresolved first.
+        identity = [c for c in ("SEASON", "WEEK", "GAME_DATE", "player_id",
+                    "player", "prop_type", "lean", "SELECTION_METHOD", "MODEL_VERSION") if c in public]
+        public = public.drop_duplicates(identity, keep="first")
+    df = pick_perf_prepare_df(public)
     if df.empty:
-        return pd.DataFrame(columns=PICK_PERFORMANCE_COLUMNS)
+        # Explicit zero headline replaces the previous all-candidate result.
+        return pd.DataFrame([{
+            "DIMENSION_TYPE":"overall", "DIMENSION_VALUE":"",
+            "TIME_WINDOW":window, "N_PICKS":0, "N_PICKS_DECISIVE":0,
+            "N_SETTLED":0, "N_HITS":0, "N_MISSES":0, "N_PUSHES":0,
+            "N_DNP":0, "N_PRICED":0, "LAST_UPDATED":datetime.now(eastern).isoformat(),
+            "PERFORMANCE_BASIS":"PUBLIC_BOARD_FIRST_THESIS"
+        } for window in PICK_PERF_TIME_WINDOWS], columns=PICK_PERFORMANCE_COLUMNS)
+    df = df.loc[df["first_decision"]].copy()
     today = datetime.now(eastern).date()
     timestamp_est = datetime.now(eastern).strftime("%Y-%m-%d %H:%M:%S %Z")
     rows = []
@@ -771,6 +802,7 @@ def build_pick_performance(df_all: pd.DataFrame) -> pd.DataFrame:
             for dim_value, grp in win_df.groupby(dim, dropna=False):
                 rows.append(pick_perf_metrics_row(grp, dim, dim_value, window_name, timestamp_est))
     metrics_df = pd.DataFrame(rows, columns=PICK_PERFORMANCE_COLUMNS)
+    metrics_df["PERFORMANCE_BASIS"] = "PUBLIC_BOARD_FIRST_THESIS"
     if metrics_df.empty:
         return metrics_df
     order = {name: i for i, name in enumerate(PICK_PERF_TIME_WINDOWS)}
