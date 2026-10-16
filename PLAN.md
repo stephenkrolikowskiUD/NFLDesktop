@@ -2,6 +2,23 @@
 
 _Last updated: 2026-10-13_
 
+## October 13 Deployment Check And Push Correction
+- GitHub revision 3b6a1a2 passed regression tests and Pages deployment at
+  14:33 UTC. Most recent engine (October 12 23:24 UTC) and grader (October 13
+  11:09 UTC) still ran 714c69b. Publication tracking is pushed, not yet proven
+  by a live run on the new revision. No workflow was triggered in this check.
+- Integer-line hits are now conditional on decisive outcomes. Observed ties
+  contribute push mass rather than losses. EV multiplies conditional return
+  by non-push mass; half-line behavior is unchanged.
+- Push mass uses observed weighted ties divided by total evidence plus the
+  existing market prior. The prior contributes decisive mass only. This is an
+  explicit bookkeeping correction, not a validated distributional push model.
+- MODEL_PUSH_PROBABILITY and CALCULATION_POLICY=push-aware-v1 travel with new
+  picks. Version stays v7, thresholds unchanged. Integer-line eligibility may
+  change; performance keys and era labels distinguish this calculation policy.
+- Local tests cover ties, all-tie samples, half-lines and expected profit.
+  No production grades, engine runs or paid API calls were made.
+
 ## October 13 Grading Evidence Safeguard
 Publication follow-up:
 - Forecasting stays v7. After successful board writes, append every weekly and

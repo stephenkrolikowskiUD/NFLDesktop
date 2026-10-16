@@ -243,14 +243,27 @@ def _implied_prob(american_odds) -> float:
     return (-odds / (-odds + 100)) if odds < 0 else (100 / (odds + 100))
 
 
-def _expected_return(probability, american_odds) -> float:
-    """Expected profit in units for a one-unit stake at an American price."""
+def _expected_return(probability, american_odds, push_probability=0.0) -> float:
+    """Profit per stake; probability is conditional on a decisive outcome."""
     implied = _implied_prob(american_odds)
     if pd.isna(implied):
         return np.nan
     odds = float(american_odds)
     payout = odds / 100.0 if odds > 0 else 100.0 / abs(odds)
-    return float(probability) * payout - (1.0 - float(probability))
+    return (1.0 - float(push_probability)) * (float(probability) * payout - (1.0 - float(probability)))
+
+
+def _push_probability(historical_actuals, current_actuals, line):
+    """Observed tie mass under the existing prior, not a fitted push forecast.
+
+    Market odds describe decisive outcomes. The existing prior contributes
+    decisive mass only; observed pushes contribute neither wins nor losses.
+    """
+    historical = pd.to_numeric(historical_actuals, errors="coerce").dropna()
+    current = pd.to_numeric(current_actuals, errors="coerce").dropna()
+    pushes = historical.eq(line).sum() + CURRENT_SEASON_GAME_WEIGHT * current.eq(line).sum()
+    total = len(historical) + CURRENT_SEASON_GAME_WEIGHT * len(current) + MARKET_PRIOR_GAMES
+    return float(pushes / total)
 
 
 def _market_anchored_probability(historical_actuals: pd.Series,
@@ -274,8 +287,9 @@ def _market_anchored_probability(historical_actuals: pd.Series,
 
     effective_games = len(historical) + CURRENT_SEASON_GAME_WEIGHT * len(current)
     weighted_hits = historical_hits + CURRENT_SEASON_GAME_WEIGHT * current_hits
+    pushes = float(historical.eq(line).sum()) + CURRENT_SEASON_GAME_WEIGHT * float(current.eq(line).sum())
     probability = (weighted_hits + MARKET_PRIOR_GAMES * market_probability) / (
-        effective_games + MARKET_PRIOR_GAMES
+        effective_games - pushes + MARKET_PRIOR_GAMES
     )
     return round(float(probability), 4), round(float(effective_games), 1)
 
@@ -564,12 +578,16 @@ def build_player_context(props_board: pd.DataFrame, game_logs: pd.DataFrame,
         under_probability = float(np.clip(
             under_probability - matchup_probability_adjustment, 0.02, 0.98
         ))
-        over_ev = _expected_return(over_probability, over_odds)
-        under_ev = _expected_return(under_probability, under_odds)
+        push_probability = _push_probability(
+            actuals if role["role_status"] == "STABLE" else pd.Series(dtype=float),
+            current_actuals, line)
+        over_ev = _expected_return(over_probability, over_odds, push_probability)
+        under_ev = _expected_return(under_probability, under_odds, push_probability)
         kickoff = pd.to_datetime(prop.get("commence_time"), utc=True, errors="coerce")
         kickoff_eastern = kickoff.tz_convert(eastern) if pd.notna(kickoff) else None
 
         rows.append({
+            "push_probability": push_probability,
             **role,
             "best_over_last_update": prop.get("best_over_last_update"),
             "best_under_last_update": prop.get("best_under_last_update"),
@@ -914,6 +932,8 @@ def build_calibrated_model_picks(player_ctx: pd.DataFrame,
             ),
             "injury_context": str(r.get("injury_status", ""))[:120],
             "INJURY_DATA_STATUS": r.get("injury_data_status", "UNKNOWN"),
+            "MODEL_PUSH_PROBABILITY": r.get("push_probability", 0.0),
+            "CALCULATION_POLICY": "push-aware-v1",
             "ROLE_STATUS": r.get("role_status", "UNKNOWN"),
             "ROLE_REASON": r.get("role_reason", "Missing usage evidence"),
             "USAGE_METRIC": r.get("usage_metric", ""),
@@ -1250,6 +1270,7 @@ PICK_OUTPUT_COLUMNS = [
     "GAME_DATE", "GAME_TIME",
     "player", "player_id", "team", "opponent", "prop_type", "line", "lean",
     "confidence", "rationale", "injury_context", "INJURY_DATA_STATUS", "SELECTION_METHOD",
+    "MODEL_PUSH_PROBABILITY", "CALCULATION_POLICY",
     "MODEL_VERSION", "MODEL_ERA", "SEASON_PHASE", "ODDS_SPORT", "GAME_TYPE",
     "RECOMMENDATION_STATUS", "CALIBRATION_SCORE", "BOARD_SELECTED",
     "CONTEXT_STATUS",

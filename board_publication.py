@@ -10,7 +10,7 @@ def publication_rows(boards, published_at):
             row = source.to_dict()
             identity = '|'.join(str(row.get(k, '')) for k in
                                 ('SEASON', 'WEEK', 'GAME_DATE', 'player_id', 'player',
-                                 'prop_type', 'lean', 'line', 'MODEL_VERSION'))
+                                 'prop_type', 'lean', 'line', 'MODEL_VERSION', 'CALCULATION_POLICY'))
             row.update(PUBLICATION_STATUS='PUBLISHED', PUBLICATION_SURFACE=surface,
                        PUBLICATION_AT=published_at, RUN_TIME=published_at,
                        PUBLICATION_ID=hashlib.sha256(

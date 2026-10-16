@@ -72,7 +72,7 @@ PICK_PERF_DIMENSIONS = (
     "model_era", "cohort_norm", "confidence_norm", "selection_method_norm",
     "recommendation_status_norm", "prop_type_norm", "lean_norm",
     "consensus_bucket", "odds_bucket", "clv_bucket", "has_lineup_risk",
-    "week", "day_of_week", "RUN_NUMBER",
+    "week", "day_of_week", "RUN_NUMBER", "calculation_policy",
 )
 PICK_PERFORMANCE_COLUMNS = [
     "DIMENSION_TYPE", "DIMENSION_VALUE", "TIME_WINDOW",
@@ -623,6 +623,7 @@ def pick_perf_prepare_df(df_all: pd.DataFrame) -> pd.DataFrame:
     if df.empty:
         return df
     idx = df.index
+    df["calculation_policy"] = df.get("CALCULATION_POLICY", pd.Series("", index=idx)).fillna("").replace("", "legacy")
     df["prop_type_norm"] = df.get("prop_type", pd.Series("", index=idx)).fillna("").astype(str).str.upper()
     df["lean_norm"] = df.get("lean", pd.Series("", index=idx)).fillna("").astype(str).str.upper()
     df["selection_method_norm"] = df.get("SELECTION_METHOD", pd.Series("", index=idx)).fillna("").astype(str).str.upper().replace({"": "GEMINI"})
@@ -679,13 +680,15 @@ def pick_perf_prepare_df(df_all: pd.DataFrame) -> pd.DataFrame:
         df["lean_norm"] + "|" + df["selection_method_norm"] + "|" +
         df.get("MODEL_VERSION", pd.Series("", index=idx)).fillna("").astype(str)
     )
+    df["_evaluation_key"] += "|" + df["calculation_policy"]
+    df["_decision_key"] += "|" + df["calculation_policy"]
     df = (df.sort_values(["_published_at", "RUN_NUMBER"], kind="stable")
             .drop_duplicates(subset="_evaluation_key", keep="first")
             .drop(columns=["_evaluation_key", "_published_at"]))
     df["first_decision"] = ~df.duplicated("_decision_key", keep="first")
     df = df.drop(columns="_decision_key")
     df["has_lineup_risk"] = df.get("injury_context", pd.Series("", index=idx)).fillna("").astype(str).str.upper().str.startswith("LINEUP RISK")
-    df["model_era"] = df.apply(pick_model_era, axis=1)
+    df["model_era"] = df.apply(pick_model_era, axis=1) + " / " + df["calculation_policy"]
     df["RUN_NUMBER"] = pd.to_numeric(df.get("RUN_NUMBER", pd.Series(np.nan, index=idx)), errors="coerce").fillna(0).astype(int).astype(str)
     return df
 
@@ -770,7 +773,7 @@ def build_pick_performance(df_all: pd.DataFrame) -> pd.DataFrame:
         # Select the first publication BEFORE dropping unresolved outcomes.
         # Otherwise a later settled refresh could replace an unresolved first.
         identity = [c for c in ("SEASON", "WEEK", "GAME_DATE", "player_id",
-                    "player", "prop_type", "lean", "SELECTION_METHOD", "MODEL_VERSION") if c in public]
+                    "player", "prop_type", "lean", "SELECTION_METHOD", "MODEL_VERSION", "CALCULATION_POLICY") if c in public]
         public = public.drop_duplicates(identity, keep="first")
     df = pick_perf_prepare_df(public)
     if df.empty:
