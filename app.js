@@ -110,7 +110,7 @@ let st={
   playerSearch:"",playerSuggestions:[],showPlayerSugs:false,
   loading:true,error:null,dataWarnings:[],lookupError:"",loadedAt:null,latestPickDate:"",pickGuard:null,
   currentPicksAvailable:false,weeklyPicksAvailable:false,
-  picksView:"shortlist",propsMetric:"ALL",propsSearch:"",propsTeam:"ALL",propsSort:"EDGE",propsMinHit:"0",propsMinEdge:"5",gameMarketType:"ALL",gameMarketSort:"KICKOFF",
+  picksView:"picks",propsMetric:"ALL",propsSearch:"",propsTeam:"ALL",propsSort:"EDGE",propsMinHit:"0",propsMinEdge:"5",gameMarketType:"ALL",gameMarketSort:"KICKOFF",
   weeklyProjPos:"ALL",weeklyProjTeam:"ALL",
   streakFilter:"all",drafted:new Set(),slipLegs:"3",
   survivorUsed:loadSurvivorUsed(),
@@ -1560,6 +1560,9 @@ function renderShortlistEstimateRow(row,index){
     </details>
   </article>`;
 }
+function renderShortlistEmptyState(){
+  return `<div class="shortlist-estimate-note" role="status"><strong>No Shortlist selections right now.</strong><p>The Shortlist uses stricter filters, so it can be empty even when the Picks board has selections.</p><button type="button" class="sub-tab" onclick="switchPicksView('picks')">View ${esc(weeklyPickLabel())}</button></div>`;
+}
 function renderTonightShortlist(){
   const rows=getTonightShortlist();
   if(!rows.length){
@@ -1568,7 +1571,7 @@ function renderTonightShortlist(){
     const preseasonPickRows=latestPreseasonGamePicks();
     if(preseasonPickRows.length&&!hasLivePlayerProps&&!livePlayerPickRows.length)return renderPreseasonShortlist(preseasonPickRows);
     const preseasonMarketsLive=!hasLivePlayerProps&&hasLiveSportsbookGameMarkets(st.gameMarkets);
-    return `<section class="shortlist-shell"><div class="shortlist-head"><div class="shortlist-title">This Week's Shortlist</div></div>${preseasonMarketsLive?`<p class="shortlist-estimate-note">No player props loaded. Team markets are available below.</p>${renderGameMarketsBoard(st.propsTeam,st.gameMarkets)}`:`<p class="shortlist-estimate-note">No upcoming selections pass the shortlist filters in this snapshot. Games may have started, inputs may be missing, or selections may be research-only. Check the weekly board and its data timestamps.</p>`}${renderShortlistTray()}</section>`;
+    return `<section class="shortlist-shell"><div class="shortlist-head"><div class="shortlist-title">This Week's Shortlist</div></div>${renderShortlistEmptyState()}${preseasonMarketsLive?`<p class="shortlist-estimate-note">Team markets are available below.</p>${renderGameMarketsBoard(st.propsTeam,st.gameMarkets)}`:""}${renderShortlistTray()}</section>`;
   }
   return `<section class="shortlist-shell shortlist-estimates"><div class="shortlist-head"><div><div class="shortlist-title">This Week's Shortlist</div><div class="shortlist-sub">${rows.length} selections passing the model's filters. Ordered by estimated return at the captured price.</div></div></div><p class="shortlist-estimate-note">Probabilities and returns are model estimates. Passing the filters does not establish a profitable betting edge.</p><div class="shortlist-estimate-list">${rows.map(renderShortlistEstimateRow).join("")}</div>${renderShortlistTray()}</section>`;
 }
