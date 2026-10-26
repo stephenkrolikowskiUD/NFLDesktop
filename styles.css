@@ -1301,3 +1301,11 @@ td.push{color:var(--push);font-weight:700}
   .bb-player-window{white-space:normal}
   .lookup-grid{grid-template-columns:1fr}
 }
+/* Team research: evidence first, no implied prediction badges. */
+.team-decision-context{padding:16px;border-top:1px solid var(--border)}
+.team-decision-verdict p{color:var(--ink-muted);font-size:var(--t-xs);max-width:75ch}
+.team-matchup-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin-top:16px}
+.team-matchup-grid div{display:flex;flex-direction:column;gap:5px}
+.team-matchup-grid span{font-size:var(--t-sm)}
+.team-matchup-grid small{color:var(--ink-muted)}
+@media(max-width:640px){.team-matchup-grid{grid-template-columns:1fr}}

@@ -1953,13 +1953,41 @@ function gameMarketMatchesTeam(row,team){
     .includes(target);
 }
 
+function teamDecisionContext(away,home){
+  const canonical=t=>({LAR:'LA',JAC:'JAX',WSH:'WAS'}[t]||t);
+  const read=t=>getTeamRanking(t)||getTeamRanking(canonical(t));
+  const rank=(r,k)=>{const v=rowField(r||{},k);return v!==''&&v!=null&&Number.isFinite(Number(v))?`#${Number(v)}`:'unavailable';};
+  const match=(off,def)=>{
+    const a=read(off),b=read(def);
+    return ['pass','rush'].map(split=>{
+      const n=rowField(a||{},`off_${split}_current_plays`);
+      return `<div><strong>${esc(off)} ${split==='pass'?'passing':'rushing'}</strong><span>Offense ${esc(rank(a,`off_${split}_rank`))} vs ${esc(def)} defense ${esc(rank(b,`def_${split}_rank`))}</span><small>${esc(n!==''&&n!=null?n:'Unknown')} current-season offensive plays</small></div>`;
+    }).join('');
+  };
+  return `<div class="team-decision-context"><div class="team-decision-verdict"><strong>Research only · no team recommendation</strong><p>Efficiency ranks describe the matchup, not a projected spread or a betting edge. #1 is strongest on both sides. Quarterback and injury availability is not verified here.</p></div><div class="team-matchup-grid">${match(away,home)}${match(home,away)}</div></div>`;
+}
+
+function bestIdenticalGameQuotes(rows){
+  const groups=new Map();
+  for(const row of rows){
+    const key=JSON.stringify([rowField(row,'MARKET_TYPE'),gameMarketSelectionText(row),rowField(row,'LINE')]);
+    if(!groups.has(key))groups.set(key,[]);
+    groups.get(key).push(row);
+  }
+  return [...groups.values()].map(group=>{
+    const decimal=r=>{const o=Number(rowField(r,'ODDS'));return Number.isFinite(o)&&Math.abs(o)>=100?(o>0?1+o/100:1+100/Math.abs(o)):-Infinity;};
+    return group.slice().sort((a,b)=>decimal(b)-decimal(a))[0];
+  });
+}
+
 function renderGameMarketsBoard(team,rows,options={}){
   const {showHeader=true}=options;
   const query=normalizePlayerName(st.propsSearch);
   const typeFilter=String(st.gameMarketType||"ALL").toUpperCase();
   const totalRows=(rows||[]).filter(row=>gameMarketMatchesTeam(row,team));
   if(!totalRows.length)return "";
-  const pickMap=preseasonGamePickMap();
+  // Team forecasts are not validated for live recommendations yet.
+  const pickMap=new Map();
   const hasLiveBookRows=hasLiveSportsbookGameMarkets(totalRows);
 
   const marketRows=totalRows.filter(row=>{
@@ -2025,7 +2053,7 @@ function renderGameMarketsBoard(team,rows,options={}){
     const featuredConfidence=bestPick?normalizeConfidence(rowField(bestPick,"confidence")):"";
     const featuredReason=bestPick?String(rowField(bestPick,"rationale")||"").trim():"";
     const featuredSource=bestPick?selectionMethodLabel(rowField(bestPick,"SELECTION_METHOD")||"VALIDATED_MODEL"):"";
-    const marketRowsHTML=gameRows
+    const marketRowsHTML=bestIdenticalGameQuotes(gameRows)
       .slice()
       .sort((a,b)=>{
         const aType=String(rowField(a,"MARKET_TYPE")).trim().toUpperCase();
@@ -2060,7 +2088,8 @@ function renderGameMarketsBoard(team,rows,options={}){
         const modelText=Number.isFinite(modelHit)?`${Math.round(modelHit*100)}% model`:"Model pending";
         const marketText=Number.isFinite(implied)?`${Math.round(implied*100)}% market`:"Market pending";
         const fairText=fairOdds!==""&&fairOdds!=null?`fair ${fmtOdds(fairOdds)}`:"";
-        const detailText=rationale||teamMarketSummary(matchingPick)||"Opening preseason market context.";
+        const stamp=rowField(row,'LAST_UPDATED','_generated_at');
+        const detailText=rationale||teamMarketSummary(matchingPick)||`Best captured price for this exact selection and line. Snapshot: ${stamp||'unknown'}. Recheck availability and price with the sportsbook; this is not a recommendation.`;
         const teamMeta=type==="TOTAL"?"Game total":String(rowField(row,"TEAM")||"").trim().toUpperCase()||"Team side";
         return `<details class="game-market-matrix-row${isPreferred?" preferred":""}${tierClass?` ${tierClass}`:""}">
           <summary class="game-market-matrix-summary">
@@ -2098,6 +2127,7 @@ function renderGameMarketsBoard(team,rows,options={}){
         </div>
       </div>
       ${featuredSummary}
+      ${teamDecisionContext(away,home)}
       <div class="game-market-matrix">
         <div class="game-market-matrix-head">
           <span>Market</span>
@@ -3797,7 +3827,7 @@ function renderPropExplorerView(){
 }
 
 function renderGameMarketsOnlyView(){
-  return `<div style="padding:14px 16px 0"><div class="analysis-eyebrow">Preseason board</div><div style="font-family:'Barlow Condensed',system-ui,sans-serif;font-size:var(--t-xl);font-weight:800;color:var(--ink-0)">Game Markets</div><div style="color:var(--ink-muted);font-size:var(--t-xs);margin-top:2px">Spreads, moneylines, and totals get their own board so team-side markets stay separate from the player-prop workflow.</div></div>${renderGameMarketsBoard(st.propsTeam,st.gameMarkets,{showHeader:false})}`;
+  return `<div style="padding:14px 16px 0"><div class="analysis-eyebrow">Team research</div><div style="font-family:'Barlow Condensed',system-ui,sans-serif;font-size:var(--t-xl);font-weight:800;color:var(--ink-0)">Matchups &amp; Prices</div><div style="color:var(--ink-muted);font-size:var(--t-xs);margin-top:2px">Compare run/pass matchups and the best captured price at each exact line. No validated team selections yet.</div></div>${renderGameMarketsBoard(st.propsTeam,st.gameMarkets,{showHeader:false})}`;
 }
 
 // ============================================================================

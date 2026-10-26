@@ -1,6 +1,22 @@
 # NFLDesktop Roadmap
 
-_Last updated: 2026-10-13_
+_Last updated: 2026-10-25_
+
+## October 25 Team Research Foundation
+- Game Markets now includes both teams' passing/rushing offensive and defensive
+  ranks and current offensive play counts. Missing ranks stay unavailable.
+- Identical selections and lines are consolidated to best captured odds; different
+  handicaps remain separate. Snapshot time is disclosed, not live executability.
+- Removed preseason headings and disconnected legacy preseason pick badges on
+  this surface. No quantitative team edge or verified injury status is claimed.
+- Added offline ridge team-strength margin benchmark trained only on completed
+  games before the target date. Same-day/future score leakage has a regression
+  test. This is a simple score-based comparator, NOT the proposed efficiency
+  forecast and NOT wired into production selections or the frozen v7 model.
+- Still required: chronological evaluation on real historical seasons, point-in-
+  time efficiency features, calibrated error distribution, quarterback/injury
+  inputs, team-selection tray and publication tracking, and populated browser QA.
+- This delivery is a foundation, not completion of the team recommendation model.
 
 ## October 13 Deployment Check And Push Correction
 - GitHub revision 3b6a1a2 passed regression tests and Pages deployment at

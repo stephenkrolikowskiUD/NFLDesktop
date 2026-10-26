@@ -5,6 +5,30 @@ const vm = require('node:vm');
 const {test} = require('node:test');
 const source = fs.readFileSync(path.join(__dirname, '../app.js'), 'utf8');
 
+test('team prices only compete at identical selection and line',()=>{
+  const choose=loadFunction('bestIdenticalGameQuotes',{
+    rowField:(r,k)=>r[k],gameMarketSelectionText:r=>r.SELECTION,
+  });
+  const rows=choose([
+    {MARKET_TYPE:'SPREAD',SELECTION:'A',LINE:-3,ODDS:-110},
+    {MARKET_TYPE:'SPREAD',SELECTION:'A',LINE:-3,ODDS:105},
+    {MARKET_TYPE:'SPREAD',SELECTION:'A',LINE:-3.5,ODDS:120},
+  ]);
+  assert.equal(rows.length,2);
+  assert.equal(rows.find(r=>r.LINE===-3).ODDS,105);
+});
+
+test('team context discloses missing evidence and escapes team labels',()=>{
+  const render=loadFunction('teamDecisionContext',{
+    getTeamRanking:()=>null,rowField:(r,k)=>r[k],esc:v=>String(v).replaceAll('<','&lt;'),
+  });
+  const html=render('<A>','B');
+  assert.match(html,/unavailable/);
+  assert.match(html,/no team recommendation/);
+  assert.match(html,/&lt;A>/);
+  assert.doesNotMatch(html,/<A>/);
+});
+
 function loadFunction(name, dependencies = {}) {
   const start = source.indexOf(`function ${name}(`);
   assert.ok(start >= 0, `Missing function ${name}`);
