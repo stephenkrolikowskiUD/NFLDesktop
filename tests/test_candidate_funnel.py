@@ -25,6 +25,25 @@ def candidate(**changes):
 
 
 class CandidateFunnelTests(unittest.TestCase):
+    def test_injury_coverage_requires_players_current_team(self):
+        history = pd.DataFrame([dict(player_display_name='Audit Player', player_id='p1',
+            team='LA', position='RB', week=w, season=2025, rushing_yards=40, carries=10)
+            for w in range(1, 18)])
+        current = history.head(7).assign(season=2026)
+        projections = pd.DataFrame([dict(player_id='p1',team_now='LA',position='RB',proj_ppr=100)])
+        props = pd.DataFrame([dict(player='Audit Player',metric='RUSH_YDS',line=25.5,
+            best_over_odds=-110,best_under_odds=-110,market_over_probability=.5,
+            market_under_probability=.5,event_away_abbr='LA',event_home_abbr='B')])
+        for team, expected in [('Z','UNKNOWN'), ('LAR','CURRENT_WEEK'), ('','UNKNOWN')]:
+            injuries = pd.DataFrame([dict(season=2026,week=8,gsis_id='other',report_status='',team=team)])
+            ctx = build_player_context(props,history,projections,injuries,active_week=8,
+                active_season=2026,current_game_logs=current)
+            self.assertEqual(ctx.iloc[0].injury_data_status, expected)
+            row = dict(MODEL_VERSION=VERSION,ROLE_STATUS='STABLE',INJURY_DATA_STATUS=expected,
+                confidence='VALIDATED',SELECTION_METHOD='VALIDATED_MODEL',PICK_ODDS=-110,
+                prop_type='RUSH_YDS',lean='OVER')
+            self.assertEqual(recommendation_status(row), 'PLAYABLE' if expected=='CURRENT_WEEK' else 'RESEARCH')
+
     def test_injuries_never_fall_back_to_wrong_week_or_season(self):
         reports = pd.DataFrame([dict(season=2025, week=5, gsis_id="old", report_status="OUT"),
                                 dict(season=2026, week=4, gsis_id="prior", report_status="OUT")])

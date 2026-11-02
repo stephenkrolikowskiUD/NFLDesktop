@@ -2901,11 +2901,11 @@ function auditLabel(dimension,value){
       legacy_unknown:'Legacy · date unknown',
     },
     cohort_norm:{
-      'PLAYABLE · VALIDATED_MODEL':'Playable · validated model',
+      'PLAYABLE · VALIDATED_MODEL':'Playable · model estimate',
       'PLAYABLE · GEMINI':'Playable · Gemini reviewed',
-      'RESEARCH · VALIDATED_MODEL':'Research · validated challenger',
+      'RESEARCH · VALIDATED_MODEL':'Research · model estimate',
       'RESEARCH · GEMINI':'Research · Gemini reviewed',
-      'LEGACY_RESEARCH · VALIDATED_MODEL':'Legacy research · validated model',
+      'LEGACY_RESEARCH · VALIDATED_MODEL':'Legacy research · model estimate',
       'LEGACY_RESEARCH · GEMINI':'Legacy research · Gemini',
     },
     odds_bucket:{
@@ -2992,7 +2992,18 @@ function renderCalibrationPolicy(){
     </div>
   </section>`;
 }
-function renderTierBreakdown(rows,w){const tiers=['VALIDATED','SMASH','STRONG','LEAN'];const found=tiers.map(t=>getMetricsForSlice(rows,'confidence_norm',t,w)).filter(Boolean);if(!found.length)return '';const aiRows=found.filter(r=>statField(r,'DIMENSION_VALUE')!=='VALIDATED');const rates=aiRows.map(r=>statNum(r,'HIT_RATE'));const collapse=aiRows.length>=2&&rates.some((a,i)=>rates.some((b,j)=>j>i&&Math.abs(a-b)<=0.01));return `<div style="padding:0 16px 10px"><div style="color:var(--accent);font-size:var(--t-sm);font-weight:800;margin-bottom:6px">Selection Calibration ${collapse?'<span style="color:var(--warn);font-size:var(--t-xs)">⚠️ AI tier collapse</span>':''}</div><div style="font-size:var(--t-xs);color:var(--push);margin:-1px 0 7px">VALIDATED is the deterministic market model. SMASH / STRONG / LEAN are Gemini confidence labels.</div>${tiers.map(t=>{const r=getMetricsForSlice(rows,'confidence_norm',t,w);if(!r)return '';const rate=statNum(r,'HIT_RATE');const color=t==='VALIDATED'?'var(--over)':t==='SMASH'?'var(--smash)':t==='STRONG'?'var(--warn)':'var(--push)';return `<div class="card" style="margin-bottom:6px"><div style="display:flex;justify-content:space-between;gap:10px"><div><span style="background:${color}22;color:${color};border:1px solid ${color}55;border-radius:999px;padding:2px 7px;font-size:var(--t-xs);font-weight:800">${t}</span><div style="font-size:var(--t-xs);color:var(--push);margin-top:5px">n=${Math.round(statNum(r,'N_PICKS_DECISIVE'))} · ROI ${statRoiSummary(r)}</div></div><div style="font-size:var(--t-lg);font-weight:900;color:${color}">${statPct(rate)}</div></div>${hitBar(rate)}</div>`}).join('')}</div>`}
+function renderTierBreakdown(rows,w){
+  const tiers=['VALIDATED','SMASH','STRONG','LEAN'];
+  const found=tiers.map(t=>getMetricsForSlice(rows,'confidence_norm',t,w)).filter(Boolean);
+  if(!found.length)return '';
+  return `<div style="padding:0 16px 10px"><div style="color:var(--accent);font-weight:800">Selection Results</div><p class="muted">Model estimates are not validated predictive probabilities. Legacy AI tiers are selection labels, not measured reliability.</p>${tiers.map(t=>{
+    const r=getMetricsForSlice(rows,'confidence_norm',t,w);
+    if(!r)return '';
+    const label=t==='VALIDATED'?'Model estimate':`Legacy AI: ${t}`;
+    const rate=statNum(r,'HIT_RATE');
+    return `<div class="card"><strong>${esc(label)}</strong><div>n=${Math.round(statNum(r,'N_PICKS_DECISIVE'))} · ROI ${statRoiSummary(r)} · Hit rate ${statPct(rate)}</div>${hitBar(rate)}</div>`;
+  }).join('')}</div>`;
+}
 function renderLeanBreakdown(rows,w){const over=getMetricsForSlice(rows,'lean_norm','OVER',w),under=getMetricsForSlice(rows,'lean_norm','UNDER',w);if(!over&&!under)return '';let call='';if(over&&under&&statBool(over,'MIN_SAMPLE_FLAG')&&statBool(under,'MIN_SAMPLE_FLAG')){const diff=statNum(under,'HIT_RATE')-statNum(over,'HIT_RATE');if(Math.abs(diff)>=0.05)call=`<div class="card" style="border-color:#60a5fa55;margin-bottom:6px;color:#bfdbfe;font-size:var(--t-xs)">💡 ${diff>0?'UNDERs':'OVERs'} outperforming by ${Math.abs(diff*100).toFixed(1)}pp — consider review.</div>`}return `<div style="padding:0 16px 10px"><div style="color:var(--accent);font-size:var(--t-sm);font-weight:800;margin-bottom:6px">Lean Breakdown</div>${call}${['OVER','UNDER'].map(v=>{const r=v==='OVER'?over:under;if(!r)return '';return `<div class="card" style="margin-bottom:6px"><div style="display:flex;justify-content:space-between"><div style="font-weight:800;color:var(--ink-1)">${v}<div style="font-size:var(--t-xs);color:var(--push)">n=${Math.round(statNum(r,'N_PICKS_DECISIVE'))} · ROI ${statRoiSummary(r)}</div></div><div style="font-size:var(--t-lg);font-weight:900;color:${statNum(r,'HIT_RATE')>=STATS_BREAK_EVEN?'var(--over)':'var(--under)'}">${statPct(statNum(r,'HIT_RATE'))}</div></div></div>`}).join('')}</div>`}
 function clvRows(rows,w){
   return statsRowsForWindow(rows,w).filter(r=>String(statField(r,'DIMENSION_TYPE'))==='clv_bucket');
@@ -3186,7 +3197,7 @@ function renderFeaturedPick(model){
     ?`<div class="pick-feature-name-row">${renderTeamLogoStack(teams.away,teams.home)}<div><div class="pick-feature-name">${esc(pickDisplaySelection(p)||nameHTML||"Top market")}</div><div class="pick-feature-matchup">${esc(matchup||p.game||"")}</div></div></div>`
     :`<div class="pick-feature-name-row">${renderPlayerHeadshot(p.player,{size:"hero"})}<div><div class="pick-feature-name">${nameHTML}</div><div class="pick-feature-matchup">${metaHTML}</div>${pickProvenanceHTML(model)}</div></div>`;
   if(model.isGameMarket){
-    const footerLine=[rowField(p,"PICK_BOOK")||"Opening board",propTypeLabel(p.prop_type),"Validated model"].filter(Boolean).map(v=>esc(String(v))).join(" · ");
+    const footerLine=[rowField(p,"PICK_BOOK")||"Opening board",propTypeLabel(p.prop_type),"Model estimate"].filter(Boolean).map(v=>esc(String(v))).join(" · ");
     return `<section class="pick-feature pick-feature-game-market ${model.tierClass}" onclick="void(0)"><div class="pick-feature-kicker"><span>${icon("picks")}Top play</span><span class="pick-feature-tier ${model.tierClass}">${esc(model.confidence)}</span></div><div class="pick-feature-main pick-feature-main-game"><div class="pick-feature-identity">${identityHTML}</div><div class="pick-feature-call pick-feature-call-game"><div class="pick-feature-line ${model.leanClass}">${callText}</div><div class="pick-feature-market">${esc(teamMarketEdgeLabel(p))}</div></div></div><div class="pick-feature-evidence pick-feature-evidence-game"><div><div class="pick-evidence">${evidence||"Model-ranked slate leader"}</div><div class="pick-why">${esc(teamMarketSummary(p))}.</div></div><div class="pick-feature-side-meta">${gameMarketMeta}</div></div><div class="pick-feature-footer">${footerLine}</div></section>`;
   }
   return `<section class="pick-feature ${model.tierClass}${model.locked?" locked-card":""}" onclick="${model.isGameMarket?"void(0)":pickClick(model)}"><div class="pick-feature-kicker"><span>${icon("picks")}Top play</span><span class="pick-feature-tier ${model.tierClass}">${esc(model.confidence)}</span></div><div class="pick-feature-main"><div class="pick-feature-identity">${identityHTML}</div><div class="pick-feature-call"><div class="pick-feature-line ${model.leanClass}">${callText}</div><div class="pick-feature-market">${marketText}</div></div></div><div class="pick-feature-evidence"><div><div class="pick-evidence">${evidence||"Model-ranked slate leader"}</div>${renderBestBookLine(model.pickProp,model.leanText)}${renderCurrentClvLine(model.pickProp,model.leanText)}${pickWhyHTML(model)}</div><div class="pick-board-form" aria-label="Last ten results">${renderPickFormBars(model.form)}</div></div><div class="pick-feature-footer">${pickFooterLine(model)}</div>${status?`<div class="pick-board-status" style="grid-column:auto;margin-top:8px">${esc(status)}</div>`:""}${model.lineupRisk?`<div class="lineup-risk-text">${esc(model.injury)}</div>`:""}</section>`;

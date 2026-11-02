@@ -530,8 +530,14 @@ def build_player_context(props_board: pd.DataFrame, game_logs: pd.DataFrame,
         if not injury_reports.empty and "gsis_id" in injury_reports.columns:
             inj_row = injury_reports[injury_reports["gsis_id"].astype(str) == player_id]
 
+        current_team = normalize_team_abbr(proj_row.get("team_now") if proj_row is not None else "")
+        # Another team's report is not evidence of coverage for this player.
+        team_covered = (
+            bool(current_team) and "team" in injury_reports
+            and injury_reports["team"].map(normalize_team_abbr).eq(current_team).any()
+        )
         injury_data_status = (
-            "CURRENT_WEEK" if active_week is not None and not injury_reports.empty
+            "CURRENT_WEEK" if active_week is not None and team_covered
             and {"report_status", "gsis_id"}.issubset(injury_reports.columns)
             else "UNKNOWN"
         )

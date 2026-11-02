@@ -1,6 +1,18 @@
 # NFLDesktop Roadmap
 
-_Last updated: 2026-10-25_
+_Last updated: 2026-11-02_
+
+## November 2 Eligibility Corrections
+- Injury coverage now requires a current-week report row for the player's
+  roster-backed team, with team aliases normalized. Unrelated-team reports no
+  longer clear the player. This verifies team feed presence, not final inactive
+  status or complete report submission; teams with no rows remain UNKNOWN.
+- Stable role now requires a positive historical median opportunity and positive
+  usage in at least two of three recent games. Stable inactivity is UNCERTAIN.
+- User-facing performance labels say model estimate, not validated model.
+  Historical identifiers, grades and frozen v7 probability weights are retained.
+- Recency weighting remains an open modeling issue requiring point-in-time replay.
+  No live engine/grader run or historical ledger rewrite is part of this repair.
 
 ## October 25 Team Research Foundation
 - Game Markets now includes both teams' passing/rushing offensive and defensive

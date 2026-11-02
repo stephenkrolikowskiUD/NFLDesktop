@@ -289,6 +289,17 @@ paths used in this workspace before failing.
 
 nflverse needs no secret.
 
+## November 2 Eligibility Repair
+
+Current-week injury coverage is now team-specific, not league-wide. Teams
+without report rows remain unknown; this does not prove final inactive status.
+Stable-role eligibility requires a positive historical median opportunity and
+positive usage in two of the three recent games. These correctness gates may
+reduce the board. Performance labels now say model estimate; historical model
+identifiers and grades are unchanged. Probability weighting stays frozen pending
+point-in-time replay. Deploy frontend and engine, then rerun the engine to apply
+the new eligibility checks; no historical regrading is needed for this change.
+
 ## Known Data Gotchas
 
 - **Sign conventions differ.** nflverse `spread_line` is *positive* when the home team is favored; book spreads are *negative*. Both describe the same line. Normalize at comparison, never assume.

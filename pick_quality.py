@@ -45,6 +45,8 @@ def assess_role(history, current, metric, team, teammate_absences=""):
     old, new = float(baseline.median()), float(values.mean())
     result.update(recent_usage=round(new, 2), historical_usage=round(old, 2))
     reasons = []
+    if old <= 0 or (values > 0).sum() < 2:
+        reasons.append("Insufficient participation: require positive historical median and usage in two of three recent games")
     if abs(new - old) >= max(2.0, abs(old) * 0.5):
         reasons.append("Recent opportunity differs materially from historical role")
     if "team" in recent and not recent["team"].fillna("").eq(team).all():

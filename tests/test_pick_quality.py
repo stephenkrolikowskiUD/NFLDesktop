@@ -6,6 +6,16 @@ from picks import recommendation_status, build_weekly_pick_board, _team_absence_
 
 
 class QualityTests(unittest.TestCase):
+    def test_stable_inactivity_is_not_participation(self):
+        history = pd.DataFrame({'targets': [0] * 17})
+        current = pd.DataFrame({'week': [1, 2, 3], 'team': ['A'] * 3, 'targets': [0, 0, 0]})
+        self.assertEqual(assess_role(history, current, 'REC', 'A')['role_status'], 'UNCERTAIN')
+        history['targets'] = 2
+        current['targets'] = [0, 0, 2]
+        self.assertEqual(assess_role(history, current, 'REC', 'A')['role_status'], 'UNCERTAIN')
+        current['targets'] = [0, 2, 2]
+        self.assertEqual(assess_role(history, current, 'REC', 'A')['role_status'], 'STABLE')
+
     def test_market_relevant_absences_not_blanket_team_veto(self):
         reports = pd.DataFrame([
             dict(team="LAR", full_name="Defender", position="CB", _injury_status="OUT"),
