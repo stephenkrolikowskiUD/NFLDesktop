@@ -833,9 +833,9 @@ def build_snapshots(metrics_df: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame(rows, columns=PICK_PERFORMANCE_SNAPSHOT_COLUMNS)
 
 
-def write_full_tab(client, tab_name: str, df: pd.DataFrame) -> None:
+def write_full_tab(client, tab_name: str, df: pd.DataFrame, *, allow_empty=False) -> None:
     from gspread_dataframe import set_with_dataframe
-    if df.empty:
+    if df.empty and not allow_empty:
         print(f"⏭️  {tab_name}: nothing to write")
         return
     sheet = open_sheet_with_retry(client, SHEET_ID, f"open {tab_name} sheet")
@@ -902,6 +902,10 @@ def main():
         all_picks = pd.DataFrame()
 
     metrics = build_pick_performance(all_picks)
+    from board_publication import comparison_report
+    comparison, comparison_audit = comparison_report(all_picks)
+    write_full_tab(client, "Comparison_Performance", comparison, allow_empty=True)
+    write_full_tab(client, "Comparison_Audit", comparison_audit, allow_empty=True)
     write_full_tab(client, "Pick_Performance", metrics)
     snapshots = build_snapshots(metrics)
     append_snapshots(client, snapshots)

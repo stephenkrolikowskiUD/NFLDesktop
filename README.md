@@ -1,5 +1,9 @@
 # NFL DFS Dashboard
 
+## Standardized comparison reporting
+
+The grader also writes Comparison_Performance and Comparison_Audit under the shared [cross-sport counting policy](docs/COMPARISON_POLICY.md). These reports use first pregame selections, original captured odds, exact Eastern game-date windows, and explicit publication evidence. Existing dashboard headline reports are unchanged and should not be used as interchangeable cross-sport totals. Push and rerun the grader to populate the new reports; no engine run is needed.
+
 A personal NFL research dashboard for turning weekly NFL data, usage metrics, live odds, and projections into one mobile-first view.
 
 This repo is the GitHub Pages frontend for the NFL system. The engine writes data to Google Sheets, and the dashboard reads the workbook through public Sheets CSV endpoints.
