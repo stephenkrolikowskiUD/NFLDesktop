@@ -2,7 +2,7 @@
 
 ## Standardized comparison reporting
 
-The grader also writes Comparison_Performance and Comparison_Audit under the shared [cross-sport counting policy](docs/COMPARISON_POLICY.md). These reports use first pregame selections, original captured odds, exact Eastern game-date windows, and explicit publication evidence. Existing dashboard headline reports are unchanged and should not be used as interchangeable cross-sport totals. Push and rerun the grader to populate the new reports; no engine run is needed.
+The grader writes Comparison_Performance and Comparison_Audit under the shared [cross-sport counting policy](docs/COMPARISON_POLICY.md). The dashboard performance page reads these standardized totals from Comparison_Performance: first pregame selections, original captured odds, exact Eastern game-date windows, and explicit publication evidence. Research-feed and public-board results remain labeled separately. Missing reports do not fall back to legacy totals. Push and refresh the page; if the comparison tabs are already populated, no grader or engine rerun is needed.
 
 A personal NFL research dashboard for turning weekly NFL data, usage metrics, live odds, and projections into one mobile-first view.
 

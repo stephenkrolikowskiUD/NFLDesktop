@@ -3253,7 +3253,29 @@ function renderLeadersView(){
     :`Finalized NFL game-log snapshot · Dashboard refreshed ${refreshed}`;
   return `${renderDailyLeaders()}<div class="timestamp">${esc(status)} · Click any player to open analysis</div>`;
 }
-function renderStatsView(){
+function renderComparisonReport(rows,window,sport,surface){
+  const escape=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const valid=Array.isArray(rows)?rows.filter(r=>r.POLICY==='first-pregame-selection-v1'&&r.SPORT===sport&&r.SURFACE===surface):[];
+  const matching=valid.filter(r=>r.TIME_WINDOW===window);
+  const totals=matching.filter(r=>r.EVIDENCE==='ALL');
+  const label=surface==='PUBLIC_BOARD'?'Public-board selections':'Research-feed selections';
+  const intro='<section class="card" style="margin:16px;padding:20px;overflow-wrap:anywhere"><h2>Pick performance</h2><p>'+label+' · Standardized first-selection reporting</p><p>One pregame selection per game, player, market and side. Refreshes and model changes do not add picks. Original captured price; one unit per priced settled selection. Results are not proof of a profitable edge or placed wagers.</p><p>Windows use Eastern game dates, including today. All time covers retained history, not a shared season across sports.</p>';
+  if(totals.length!==1)return intro+'<p role="status">'+(totals.length>1?'Comparison report is inconsistent; refresh after the grader completes.':valid.length?'No comparison results for this window.':'Standardized results unavailable. Refresh after the updated grader publishes Comparison_Performance.')+'</p></section>';
+  const row=totals[0];
+  const number=(r,key)=>r[key]===null||r[key]===undefined||String(r[key]).trim()===''?null:Number.isFinite(Number(r[key]))?Number(r[key]):null;
+  const count=key=>number(row,key);
+  const keys=['N_SELECTED','N_HITS','N_MISSES','N_PUSHES','N_DNP','N_PENDING','N_PRICED'];
+  if(keys.some(k=>count(k)===null||count(k)<0||!Number.isInteger(count(k)))||count('N_SELECTED')!==['N_HITS','N_MISSES','N_PUSHES','N_DNP','N_PENDING'].reduce((n,k)=>n+count(k),0)||count('N_PRICED')>count('N_HITS')+count('N_MISSES')+count('N_PUSHES'))return intro+'<p role="status">Comparison report is inconsistent; totals are not displayed.</p></section>';
+  const format=(value,suffix='',scale=1)=>value===null?'Not available':(value*scale).toFixed(1)+suffix;
+  const decisive=count('N_HITS')+count('N_MISSES');
+  const settled=decisive+count('N_PUSHES');
+  const metrics=[['Hit rate',decisive?format(number(row,'HIT_RATE'),'%',100):'Not available'],['Recorded-price return',count('N_PRICED')?format(number(row,'ROI_PCT'),'%'):'Not available'],['Net units',count('N_PRICED')?format(number(row,'NET_UNITS')):'Not available'],['Unique selections',count('N_SELECTED')],['Priced / settled',count('N_PRICED')+' / '+settled],['Pending / DNP',count('N_PENDING')+' / '+count('N_DNP')]];
+  const evidence=matching.filter(r=>r.EVIDENCE!=='ALL');
+  const labels={DIRECT:'Verified publication receipt',RECONSTRUCTED:'Reconstructed pregame feed',RECORDED_PUBLICATION:'Recorded board publication'};
+  return intro+'<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,180px),1fr));gap:20px;margin:24px 0">'+metrics.map(([name,value])=>'<div><div>'+name+'</div><strong style="font-size:1.6rem">'+escape(value)+'</strong></div>').join('')+'</div><p>'+count('N_HITS')+' wins · '+count('N_MISSES')+' losses · '+count('N_PUSHES')+' pushes. '+(settled-count('N_PRICED'))+' settled selections lack a valid captured price. Pushes return the stake; DNPs do not count toward hit rate or return.</p><h3>Publication evidence</h3>'+evidence.map(r=>'<p><strong>'+escape(labels[r.EVIDENCE]||r.EVIDENCE)+':</strong> '+escape(r.N_SELECTED)+' selections · '+format(number(r,'HIT_RATE'),'%',100)+' hit rate · '+format(number(r,'ROI_PCT'),'%')+' return</p>').join('')+'<p>Evidence groups partition the total; do not add them to it. Feed publication is not proof of shortlist placement or viewing. Same-game selections can be correlated.</p></section>';
+}
+function renderStatsView(){const w=st.statsTimeWindow||'last_30d';return renderTimeWindowSelector(w)+renderComparisonReport(st.comparisonPerformance||[],w,'NFL','PUBLIC_BOARD');}
+function renderStatsViewLegacy(){
   const w=st.statsTimeWindow||'last_30d';
   const rows=st.pickPerformance||[];
   let html=renderTimeWindowSelector(w);
@@ -5339,7 +5361,8 @@ function loadAllData(){
   fetchOptionalSheet("Projections","Season projections are unavailable."),
   fetchOptionalSheet("Pick_Performance"),
   fetchOptionalSheet("Pick_Performance_Snapshots")
-]).then(([teams,tonight,logs,splits,weather,qbSlateRows,schedule,pTonight,pLogs,pSplits,weeklyPickSource,currentPickSource,picksHistory,props,allBooksProps,gameMarkets,teamRankings,projections,pickPerformance,pickPerformanceSnaps])=>{
+]).then(async ([teams,tonight,logs,splits,weather,qbSlateRows,schedule,pTonight,pLogs,pSplits,weeklyPickSource,currentPickSource,picksHistory,props,allBooksProps,gameMarkets,teamRankings,projections,pickPerformance,pickPerformanceSnaps])=>{
+  st.comparisonPerformance=normalizeKeys(cleanRows(await fetchOptionalSheet("Comparison_Performance").catch(()=>[])));
   resetDerived();
   st.teams=normalizeKeys(cleanRows(teams||[]));
   st.tonight=normalizeKeys(cleanRows(tonight));
