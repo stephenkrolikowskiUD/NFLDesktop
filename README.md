@@ -325,3 +325,9 @@ GitHub Actions, twice daily during active slates. Retire the `schedule:` block a
 - No private API keys in this repo, in the HTML/JS, or in git history.
 - Public Sheet IDs are identifiers, not secrets — but the dashboard reads the workbook through an unauthenticated endpoint, so the *entire* workbook is world-readable, not just the rendered tabs. Treat "which tabs live in this workbook" as the real access-control boundary.
 - Personal research tool, not betting advice.
+## Matchup start-time labels
+
+Matchup time displays include the weekday and Eastern timezone, using existing
+feed timestamps. This distinguishes games on different days without changing
+sorting or model logic. Unavailable times are not invented. Push and refresh the
+dashboard; no engine or grader run is required for this display update.

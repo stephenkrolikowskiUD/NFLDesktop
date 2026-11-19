@@ -2343,7 +2343,7 @@ function draftSlatePreset(){
 }
 function draftDisplayTime(startMs){
   if(!Number.isFinite(startMs))return"";
-  return new Date(startMs).toLocaleTimeString("en-US",{hour:"numeric",minute:"2-digit",timeZone:"America/New_York",timeZoneName:"short"});
+  return new Date(startMs).toLocaleString("en-US",{weekday:"short",hour:"numeric",minute:"2-digit",timeZone:"America/New_York",timeZoneName:"short"});
 }
 function renderDraftSlateSelector(){
   const games=getDraftSlateGames();
@@ -2645,7 +2645,7 @@ function entryStartMeta(v){
   return{ms:parsed.getTime(),quality:dateOnly?1:2};
 }
 function entryStartMs(v){return entryStartMeta(v).ms}
-function entryDisplayTime(v){const ms=entryStartMs(v);if(!Number.isFinite(ms))return '';return new Date(ms).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',timeZone:'America/New_York',timeZoneName:'short'})}
+function entryDisplayTime(v){const ms=entryStartMs(v);if(!Number.isFinite(ms))return '';return new Date(ms).toLocaleString('en-US',{weekday:'short',hour:'numeric',minute:'2-digit',timeZone:'America/New_York',timeZoneName:'short'})}
 function entryAllPicks(){return Array.isArray(st.picks)&&st.picks.length?st.picks:(Array.isArray(st.aiPicks)?st.aiPicks:[])}
 function entryRosterRows(){const rows=[];const add=(arr,type)=>{(arr||[]).forEach(r=>{const player=entryPlayer(r),team=entryTeam(r),opp=entryOpp(r);if(player&&team&&opp)rows.push({player,team,opp,type,row:r,id:entryPairId(team,opp)})})};add(st.tonight,'player');add(st.pTonight,'player');add(st.gTonight,'player');return rows}
 function getEntryGames(){return getMemo('gameEntry:games',()=>{
@@ -2701,8 +2701,8 @@ function gameTimeLookup(){return getMemo('gameEntry:timeLookup',()=>{
   return byId;
 })}
 function gameTimeTextById(id){if(!id)return '';const hit=gameTimeLookup().get(id);if(hit&&hit.timeText)return hit.timeText;const game=getEntryGames().find(g=>g.id===id);return game?.timeText||''}
-function gameStartTimeForTeams(team,opp){return gameTimeTextById(entryPairId(team,opp))}
-function gameStartTimeForText(gameText){const parsed=entryGameFromText(gameText);return parsed?gameTimeTextById(parsed.id):''}
+function gameStartTimeForTeams(team,opp){return gameTimeTextById(entryPairId(team,opp))||'Kickoff unavailable'}
+function gameStartTimeForText(gameText){const parsed=entryGameFromText(gameText);return parsed?(gameTimeTextById(parsed.id)||'Kickoff unavailable'):''}
 function setGameEntryGame(gameId){st.gameEntry=st.gameEntry||{selectedGame:null,legCount:GAME_ENTRY_DEFAULT_LEGS,entry:null};st.gameEntry.selectedGame=gameId;st.gameEntry.entry=null;st.dataVersion++;render()}
 function setGameEntryLegs(n){st.gameEntry=st.gameEntry||{selectedGame:null,legCount:GAME_ENTRY_DEFAULT_LEGS,entry:null};st.gameEntry.legCount=Math.max(GAME_ENTRY_MIN_LEGS,Math.min(GAME_ENTRY_MAX_LEGS,parseInt(n)||GAME_ENTRY_DEFAULT_LEGS));st.gameEntry.entry=null;st.dataVersion++;render()}
 function entryLatestPicks(){const rows=entryAllPicks().filter(p=>entryDateISO(rowField(p,"DATE"))===entryTodayISO());const maxRun=Math.max(0,...rows.map(p=>toNum(rowField(p,"RUN_NUMBER"))));return maxRun?rows.filter(p=>toNum(rowField(p,"RUN_NUMBER"))===maxRun):rows}
