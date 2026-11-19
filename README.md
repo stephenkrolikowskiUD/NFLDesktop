@@ -331,3 +331,12 @@ Matchup time displays include the weekday and Eastern timezone, using existing
 feed timestamps. This distinguishes games on different days without changing
 sorting or model logic. Unavailable times are not invented. Push and refresh the
 dashboard; no engine or grader run is required for this display update.
+
+## NBA-aligned research styling
+
+The research view now shares NBA's compact player identity, 64px desktop / 52px
+mobile portraits, readable market heading, and bounded scrolling chart. Football's
+fonts, colors, research data, and model rules remain unchanged. Mobile research
+panels stack in one column and summary stats use two columns. Push and refresh;
+no engine run is needed. Automated regressions pass; device visual review remains
+necessary. This visual pass does not add NBA's chart-filter behavior to NFL.
