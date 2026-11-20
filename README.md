@@ -1,5 +1,12 @@
 # NFL DFS Dashboard
 
+## Prediction audit archives
+
+Engine Actions runs now retain input and selection snapshots for 90 days.
+See [archive contents and verification](docs/ACCURACY_ARCHIVE.md). This begins
+after deployment, does not backfill history, and changes no pick rules.
+Archives are separate from publication receipts and contain no credentials.
+
 ## Standardized comparison reporting
 
 The grader writes Comparison_Performance and Comparison_Audit under the shared [cross-sport counting policy](docs/COMPARISON_POLICY.md). The dashboard performance page reads these standardized totals from Comparison_Performance: first pregame selections, original captured odds, exact Eastern game-date windows, and explicit publication evidence. Research-feed and public-board results remain labeled separately. Missing reports do not fall back to legacy totals. Push and refresh the page; if the comparison tabs are already populated, no grader or engine rerun is needed.

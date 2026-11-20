@@ -19,6 +19,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
+      NFL_AUDIT_DIR: nfl_accuracy_snapshots
       # nflverse needs no key — its release assets are public.
       ODDS_API_KEY: ${{ secrets.ODDS_API_KEY }}
       FP_PRO_API_KEY: ${{ secrets.FP_PRO_API_KEY }}
@@ -44,3 +45,12 @@ jobs:
 
       - name: Run NFL engine
         run: python NFLEnginev1.py
+
+      - name: Save prediction audit inputs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nfl-accuracy-inputs-${{ github.run_id }}-${{ github.run_attempt }}
+          path: nfl_accuracy_snapshots/
+          retention-days: 90
+          if-no-files-found: warn

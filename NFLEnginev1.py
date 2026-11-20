@@ -24,6 +24,7 @@ import nfl_matchups as nm
 import odds_client as oc
 import projections as pj
 import picks as pk
+from accuracy_archive import archive
 from sports_common import (
     col_letter,
     DEFAULT_GOOGLE_CREDENTIAL_PATHS,
@@ -1490,6 +1491,17 @@ def main():
         for row in pick_eligible[["player_id", "team_now"]].dropna().itertuples(index=False)
     } if {"player_id", "team_now"}.issubset(pick_eligible.columns) else {}
     prior_weekly = fetch_pick_tab(sheets, SHEET_ID, "Picks_Weekly") if week is not None else pd.DataFrame()
+    audit_run_id = os.getenv('GITHUB_RUN_ID') or started.isoformat()
+    archive('NFL', 'inputs', audit_run_id, {
+        'model_version': model_version, 'model_era': model_era,
+        'season': schedule_season, 'week': week, 'schedule': schedule,
+        'markets': board, 'all_book_props': props, 'game_markets': game_markets_tab,
+        'projections': projections, 'injuries': injuries, 'snaps': snaps,
+        'rosters': rosters_now, 'matchup_ratings': matchup_ratings,
+        'skill_history': pick_history_skill_logs, 'qb_history': pick_history_qb_logs,
+        'current_skill_history': current_skill_logs, 'current_qb_history': current_qb_logs,
+        'prior_weekly': prior_weekly, 'reused_sheet_props': REUSE_SHEET_PROPS,
+    })
     if not prior_weekly.empty:
         before_prior = len(prior_weekly)
         prior_weekly = pk.filter_picks_to_active_players(
@@ -1584,7 +1596,12 @@ def main():
             if excluded_missing_projection_identity:
                 print(f"   ⛔ excluded {excluded_missing_projection_identity} prop row(s) without a projection-backed current team")
 
+            archive('NFL', 'candidate-context', audit_run_id, {
+                'context': player_ctx, 'exclusions': dict(player_ctx.attrs)})
             fresh_picks = pk.generate_weekly_picks(player_ctx)
+            archive('NFL', 'candidate-estimates', audit_run_id, {
+                'context': player_ctx, 'exclusions': dict(player_ctx.attrs),
+                'generated': fresh_picks, 'model_version': model_version})
             # Stamp before the next-slate probe as well as the final ledger
             # assembly, so v3 rows replace matching v3 board rows cleanly.
             if not fresh_picks.empty:
@@ -1612,6 +1629,7 @@ def main():
             target_date = pk.next_unstarted_schedule_date(schedule, week, started)
             if current_probe.empty and target_date is not None:
                 slate_ctx = pk.player_context_for_game_date(player_ctx, target_date)
+                archive('NFL', 'next-slate-context', audit_run_id, {'context': slate_ctx})
                 if not slate_ctx.empty:
                     print(f"   ℹ️  no weekly pick survived for {target_date}; "
                           f"running a dedicated next-slate pass on {len(slate_ctx)} priced rows")
@@ -1693,6 +1711,9 @@ def main():
         })
 
     print("\n📝 Writing to Google Sheets")
+    archive('NFL', 'selected-before-publication', audit_run_id, {
+        'weekly': picks_weekly, 'current': picks_current,
+        'new_ledger_rows': daily_picks_new, 'model_version': model_version})
     if not KEEP_REFERENCE_TABS:
         print("   ℹ️  dashboard-only sheet mode: skipping reference tabs (Injuries, Games, PlayerForm)")
     write_to_sheets(
