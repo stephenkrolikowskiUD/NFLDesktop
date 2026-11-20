@@ -332,11 +332,32 @@ feed timestamps. This distinguishes games on different days without changing
 sorting or model logic. Unavailable times are not invented. Push and refresh the
 dashboard; no engine or grader run is required for this display update.
 
-## NBA-aligned research styling
+## NBA-aligned research layout
 
-The research view now shares NBA's compact player identity, 64px desktop / 52px
-mobile portraits, readable market heading, and bounded scrolling chart. Football's
-fonts, colors, research data, and model rules remain unchanged. Mobile research
-panels stack in one column and summary stats use two columns. Push and refresh;
-no engine run is needed. Automated regressions pass; device visual review remains
-necessary. This visual pass does not add NBA's chart-filter behavior to NFL.
+Research uses the NBA reference's actual content hierarchy: player identity and
+research line, compact football stat strip, equal-width chart/averages columns,
+H2H and Home/Away mini-bar cards below the chart, matchup context aligned across
+from the splits, and captured markets below the grid. Four average cards read
+Season, L10, L5, Last in one desktop row (Season becomes Loaded history when the
+loaded season is mixed or unknown). Opponent/player context is collapsed below.
+NFL fonts and colors remain; the chart and averages outer panels are unboxed and
+panels stack on mobile. No model, engine, grader, or feed changes are required.
+
+Range (last 5, last 10, all loaded), Opponent, and Venue affect only the chart.
+Opponent/venue matching happens before the range limit. Averages, splits, and
+the separate game-log table stay independent. Samples count recorded numeric
+values; missing values are unavailable, not zero. Unknown venues are excluded
+from Home/Away samples. All loaded history is labelled honestly, not assumed to
+be the current season. The schedule strip reuses schedule kickoff and logo
+helpers, showing up to 16 future games with explicit dates. Research matchup
+dates remain visible even for old snapshots; started games say Locked / started,
+and unresolved kickoff times say Start unconfirmed rather than Upcoming.
+
+Run `node --check app.js`, `node --test tests/*.cjs`, and
+`python -m unittest discover -s tests -p 'test_*.py'` for regressions.
+For browser QA, run
+`NFL_RESEARCH_PREVIEW=1 node --test tests/test_research_layout.cjs`.
+This exports `/tmp/nfl-research-preview.html` from the full-app VM harness with
+inline CSS, working chart filters, 12 synthetic logs, and a dated SEA/SF locked
+matchup. It is explicitly test data, not a live-data validation. Browser/device
+visual review remains a separate check.

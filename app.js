@@ -4997,37 +4997,63 @@ function bindRenderedControls(){
   if(propsSearch)propsSearch.addEventListener("input",event=>{st.propsSearch=event.target.value;render()});
 }
 
+function researchMetricValue(row,metric){
+  const raw=rowField(row,metric,propToLogCol(metric));
+  if(raw===null||raw===undefined||String(raw).trim()==="")return null;
+  const value=Number(raw);
+  return Number.isFinite(value)?value:null;
+}
+
+function researchChartLogs(logs,range,opponent,venue,team){
+  const matching=logs.filter(row=>(opponent==="ALL"||String(rowField(row,"opp_abbr")).trim().toUpperCase()===opponent)
+    &&(venue==="ALL"||nflHomeAwayLabel(row,team).toUpperCase()===venue));
+  return range==="SEASON"?matching:matching.slice(0,range==="5"?5:10);
+}
+
+function setResearchFilter(key,value){
+  if(!["chartRange","chartOpponent","chartVenue"].includes(key))return;
+  st[key]=value;
+  render();
+}
+
+function researchGameDate(row){
+  return String(rowField(row,"gameday","game_date")||"Date unavailable");
+}
+
+function renderResearchSchedule(){
+  const games=(st.schedule||[]).map(row=>({row,start:scheduleRowStartMs(row)}))
+    .filter(game=>Number.isFinite(game.start)&&game.start>=Date.now())
+    .sort((a,b)=>a.start-b.start).slice(0,16);
+  if(!games.length)return "";
+  return `<section class="research-schedule" aria-label="Upcoming NFL schedule">${games.map(({row,start})=>{
+    const away=rowField(row,"away_abbr"),home=rowField(row,"home_abbr");
+    return `<div class="research-schedule-game">${renderTeamLogoStack(away,home)}<div><strong>${esc(away)} @ ${esc(home)}</strong><small>${esc(researchGameDate(row))} · ${esc(entryDisplayTime(new Date(start).toISOString()))}</small></div></div>`;
+  }).join("")}</section>`;
+}
+
 function renderDashboardPage(){
   const isP=st.mode==="qb";
   const curMetrics=isP?P_METRICS:METRICS;
   const {player,metric,activeTab,oppFilter}=st;
-  const curTonight=isP?st.pTonight:st.tonight;
-  const metricValue=(row,m)=>{
-    const value=Number(rowField(row,m,propToLogCol(m)));
-    return Number.isFinite(value)?value:0;
-  };
+  const metricValue=researchMetricValue;
   const fmtMetric=(value,digits=1)=>Number.isFinite(value)?Number(value).toFixed(digits):"—";
-  const card=(label,value,sub="")=>`<div class="analysis-kpi"><div class="analysis-kpi-value">${esc(String(value))}</div><div class="analysis-kpi-label">${esc(label)}</div>${sub?`<div style="margin-top:4px;color:var(--ink-muted);font-size:var(--t-xs)">${esc(sub)}</div>`:""}</div>`;
+  const card=(label,value,sub="")=>`<div class="analysis-kpi"><div class="analysis-kpi-label">${esc(label)}</div><div class="analysis-kpi-value">${esc(String(value))}</div>${sub?`<div class="research-sample">${esc(sub)}</div>`:""}</div>`;
   const playerRecord=lookupPlayerByName(player)||null;
   const projection=playerRecord?.projection||null;
   const pT=getTonightPlayerRow(player,isP)||playerRecord?.qbSlate||playerRecord?.slate||{};
   const allLogs=getPlayerLogs(player,isP);
-  const pHasLogs=allLogs.length>0;
   const pProps=nflPlayerProps(player);
   const primaryMarket=nflPrimaryMarket(pProps,isP);
   const availableMetrics=[...new Set([...curMetrics,...pProps.map(p=>normalizePropMetric(rowField(p,"METRIC")))].filter(Boolean))];
   const selectedMetric=availableMetrics.includes(metric)?metric:(primaryMarket?normalizePropMetric(rowField(primaryMarket,"METRIC")):curMetrics[0]);
   const selectedProp=pProps.find(p=>normalizePropMetric(rowField(p,"METRIC"))===selectedMetric)||primaryMarket||null;
-  const lineValue=String(st.line||rowField(selectedProp||{},"DK_LINE")||"");
+  const lineValue=String(st.line!==""&&st.line!==undefined?st.line:rowField(selectedProp||{},"DK_LINE")??"");
   const lineNum=parseFloat(lineValue);
   const metricLabel=nflMetricLabel(selectedMetric);
   const latestPick=getPick(player);
   const matchingPick=latestPick&&normalizePropMetric(rowField(latestPick,"prop_type"))===selectedMetric?latestPick:latestPick;
   const lean=matchingPick?normalizeLeanText(rowField(matchingPick,"lean")):"OVER";
-  const usageSummary=nflWeeklyUsageSummary(projection||pT,isP);
-  const weeklyProjection=nflWeeklyProjectionValue(projection||pT,isP);
   const flags=getSampleFlags(player,isP);
-  const lock=getLockInfo(player,isP);
   const nextGame=getScheduleRow(rowField(pT,"team_abbr"),rowField(pT,"opp_abbr_tonight","opp_abbr"))||lookupNextGame(rowField(pT,"team_abbr"))||{};
   const team=rowField(pT,"team_abbr","team_now","team")||"—";
   const opp=rowField(pT,"opp_abbr_tonight","opp_abbr")||"—";
@@ -5040,13 +5066,15 @@ function renderDashboardPage(){
     if(!teamKey||teamKey==="—")return false;
     return (home===teamKey&&away===oppKey) || (home===oppKey&&away===teamKey);
   });
-  const contextBits=[team,rowField(pT,"pos","position")||"",opp!=="—"?`vs ${opp}`:"",gameTime].filter(Boolean).join(" · ");
+  const matchupStart=scheduleRowStartMs(nextGame);
+  const matchupStatus=Number.isFinite(matchupStart)?(matchupStart<=Date.now()?"Locked / started":"Upcoming"):"Start unconfirmed";
+  const contextBits=[team,rowField(pT,"pos","position")||"",opp!=="—"?`vs ${opp}`:"",researchGameDate(nextGame),gameTime,matchupStatus].filter(Boolean).join(" · ");
   const teamRow=getTeamRanking(team);
   const oppRow=getTeamRanking(opp);
-  const recentLogs=allLogs.slice(0,10);
+  const recentLogs=researchChartLogs(allLogs,st.chartRange||"10",st.chartOpponent||"ALL",st.chartVenue||"ALL",team);
   const filteredLogs=oppFilter?allLogs.filter(g=>String(rowField(g,"opp_abbr")).trim().toUpperCase()===oppFilter):allLogs;
   const visibleLogs=st.showFullLog?filteredLogs:filteredLogs.slice(0,10);
-  const recentValues=recentLogs.map(g=>metricValue(g,selectedMetric));
+  const recentValues=recentLogs.map(g=>metricValue(g,selectedMetric)).filter(Number.isFinite);
   const maxLog=Math.max(1,...recentValues,lineNum||0);
   const barColor=(value)=>{
     if(!Number.isFinite(lineNum))return "var(--accent)";
@@ -5056,22 +5084,15 @@ function renderDashboardPage(){
   };
   const bars=recentLogs.length?recentLogs.map(g=>{
     const value=metricValue(g,selectedMetric);
-    const height=Math.max(8,Math.round((value/maxLog)*88));
+    const height=value===null?0:Math.max(2,Math.round((value/maxLog)*88));
     const week=rowField(g,"week","game_date")||"";
     const oppCell=rowField(g,"opp_abbr")||"";
     const haLabel=nflHomeAwayLabel(g,team);
     const ha=haLabel==="Home"?"vs":haLabel==="Away"?"@":"";
-    return `<div class="bar-wrap"><div class="bar-val">${fmtMetric(value,1)}</div><div class="bar" style="height:${height}px;background:${barColor(value)}"></div><div class="bar-date">${esc(String(week).replace(/^202\d-/,""))}</div><div class="bar-date" style="color:var(--ink-muted);margin-top:0">${oppCell?`${ha}${oppCell}`:""}</div></div>`;
-  }).join(""):`<div class="empty" style="padding:18px">No recent NFL logs loaded for this player yet.</div>`;
-  const avg=(rows)=>rows.length?rows.reduce((sum,row)=>sum+metricValue(row,selectedMetric),0)/rows.length:null;
-  const seasonAvg=avg(allLogs);
-  const l5Avg=avg(allLogs.slice(0,5));
-  const l10Avg=avg(allLogs.slice(0,10));
-  const lastValue=allLogs.length?metricValue(allLogs[0],selectedMetric):null;
-  const hitRate=Number.isFinite(lineNum)&&allLogs.length
-    ?allLogs.filter(g=>lean==="UNDER"?metricValue(g,selectedMetric)<lineNum:metricValue(g,selectedMetric)>lineNum).length/allLogs.length
-    :null;
-  const metricOpts=availableMetrics.map(m=>`<option value="${m}" ${m===selectedMetric?"selected":""}>${esc(nflMetricLabel(m))}</option>`).join("");
+    return `<div class="bar-wrap"><div class="bar-val">${fmtMetric(value,1)}</div><div class="bar" style="height:${height}px;background:${barColor(value)}"></div><div class="bar-date">${esc(String(week).replace(/^202\d-/,""))}</div><div class="bar-date" style="color:var(--ink-muted);margin-top:0">${esc(oppCell?`${ha}${oppCell}`:"")}</div></div>`;
+  }).join(""):`<div class="empty" style="padding:18px">No games match these chart filters.</div>`;
+  const validValues=rows=>rows.map(row=>metricValue(row,selectedMetric)).filter(Number.isFinite);
+  const avg=rows=>{const values=validValues(rows);return values.length?values.reduce((sum,value)=>sum+value,0)/values.length:null};
   const propsHTML=pProps.length
     ?`<div class="analysis-market-list">${pProps.map(p=>{
       const propMetric=normalizePropMetric(rowField(p,"METRIC"));
@@ -5101,80 +5122,76 @@ function renderDashboardPage(){
     ?`<div class="analysis-data-row"><span>Opponent pass offense</span><strong>${teamRankValue(oppRow,"passing_yards","passing_yards_rank",{digits:1,direction:"in NFL"})}</strong></div><div class="analysis-data-row"><span>Opponent rush offense</span><strong>${teamRankValue(oppRow,"rushing_yards","rushing_yards_rank",{digits:1,direction:"in NFL"})}</strong></div>`
     :`<div class="analysis-data-row"><span>Opponent rush defense</span><strong>${teamRankValue(oppRow,"rushing_yards","rushing_yards_rank",{digits:1,direction:"allowed"})}</strong></div><div class="analysis-data-row"><span>Opponent pass defense</span><strong>${teamRankValue(oppRow,"passing_yards","passing_yards_rank",{digits:1,direction:"allowed"})}</strong></div>`
     :`<div class="empty" style="padding:12px 0">Opponent team profile not loaded yet.</div>`;
-  const modelContextHTML=(()=>{
-    const baseKeys=isP
-      ?{PASS_YDS:["PASS_YDS","PASS_YDS_PLAYER_SCORE","PASS_YDS_EDGE_SCORE"],PASS_TDS:["PASS_TDS","PASS_TDS_PLAYER_SCORE","PASS_TDS_EDGE_SCORE"],COMP:["COMP","COMP_PLAYER_SCORE","COMP_EDGE_SCORE"],INT:["INT","INT_RISK_SCORE","INT_EDGE_SCORE"],RUSH_YDS:["RUSH_YDS","RUSH_YDS_PLAYER_SCORE","RUSH_YDS_EDGE_SCORE"]}
-      :{REC:["REC","REC_PLAYER_SCORE","REC_EDGE_SCORE"],REC_YDS:["REC_YDS","REC_YDS_PLAYER_SCORE","REC_YDS_EDGE_SCORE"],TGT:["TGT","TGT_PLAYER_SCORE","TGT_EDGE_SCORE"],RUSH_YDS:["RUSH_YDS","RUSH_YDS_PLAYER_SCORE","RUSH_YDS_EDGE_SCORE"],CARRIES:["CARRIES","CARRIES_PLAYER_SCORE","CARRIES_EDGE_SCORE"],ANY_TD:["ANY_TD","TD_PLAYER_SCORE","TD_EDGE_SCORE"]};
-    const keys=baseKeys[selectedMetric];
-    if(!keys)return "";
-    const values=keys.map(k=>Number(rowField(pT,k)));
-    const usable=values.filter(Number.isFinite);
-    if(!usable.length)return "";
-    return `<section class="analysis-rail-section"><div class="analysis-rail-title">Model context</div>${keys.map((k,index)=>Number.isFinite(values[index])?`<div class="analysis-data-row"><span>${esc(k.replace(/_/g," ").toLowerCase())}</span><strong>${values[index].toFixed(1)}</strong></div>`:"").join("")}</section>`;
-  })();
-  const summaryStrip=[
-    card("Projection",fmtMetric(weeklyProjection,1),isP?"weekly QB points":"weekly skill points"),
-    card("Usage",usageSummary||"—",isP?"volume baseline":"role baseline"),
-    card("Line",selectedProp?`${rowField(selectedProp,"DK_LINE")} ${nflMetricLabel(selectedMetric)}`:"No market",selectedProp?`O ${fmtOdds(rowField(selectedProp,"OVER_ODDS"))} · U ${fmtOdds(rowField(selectedProp,"UNDER_ODDS"))}`:""),
-    card("Hit rate",hitRate===null?"—":`${Math.round(hitRate*100)}%`,Number.isFinite(lineNum)?`${lean.toLowerCase()} ${lineNum} across ${allLogs.length} logs`:"set a line to compare")
-  ].join("");
-  const statStrip=[
-    card("Season",seasonAvg===null?"—":fmtMetric(seasonAvg,1),metricLabel),
-    card("L5",l5Avg===null?"—":fmtMetric(l5Avg,1),metricLabel),
-    card("L10",l10Avg===null?"—":fmtMetric(l10Avg,1),metricLabel),
-    card("Last",lastValue===null?"—":fmtMetric(lastValue,1),metricLabel)
-  ].join("");
+  const summaryStrip=(isP?["PASS_YDS","PASS_TDS","COMP","RUSH_YDS"]:["REC","REC_YDS","TGT","RUSH_YDS"]).map(m=>{
+    const values=allLogs.map(row=>metricValue(row,m)).filter(Number.isFinite);
+    return card(nflMetricLabel(m),fmtMetric(values.length?values.reduce((sum,value)=>sum+value,0)/values.length:null),`Avg · n=${values.length}`);
+  }).join("");
+  const sampleCard=(label,rows)=>card(label,fmtMetric(avg(rows)),`n=${validValues(rows).length}`);
+  const seasons=[...new Set(allLogs.map(row=>String(rowField(row,"season")).trim()))];
+  const historyLabel=seasons.length===1&&seasons[0]?"Season":"Loaded history";
+  const statStrip=[sampleCard(historyLabel,allLogs),sampleCard("L10",allLogs.slice(0,10)),sampleCard("L5",allLogs.slice(0,5)),sampleCard("Last",allLogs.slice(0,1))].join("");
+  const h2hLogs=allLogs.filter(row=>String(rowField(row,"opp_abbr")).trim().toUpperCase()===String(opp).toUpperCase());
+  const miniBars=items=>{
+    const max=Math.max(1,...items.map(([,rows])=>avg(rows)||0));
+    return `<div class="mini-bars-container">${items.map(([label,rows],index)=>{
+      const value=avg(rows);
+      return `<div class="mini-bar-wrap">${value===null?"":`<div class="mini-bar" style="height:${Math.max(0,value/max*60)}px;background:${index?"var(--accent)":"var(--push)"}"></div>`}<div class="mini-bar-label">${esc(label)}</div><div class="mini-bar-val">${fmtMetric(value)}</div><div class="research-sample">n=${validValues(rows).length}</div></div>`;
+    }).join("")}</div>`;
+  };
+  const splitsHTML=`<section class="research-splits"><div class="split-card"><div class="analysis-section-title">H2H vs ${esc(opp)}</div>${miniBars([["H2H",h2hLogs],[historyLabel,allLogs]])}</div><div class="split-card"><div class="analysis-section-title">Home / Away</div>${miniBars([["Home",allLogs.filter(row=>nflHomeAwayLabel(row,team)==="Home")],["Away",allLogs.filter(row=>nflHomeAwayLabel(row,team)==="Away")]])}</div><p class="analysis-section-meta">Loaded history; missing values and unknown venues excluded.</p></section>`;
   const opps=[...new Set(allLogs.map(g=>String(rowField(g,"opp_abbr")).trim().toUpperCase()).filter(Boolean))].sort();
-  const oppOpts=`<option value="">All Opponents</option>`+opps.map(o=>`<option value="${o}" ${oppFilter===o?"selected":""}>${o}</option>`).join("");
+  const chartSelect=(label,key,options)=>`<label>${label}<select aria-label="Chart ${label.toLowerCase()}" onchange="setResearchFilter('${key}',this.value)">${options.map(([value,text])=>`<option value="${esc(value)}" ${(st[key]||(key==="chartRange"?"10":"ALL"))===value?"selected":""}>${esc(text)}</option>`).join("")}</select></label>`;
+  const chartControls=chartSelect("Range","chartRange",[["5","Last 5"],["10","Last 10"],["SEASON","All loaded"]])+chartSelect("Opponent","chartOpponent",[["ALL","All opponents"],...opps.map(o=>[o,o])])+chartSelect("Venue","chartVenue",[["ALL","Home + away"],["HOME","Home"],["AWAY","Away"]]);
+  const oppOpts=`<option value="">All Opponents</option>`+opps.map(o=>`<option value="${esc(o)}" ${oppFilter===o?"selected":""}>${esc(o)}</option>`).join("");
   const logRows=visibleLogs.map(g=>{
     const value=metricValue(g,selectedMetric);
-    const outcome=Number.isFinite(lineNum)?(lean==="UNDER"?value<lineNum:value>lineNum):null;
+    const outcome=Number.isFinite(lineNum)&&value!==null?(lean==="UNDER"?value<lineNum:value>lineNum):null;
     const cls=outcome===null?"":outcome?"hit":value===lineNum?"push":"miss";
     return `<tr><td>${esc(String(rowField(g,"week","game_date")||"—"))}</td><td>${esc(rowField(g,"opp_abbr")||"—")}</td><td>${esc(nflHomeAwayLabel(g,team))}</td><td class="${cls}">${fmtMetric(value,1)}</td><td>${fmtMetric(metricValue(g,"UD_FP"),1)}</td><td>${fmtMetric(metricValue(g,isP?"PASS_TDS":"ANY_TD"),1)}</td></tr>`;
   }).join("");
   const lastUpdated=rowField(selectedProp||{},"LAST_UPDATED")||rowField(pT,"LAST_UPDATED")||"—";
 
   return `<div id="pg-dash" class="page ${activeTab==="dashboard"?"active":""}">
+    ${renderResearchSchedule()}
     ${player?`<div class="analysis-shell">
       <header class="analysis-hero">
         <div class="analysis-hero-top">
           <div class="analysis-player-identity">
             ${renderPlayerHeadshot(player,{size:"hero"})}
             <div>
-              <div class="analysis-eyebrow">${isP?"QB analysis":"Skill-player analysis"}</div>
               <div class="analysis-player">${esc(player)}</div>
               <div class="analysis-context">${esc(contextBits||"Team and matchup loading")}</div>
             </div>
           </div>
           <div class="analysis-focus">
-            <div class="analysis-focus-value">${esc(nflMetricLabel(selectedMetric))}</div>
-            <div class="analysis-focus-label">${selectedProp?`Prop line ${esc(rowField(selectedProp,"DK_LINE")||"—")}`:"No live market yet"}</div>
+            <div class="analysis-focus-label">${esc(nflMetricLabel(selectedMetric))} · research line</div>
+            <div class="analysis-focus-value">${esc(lineValue||"Not set")}</div>
           </div>
         </div>
         <div class="analysis-kpis">${summaryStrip}</div>
-        <div class="analysis-season-strip">${statStrip}</div>
       </header>
-      <div class="analysis-layout">
-        <main class="analysis-primary">
-          <section class="analysis-section">
-            <div class="analysis-section-head"><div class="analysis-section-title">Recent form · ${esc(nflMetricLabel(selectedMetric))}</div><div class="analysis-section-meta">${recentLogs.length} recent log${recentLogs.length===1?"":"s"} · green bars clear the current lean</div></div>
+      <div class="analysis-layout research-grid">
+          <section class="analysis-section research-chart-panel">
+            <div class="analysis-section-head"><div class="analysis-section-title">Game chart · ${esc(nflMetricLabel(selectedMetric))}</div></div>
+            <div class="research-controls">${chartControls}</div>
+            <p class="analysis-section-meta">${recentLogs.length} matching games of ${allLogs.length} loaded · n=${recentValues.length}. Chart filters only.</p>
             <div class="analysis-chart"><div class="bar-chart">${bars}</div>${Number.isFinite(lineNum)?`<div class="line-indicator">Reference line ${lineNum}</div>`:""}</div>
           </section>
-          ${pickBanner?`<section class="analysis-section"><div class="analysis-section-head"><div class="analysis-section-title">Decision</div><div class="analysis-section-meta">Latest model signal for this player</div></div>${pickBanner}</section>`:""}
-          <section class="analysis-section"><div class="analysis-section-head"><div class="analysis-section-title">Sportsbook markets</div><div class="analysis-section-meta">Player props loaded in this snapshot</div></div>${propsHTML}</section>
-        </main>
-        <aside class="analysis-rail">
-          <section class="analysis-rail-section">
-            <div class="analysis-rail-title">This week's matchup</div>
+          <section class="analysis-section research-averages-panel"><div class="analysis-section-title">Averages</div><div class="research-averages">${statStrip}</div><p class="analysis-section-meta">${historyLabel==="Season"?esc(seasons[0]):"Loaded history"} · ${esc(metricLabel)} · unfiltered</p></section>
+          ${splitsHTML}
+          <section class="analysis-rail-section research-matchup">
+            <div class="analysis-rail-title">Matchup · Vegas</div>
             <div class="analysis-rail-heading">${esc(team)} vs ${esc(opp)}</div>
-            <div class="analysis-rail-sub">${esc(gameTime||"Time TBD")} · ${esc(rowField(nextGame,"stadium","venue_name","venue")||"Venue TBD")}</div>
+            <div class="analysis-rail-sub">${esc(researchGameDate(nextGame))} · ${esc(gameTime||"Time TBD")} · ${esc(rowField(nextGame,"stadium","venue_name","venue")||"Venue TBD")}</div>
             <div style="margin-top:8px">
-              <div class="analysis-data-row"><span>Spread</span><strong>${rowField(nextGame,"spread_line","spread")||"—"}</strong></div>
-              <div class="analysis-data-row"><span>Total</span><strong>${rowField(nextGame,"total_line","over_under")||"—"}</strong></div>
-              <div class="analysis-data-row"><span>Status</span><strong>${lock.started?"Locked / started":"Upcoming"}</strong></div>
+              <div class="analysis-data-row"><span>Spread</span><strong>${esc(rowField(nextGame,"spread_line","spread")??"—")}</strong></div>
+              <div class="analysis-data-row"><span>Total</span><strong>${esc(rowField(nextGame,"total_line","over_under")??"—")}</strong></div>
+              <div class="analysis-data-row"><span>Status</span><strong>${esc(matchupStatus)}</strong></div>
             </div>
           </section>
-          ${modelContextHTML}
+      </div>
+      <section class="analysis-section research-markets"><div class="analysis-section-head"><div class="analysis-section-title">Sportsbook markets</div><div class="analysis-section-meta">Captured snapshot, not a live availability claim</div></div>${propsHTML}</section>
+      <details class="research-context-details"><summary>Opponent and player context</summary>
           <section class="analysis-rail-section"><div class="analysis-rail-title">Opponent profile</div>${opponentProfileHTML}</section>
           <section class="analysis-rail-section">
             <div class="analysis-rail-title">Player context</div>
@@ -5182,8 +5199,8 @@ function renderDashboardPage(){
             <div class="analysis-data-row"><span>Team baseline</span><strong>${teamRow?teamRankValue(teamRow,isP?"passing_yards":"rushing_yards",isP?"passing_yards_rank":"rushing_yards_rank",{digits:1,direction:"in NFL"}):"—"}</strong></div>
             <div class="analysis-data-row"><span>Flags</span><strong>${flags.returning?"Returning":flags.limited?"Limited sample":"Stable"}</strong></div>
           </section>
-        </aside>
-      </div>
+      </details>
+      ${pickBanner?`<section class="analysis-section">${pickBanner}</section>`:""}
       <section class="analysis-game-log">
         <div class="analysis-section-head"><div><div class="analysis-section-title">Game log · ${st.showFullLog?"Full history":"Recent sample"}</div><div class="analysis-section-meta">${filteredLogs.length} matching game${filteredLogs.length===1?"":"s"} loaded</div></div></div>
         <div class="log-controls"><label for="oppFilter">Opponent</label><select id="oppFilter">${oppOpts}</select>${filteredLogs.length>10?`<button class="log-expand-btn" onclick="toggleFullLog()">${st.showFullLog?"Show recent sample":`Show full history (${filteredLogs.length})`}</button>`:""}</div>
